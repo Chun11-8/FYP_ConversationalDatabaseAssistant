@@ -29,6 +29,15 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     db_connected: bool
+    cache_enabled: bool = False
+    memory_persistent: bool = False
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 # ── Schema browser models ──────────────────────────────────────────────────

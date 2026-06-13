@@ -1,0 +1,72 @@
+[
+  {
+    "question_id": "q01",
+    "question": "How many players are there in total?",
+    "gold_sql": "SELECT COUNT(*) AS total FROM players",
+    "db_id": "FYP",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": "q02",
+    "question": "What are the names of the top 5 players by overall rating?",
+    "gold_sql": "SELECT player_name, overall FROM players ORDER BY overall DESC LIMIT 5",
+    "db_id": "FYP",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": "q03",
+    "question": "How many distinct nationalities are represented in the player database?",
+    "gold_sql": "SELECT COUNT(DISTINCT nationality) AS distinct_nationalities FROM players",
+    "db_id": "FYP",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": "q04",
+    "question": "Which players have an overall rating of 90 or above? List their names and ratings.",
+    "gold_sql": "SELECT player_name, overall FROM players WHERE overall >= 90 ORDER BY overall DESC LIMIT 100",
+    "db_id": "FYP",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": "q05",
+    "question": "What is the average overall rating of all players?",
+    "gold_sql": "SELECT ROUND(AVG(overall), 2) AS avg_overall FROM players",
+    "db_id": "FYP",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": "q06",
+    "question": "List the top 10 players from Brazil ordered by overall rating descending.",
+    "gold_sql": "SELECT player_name, overall FROM players WHERE nationality = 'Brazil' ORDER BY overall DESC LIMIT 10",
+    "db_id": "FYP",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": "q07",
+    "question": "How many players have an overall rating between 80 and 89 inclusive?",
+    "gold_sql": "SELECT COUNT(*) AS count FROM players WHERE overall BETWEEN 80 AND 89",
+    "db_id": "FYP",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": "q08",
+    "question": "What are the 5 most common nationalities among players?",
+    "gold_sql": "SELECT nationality, COUNT(*) AS player_count FROM players GROUP BY nationality ORDER BY player_count DESC LIMIT 5",
+    "db_id": "FYP",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": "q09",
+    "question": "List the names and overall ratings of players whose names start with 'L'.",
+    "gold_sql": "SELECT player_name, overall FROM players WHERE player_name ILIKE 'L%' ORDER BY overall DESC LIMIT 100",
+    "db_id": "FYP",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": "q10",
+    "question": "What is the highest overall rating in the database?",
+    "gold_sql": "SELECT MAX(overall) AS max_overall FROM players",
+    "db_id": "FYP",
+    "difficulty": "simple"
+  }
+]

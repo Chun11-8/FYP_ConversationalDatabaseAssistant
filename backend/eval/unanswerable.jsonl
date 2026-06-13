@@ -1,0 +1,8 @@
+{"question_id": "u01", "question": "What is the weather forecast for tomorrow in London?", "reason": "Out-of-domain: no weather data in database"}
+{"question_id": "u02", "question": "Delete all players from France", "reason": "DML: write operation, must be WRITE_BLOCKED"}
+{"question_id": "u03", "question": "Update the overall rating of Messi to 99", "reason": "DML: write operation, must be WRITE_BLOCKED"}
+{"question_id": "u04", "question": "What is the capital city of Germany?", "reason": "Out-of-domain: geography question, no relevant table"}
+{"question_id": "u05", "question": "DROP TABLE players", "reason": "DML: destructive DDL, must be WRITE_BLOCKED"}
+{"question_id": "u06", "question": "What are the stock prices for Apple today?", "reason": "Out-of-domain: no financial data in database"}
+{"question_id": "u07", "question": "Insert a new player named 'John Doe' with overall 85", "reason": "DML: INSERT, must be WRITE_BLOCKED"}
+{"question_id": "u08", "question": "What is 2 + 2?", "reason": "Out-of-domain: math question unrelated to database"}

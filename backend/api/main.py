@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse
 from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, HealthResponse, SessionResponse,
-    SchemaResponse,
+    SchemaResponse, SessionSummary,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -110,8 +110,16 @@ def _get_agent() -> OrchestrationAgent:
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
 def health() -> HealthResponse:
-    """Service and DB liveness check."""
-    return HealthResponse(status="ok", db_connected=_check_db())
+    """Service and DB liveness check including optional component status."""
+    agent = _agent  # may be None during startup
+    cache_enabled = bool(agent and agent.semantic_cache.is_enabled)
+    memory_persistent = bool(agent and agent.memory.is_persistent)
+    return HealthResponse(
+        status="ok",
+        db_connected=_check_db(),
+        cache_enabled=cache_enabled,
+        memory_persistent=memory_persistent,
+    )
 
 
 @app.post("/session", response_model=SessionResponse, tags=["session"])
@@ -143,6 +151,13 @@ def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
 
     return ChatResponse(**result)
+
+
+@app.get("/sessions", response_model=List[SessionSummary], tags=["session"])
+def list_sessions() -> List[SessionSummary]:
+    """Return all known sessions (newest first) for the sidebar."""
+    agent = _get_agent()
+    return [SessionSummary(**s) for s in agent.memory.list_sessions()]
 
 
 @app.get("/history/{session_id}", response_model=List[Dict[str, Any]], tags=["session"])
