@@ -18,20 +18,25 @@ Usage:
 
 import os
 import json
+from pathlib import Path
 import psycopg2
 import psycopg2.extras
 from typing import Optional
+from dotenv import load_dotenv
 
+# Load secrets.env so this module works when imported standalone
+load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
 
-# ── connection (reuses data_processing.py config) ──────────────────────────────
+# ── connection config ──────────────────────────────────────────────────────────
+# All values come from environment variables (set via secrets.env or the shell).
+# On Windows, `localhost` may resolve to IPv6 (`::1`) and hit a different
+# Postgres instance than IPv4 (`127.0.0.1`) if both are bound on :5432.
 
 DB_CONFIG = {
-    "dbname":   os.getenv("PG_DB",       "FYP"),
-    "user":     os.getenv("PG_USER",     "postgres"),
-    "password": os.getenv("PG_PASSWORD", "Toyo20001108!"),
-    # On Windows, `localhost` may resolve to IPv6 (`::1`) and hit a different
-    # Postgres instance than IPv4 (`127.0.0.1`) if both are bound on :5432.
-    "host":     os.getenv("PG_HOST",     "127.0.0.1"),
+    "dbname":   os.getenv("PG_DB",   "FYP"),
+    "user":     os.getenv("PG_USER", "postgres"),
+    "password": os.getenv("PG_PASSWORD"),
+    "host":     os.getenv("PG_HOST", "127.0.0.1"),
     "port":     int(os.getenv("PG_PORT", 5432)),
 }
 
@@ -46,7 +51,7 @@ def get_store(config: dict = None) -> psycopg2.extensions.connection:
     """
     cfg = config or DB_CONFIG
     try:
-        print(f"[INFO] Connecting to PostgreSQL with config: {cfg}")
+        print(f"[INFO] Connecting to PostgreSQL: {cfg['dbname']}@{cfg['host']}:{cfg['port']} as {cfg['user']}")
         conn = psycopg2.connect(**cfg)
         conn.autocommit = False
         _init_tables(conn)

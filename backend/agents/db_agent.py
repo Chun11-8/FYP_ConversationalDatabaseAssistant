@@ -346,18 +346,15 @@ class OrchestrationAgent:
         
         
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-    import os
-    load_dotenv("backend/config/secrets.env")
+    import logging
+    logging.basicConfig(level=logging.INFO)
 
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")    
-    config = {
-        "llm": {
-            "model": "gpt-4o-mini",
-            "api_key": OPENAI_API_KEY
-        },
-    }
-    
+    from backend.config.config_loader import load_config
+    config = load_config()
+
     agent = OrchestrationAgent(config)
-    response = agent.run(session_id="user-123", user_query="How many distinct players have overall rating of 67 and above and show me the top 5 names of those players?")
+    response = agent.run(
+        session_id="user-123",
+        user_query="How many distinct players have overall rating of 67 and above and show me the top 5 names of those players?",
+    )
     print(response)

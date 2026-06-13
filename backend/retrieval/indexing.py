@@ -385,22 +385,6 @@ def main():
             print(f"  [{r['distance']:.4f} {dist_label}] "
                   f"{r['table_name']} ({r['db_name']})")
         
-        """
-        # Print the SQL prompt built from the retrieved context
-        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            api_key="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"
-        )
-        
-        system_prompt = build_sql_prompt(args.query, results)
-        print(f"\n── Assembled LLM Prompt ──\n")
-        messages = [SystemMessage(content=system_prompt), HumanMessage(content=args.query)]
-        print("\n  >> Calling LLM for intent...")
-        raw = llm.invoke(messages).content.strip().upper()
-        print(raw)
-        """
         if args.show_prompt:
             prompt = build_sql_prompt(args.query, results)
             print("\n── LLM Prompt ──\n")
