@@ -32,3 +32,25 @@ export interface McqMessage extends BaseMessage {
 }
 
 export type Message = TextMessage | McqMessage;
+
+// ── Schema browser types ────────────────────────────────────────────────────
+
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  not_null: boolean;
+  primary_key: boolean;
+  foreign_key: string | null;
+}
+
+export interface SchemaTable {
+  table_name: string;
+  column_count: number;
+  columns: SchemaColumn[];
+}
+
+export interface SchemaInfo {
+  db_name: string;
+  table_count: number;
+  tables: SchemaTable[];
+}

@@ -6,6 +6,7 @@ Coordinates: Intent Classification → RAG Schema Retrieval → SQL Generation �
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, TypedDict
 import os
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -20,6 +21,9 @@ from backend.retrieval.indexing import retrieve , execute_query
 from backend.pipelines.postprocessing import ResponseOptimizer
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage for per-request LLM/agent overrides (api_key support)
+_tls: threading.local = threading.local()
 
 # ─────────────────────────────────────────────
 # State Definition
@@ -70,16 +74,31 @@ class OrchestrationAgent:
     INTENT_PROMPT = open(os.path.join(current_file_dir, "prompt.md")).read()  # loaded once
 
     def __init__(self, config: dict):
+        self._config = config
+        self._model = config["llm"]["model"]
+        self._default_api_key = config["llm"]["api_key"]
         self.llm = ChatOpenAI(
-            model=config["llm"]["model"],
+            model=self._model,
             temperature=0,
-            api_key=config["llm"]["api_key"],
+            api_key=self._default_api_key,
         )
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
         self.memory = SessionMemory()
         self.optimizer = ResponseOptimizer(self.llm)
         self.graph = self._build_graph()
+
+    # ── Per-request LLM helpers (thread-safe via threading.local) ──────────
+
+    def _get_llm(self) -> ChatOpenAI:
+        """Return the per-request LLM if an api_key override is active, else the default."""
+        return getattr(_tls, "llm", self.llm)
+
+    def _get_sql_agent(self) -> SQLCodeAgent:
+        return getattr(_tls, "sql_agent", self.sql_agent)
+
+    def _get_optimizer(self) -> ResponseOptimizer:
+        return getattr(_tls, "optimizer", self.optimizer)
 
     # ── Nodes ──────────────────────────────────
 
@@ -94,7 +113,7 @@ class OrchestrationAgent:
                 f"New query: {state['user_query']}"
             )),
         ]
-        result = self.llm.invoke(messages).content.strip().upper()
+        result = self._get_llm().invoke(messages).content.strip().upper()
 
         # Hard safety: detect DML keywords regardless of LLM output
         dml_keywords = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE"}
@@ -122,14 +141,15 @@ class OrchestrationAgent:
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
-        sqls = self.sql_agent.generate(
+        sql_agent = self._get_sql_agent()
+        sqls = sql_agent.generate(
             query=state["user_query"],
             schema_context=state["schema_context"],
             few_shots=state["few_shot_examples"],
             history=state["conversation_history"][-4:],
         )
         print(f"Generated SQLs: {sqls}")
-        best = self.sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
+        best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
         logger.info(f"[SQL_GEN] best={best[:80]}")
         return {**state, "generated_sqls": sqls, "best_sql": best}
 
@@ -159,7 +179,7 @@ class OrchestrationAgent:
             )),
             HumanMessage(content=state["user_query"]),
         ]
-        answer = self.llm.invoke(messages).content
+        answer = self._get_llm().invoke(messages).content
         return {**state, "response": answer}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:
@@ -174,7 +194,7 @@ class OrchestrationAgent:
             response = f"I encountered an error executing the query: {state['error']}"
             csv_path = None
         else:
-            response, csv_path = self.optimizer.format(
+            response, csv_path = self._get_optimizer().format(
                 query=state["user_query"],
                 sql=state["best_sql"],
                 results=state["execution_result"],
@@ -307,9 +327,12 @@ class OrchestrationAgent:
         final = self.graph.invoke(initial_state)
         return final["response"]
     """
-    def run(self, session_id: str, user_query: str) -> Dict[str, Any]:
+    def run(self, session_id: str, user_query: str, api_key: str | None = None) -> Dict[str, Any]:
         """
         Run the full pipeline for one user turn.
+
+        If ``api_key`` is provided it is used in place of the system default
+        OpenAI key for all LLM calls in this request (thread-safe).
 
         Returns:
             {
@@ -321,6 +344,15 @@ class OrchestrationAgent:
                 "csv_path":   str | None,
             }
         """
+        # Set up per-request LLM overrides in thread-local storage.
+        # Only branch when a custom key is actually provided; otherwise leave
+        # _tls untouched and read via getattr(..., self.attr) fallback.
+        use_custom_key = bool(api_key and api_key.strip())
+        if use_custom_key:
+            _tls.llm = ChatOpenAI(model=self._model, temperature=0, api_key=api_key)
+            _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
+            _tls.optimizer = ResponseOptimizer(_tls.llm)
+
         history = self.memory.get_history(session_id)
         initial_state: AgentState = {
             "session_id": session_id,
@@ -338,7 +370,15 @@ class OrchestrationAgent:
             "fallback_level": 0,
             "error": None,
         }
-        final = self.graph.invoke(initial_state)
+        try:
+            final = self.graph.invoke(initial_state)
+        finally:
+            # Clear the per-request overrides so the thread can be reused cleanly.
+            # Only needed when we set them.
+            if use_custom_key:
+                _tls.llm = self.llm
+                _tls.sql_agent = self.sql_agent
+                _tls.optimizer = self.optimizer
 
         rows = final.get("execution_result")
         row_count = len(rows) if isinstance(rows, list) else None

@@ -252,6 +252,51 @@ def process_database(db_name: str) -> Optional[dict]:
 
 
 
+# ── schema info for API ────────────────────────────────────────────────────────
+
+def get_schema_info(db_name: str | None = None) -> dict:
+    """
+    Return a clean table + column dict for the /schema API endpoint.
+
+    Only includes name, type, nullability, PK, and FK info — no sample rows.
+    """
+    resolved_db = db_name or os.getenv("PG_DB", "FYP")
+    conn = connect_postgres(db_name=resolved_db)
+    if conn is None:
+        raise RuntimeError(f"Cannot connect to database '{resolved_db}'")
+    try:
+        raw_tables = extract_schema_pg(conn, resolved_db)
+    finally:
+        conn.close()
+
+    clean: list[dict] = []
+    for t in raw_tables:
+        fk_map = {
+            fk["from_col"]: f"{fk['to_table']}.{fk['to_col']}"
+            for fk in t.get("foreign_keys", [])
+        }
+        clean.append({
+            "table_name": t["table_name"],
+            "column_count": len(t["columns"]),
+            "columns": [
+                {
+                    "name": c["name"],
+                    "type": c["type"],
+                    "not_null": c["not_null"],
+                    "primary_key": c["primary_key"],
+                    "foreign_key": fk_map.get(c["name"]),
+                }
+                for c in t["columns"]
+            ],
+        })
+
+    return {
+        "db_name": resolved_db,
+        "table_count": len(clean),
+        "tables": clean,
+    }
+
+
 # ── quick test ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

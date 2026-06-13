@@ -1,3 +1,5 @@
+import type { SchemaInfo } from '../types';
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
 
 export interface ChatApiResponse {
@@ -33,15 +35,27 @@ export async function createSession(): Promise<string> {
   return data.session_id;
 }
 
-export async function sendChat(sessionId: string, message: string): Promise<ChatApiResponse> {
+export async function sendChat(
+  sessionId: string,
+  message: string,
+  apiKey?: string,
+): Promise<ChatApiResponse> {
   return request<ChatApiResponse>('/chat', {
     method: 'POST',
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      message,
+      ...(apiKey ? { api_key: apiKey } : {}),
+    }),
   });
 }
 
 export async function getHistory(sessionId: string): Promise<Turn[]> {
   return request<Turn[]>(`/history/${encodeURIComponent(sessionId)}`);
+}
+
+export async function getSchema(): Promise<SchemaInfo> {
+  return request<SchemaInfo>('/schema');
 }
 
 export function downloadUrl(filename: string): string {
