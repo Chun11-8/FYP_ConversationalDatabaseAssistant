@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Dict, List, Optional, TypedDict
 import os
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -17,6 +18,7 @@ from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
 
 from backend.memory.session_memory import SessionMemory
+from backend.memory.semantic_cache import SemanticCache
 from backend.retrieval.indexing import retrieve , execute_query
 from backend.pipelines.postprocessing import ResponseOptimizer
 
@@ -50,6 +52,7 @@ class AgentState(TypedDict):
     intent: str                      # READ | GENERAL | WRITE_BLOCKED | AMBIGUOUS
     schema_context: str
     few_shot_examples: List[str]
+    query_embedding: Optional[List[float]]   # cached once per turn, reused for cache R/W
     generated_sqls: List[str]
     best_sql: str
     validation: Dict[str, Any]       # {valid, syntax_ok, safety_ok, semantic_ok, error}
@@ -84,7 +87,11 @@ class OrchestrationAgent:
         )
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
-        self.memory = SessionMemory()
+        self.memory = SessionMemory(
+            db_config=config.get("db"),
+            summarizer=self._summarize_history,
+        )
+        self.semantic_cache = SemanticCache(db_config=config.get("db"))
         self.optimizer = ResponseOptimizer(self.llm)
         self.graph = self._build_graph()
 
@@ -104,12 +111,12 @@ class OrchestrationAgent:
 
     def classify_intent(self, state: AgentState) -> AgentState:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
-        #history_str = self._format_history(state["conversation_history"][-6:])
+        history_str = self._format_history(state.get("conversation_history", [])[-6:])
 
         messages = [
             SystemMessage(content=self.INTENT_PROMPT),
             HumanMessage(content=(
-                f"Conversation so far:\nhistory_str\n\n"
+                f"Conversation so far:\n{history_str}\n\n"
                 f"New query: {state['user_query']}"
             )),
         ]
@@ -126,18 +133,39 @@ class OrchestrationAgent:
     
     def retrieve_schema(self, state: AgentState) -> AgentState:
         """Agentic RAG: retrieve relevant schema chunks + few-shot SQL pairs."""
+        # Embed the query once and reuse it for both cache read (now) and cache
+        # write (after execution) — avoids a redundant embedding call per turn.
+        query_embedding = self.semantic_cache.embed(state["user_query"])
+        few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
+
         try:
             schema_chunks = retrieve(state["user_query"],"FYP",top_k_tables=5 ,store="pgvector")
             schema_context = schema_chunks["prompt_context"]
-            
-            #few_shots = self.retriever.retrieve_few_shots(state["user_query"], top_k=3)
+
             logger.info(f"[RAG] Retrieved {len(schema_chunks['tables'])} tables: "
                     f"{[t['table_name'] for t in schema_chunks['tables']]}")
-             
-            return {**state, "schema_context": schema_context, "few_shot_examples": []}
+
+            return {**state, "schema_context": schema_context,
+                    "few_shot_examples": few_shots, "query_embedding": query_embedding}
         except Exception as e:
             logger.warning(f"[RAG] retrieval failed: {e}")
-            return {**state, "schema_context": "", "few_shot_examples": [], "fallback_level": 1}
+            return {**state, "schema_context": "", "few_shot_examples": few_shots,
+                    "query_embedding": query_embedding, "fallback_level": 1}
+
+    def _retrieve_few_shots(
+        self, user_query: str, embedding: Optional[List[float]] = None
+    ) -> List[str]:
+        """Pull similar cached pairs as few-shot examples (never raises)."""
+        try:
+            few_shots = self.semantic_cache.retrieve_few_shots(
+                user_query, top_k=3, embedding=embedding
+            )
+            if few_shots:
+                logger.info(f"[CACHE] Injected {len(few_shots)} few-shot example(s).")
+            return few_shots
+        except Exception as e:
+            logger.warning(f"[CACHE] few-shot retrieval failed: {e}")
+            return []
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
@@ -361,6 +389,7 @@ class OrchestrationAgent:
             "intent": "",
             "schema_context": "",
             "few_shot_examples": [],
+            "query_embedding": None,
             "generated_sqls": [],
             "best_sql": "",
             "validation": {},
@@ -370,6 +399,7 @@ class OrchestrationAgent:
             "fallback_level": 0,
             "error": None,
         }
+        t0 = time.perf_counter()
         try:
             final = self.graph.invoke(initial_state)
         finally:
@@ -379,11 +409,12 @@ class OrchestrationAgent:
                 _tls.llm = self.llm
                 _tls.sql_agent = self.sql_agent
                 _tls.optimizer = self.optimizer
+        latency_ms = int((time.perf_counter() - t0) * 1000)
 
         rows = final.get("execution_result")
         row_count = len(rows) if isinstance(rows, list) else None
 
-        return {
+        result = {
             "response":   final.get("response", ""),
             "sql":        final.get("best_sql") or None,
             "intent":     final.get("intent", ""),
@@ -392,13 +423,78 @@ class OrchestrationAgent:
             "csv_path":   final.get("csv_path"),
         }
 
+        # Semantic cache write-path + interaction log (best-effort, never fatal).
+        self._update_cache(session_id, user_query, final, row_count, latency_ms)
+        return result
+
+    def _update_cache(
+        self,
+        session_id: str,
+        user_query: str,
+        final: Dict[str, Any],
+        row_count: Optional[int],
+        latency_ms: int,
+    ) -> None:
+        """Persist a successful query→SQL pair and log the interaction."""
+        validation = final.get("validation", {})
+        best_sql = final.get("best_sql")
+        success = (
+            validation.get("valid")
+            and not final.get("error")
+            and bool(best_sql)
+            and isinstance(final.get("execution_result"), list)
+        )
+        try:
+            if success:
+                self.semantic_cache.save_pair(
+                    user_query=user_query,
+                    sql=best_sql,
+                    embedding=final.get("query_embedding"),
+                )
+            self.semantic_cache.log_interaction(
+                session_id=session_id,
+                user_query=user_query,
+                sql=best_sql,
+                response=final.get("response", ""),
+                intent=final.get("intent", ""),
+                valid=validation.get("valid"),
+                row_count=row_count,
+                latency_ms=latency_ms,
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"[CACHE] update failed: {e}")
+
     # ── Helpers ─────────────────────────────────
 
     def _format_history(self, history: List[Dict]) -> str:
-        return "\n".join(
-            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-            for m in history
-        ) or "No prior context."
+        if not history:
+            return "No prior context."
+        lines = []
+        for m in history:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role == "user":
+                lines.append(f"User: {content}")
+            elif role == "summary":
+                lines.append(f"[Earlier conversation summary]: {content}")
+            else:
+                lines.append(f"Assistant: {content}")
+        return "\n".join(lines)
+
+    def _summarize_history(self, evicted_text: str, prior_summary: Optional[str]) -> str:
+        """LLM summarizer injected into SessionMemory for rolling context."""
+        prompt = (
+            "Compress the following earlier conversation turns into a concise "
+            "context note (max 4 sentences) that preserves entities, filters, "
+            "numbers, and any SQL intent needed to understand follow-up questions.\n\n"
+        )
+        if prior_summary:
+            prompt += f"Existing summary:\n{prior_summary}\n\n"
+        prompt += f"New turns to fold in:\n{evicted_text}\n\nUpdated summary:"
+        return self.llm.invoke([
+            SystemMessage(content="You faithfully compress conversation history."),
+            HumanMessage(content=prompt),
+        ]).content.strip()
 
     def _intent_system_prompt(self) -> str:
         return (

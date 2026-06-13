@@ -31,6 +31,13 @@ class HealthResponse(BaseModel):
     db_connected: bool
 
 
+class SessionSummary(BaseModel):
+    session_id: str
+    title: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 # ── Schema browser models ──────────────────────────────────────────────────
 
 class SchemaColumn(BaseModel):

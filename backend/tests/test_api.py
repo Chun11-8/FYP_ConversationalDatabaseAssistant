@@ -136,6 +136,30 @@ class TestChat:
 
 # ── /history ───────────────────────────────────────────────────────────────────
 
+class TestSessions:
+
+    def test_lists_sessions(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.memory.list_sessions.return_value = [
+                {"session_id": "s1", "title": "First chat",
+                 "created_at": "2026-01-01T00:00:00+00:00",
+                 "updated_at": "2026-01-02T00:00:00+00:00"},
+            ]
+            resp = client.get("/sessions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["session_id"] == "s1"
+        assert data[0]["title"] == "First chat"
+
+    def test_lists_empty(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.memory.list_sessions.return_value = []
+            resp = client.get("/sessions")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
 class TestHistory:
 
     def test_returns_list_for_known_session(self, client):
@@ -299,3 +323,4 @@ class TestDocs:
         assert "/history/{session_id}" in paths
         assert "/download/{filename}" in paths
         assert "/schema" in paths
+        assert "/sessions" in paths

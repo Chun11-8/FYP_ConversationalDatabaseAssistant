@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse
 from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, HealthResponse, SessionResponse,
-    SchemaResponse,
+    SchemaResponse, SessionSummary,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -143,6 +143,13 @@ def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
 
     return ChatResponse(**result)
+
+
+@app.get("/sessions", response_model=List[SessionSummary], tags=["session"])
+def list_sessions() -> List[SessionSummary]:
+    """Return all known sessions (newest first) for the sidebar."""
+    agent = _get_agent()
+    return [SessionSummary(**s) for s in agent.memory.list_sessions()]
 
 
 @app.get("/history/{session_id}", response_model=List[Dict[str, Any]], tags=["session"])
