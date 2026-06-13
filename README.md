@@ -305,6 +305,24 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
+### Quick health check
+
+Once both servers are running, confirm everything is connected:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status": "ok", "db_connected": true}
+```
+
+If `db_connected` is `false`, the backend is running but cannot reach PostgreSQL — check that the Docker container is up and that the password in `secrets.env` matches `compose.yml`.
+
+---
+
 ### Optional — Run tests
 
 ```bash
@@ -316,6 +334,20 @@ pytest backend/tests/ -v
 ```bash
 python -m backend.agents.db_agent
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Missing required environment variables: ['OPENAI_API_KEY']` | `secrets.env` not found or key is missing | Complete Step 1 of Configuration |
+| `"Could not connect to the server"` banner in the UI | Backend not running or wrong port | Start `uvicorn` on port 8000 (Step 3) |
+| `db_connected: false` on `/health` | Docker container not running | `docker compose -f backend/config/compose.yml up -d` |
+| `connection refused` on port 5432 | pgvector container crashed or wrong host | Check `PG_HOST=127.0.0.1` (not `localhost`) in `secrets.env` |
+| Frontend shows blank page | Vite dev server not running | `cd frontend && npm run dev` (Step 4) |
+| `ModuleNotFoundError: No module named 'backend'` | Running from wrong directory | Always run Python commands from the **repo root** |
+| Schema index build fails | DB not reachable or schema not loaded | Ensure Docker is up and your DB has tables before indexing |
 
 ---
 
