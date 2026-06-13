@@ -29,6 +29,7 @@ MOCK_RUN_RESULT = {
     "validation": {"valid": True, "syntax_ok": True, "safety_ok": True},
     "row_count": 5,
     "csv_path": None,
+    "turn_id": 7,
 }
 
 
@@ -110,6 +111,7 @@ class TestChat:
         assert data["intent"] == "READ"
         assert data["row_count"] == 5
         assert data["csv_path"] is None
+        assert data["turn_id"] == 7
 
     def test_missing_message_returns_422(self, client):
         resp = client.post("/chat", json={"session_id": "sess-abc"})
@@ -305,6 +307,80 @@ class TestSchema:
         assert "/schema" in resp.json()["paths"]
 
 
+# ── /feedback ──────────────────────────────────────────────────────────────────
+
+class TestFeedback:
+
+    def test_thumbs_up_returns_ok(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.semantic_cache.add_feedback.return_value = None
+            resp = client.post("/feedback", json={
+                "turn_id": 7,
+                "session_id": "sess-abc",
+                "rating": "up",
+            })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_thumbs_down_returns_ok(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.semantic_cache.add_feedback.return_value = None
+            resp = client.post("/feedback", json={
+                "turn_id": 7,
+                "session_id": "sess-abc",
+                "rating": "down",
+            })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_feedback_with_comment(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.semantic_cache.add_feedback.return_value = None
+            resp = client.post("/feedback", json={
+                "turn_id": 7,
+                "session_id": "sess-abc",
+                "rating": "down",
+                "comment": "SQL was wrong",
+            })
+        assert resp.status_code == 200
+        mock_agent.semantic_cache.add_feedback.assert_called_once_with(
+            turn_id=7,
+            session_id="sess-abc",
+            rating="down",
+            comment="SQL was wrong",
+        )
+
+    def test_invalid_rating_returns_422(self, client):
+        resp = client.post("/feedback", json={
+            "turn_id": 7,
+            "session_id": "sess-abc",
+            "rating": "maybe",
+        })
+        assert resp.status_code == 422
+
+    def test_missing_turn_id_returns_422(self, client):
+        resp = client.post("/feedback", json={
+            "session_id": "sess-abc",
+            "rating": "up",
+        })
+        assert resp.status_code == 422
+
+    def test_cache_exception_returns_500(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.semantic_cache.add_feedback.side_effect = RuntimeError("DB down")
+            resp = client.post("/feedback", json={
+                "turn_id": 7,
+                "session_id": "sess-abc",
+                "rating": "up",
+            })
+        assert resp.status_code == 500
+        assert "Feedback error" in resp.json()["detail"]
+
+    def test_feedback_in_openapi(self, client):
+        resp = client.get("/openapi.json")
+        assert "/feedback" in resp.json()["paths"]
+
+
 # ── docs ───────────────────────────────────────────────────────────────────────
 
 class TestDocs:
@@ -324,3 +400,4 @@ class TestDocs:
         assert "/download/{filename}" in paths
         assert "/schema" in paths
         assert "/sessions" in paths
+        assert "/feedback" in paths

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -10,6 +10,7 @@ import { downloadUrl } from '../api/client';
 interface ChatMessageProps {
   message: Message;
   onMcqSelect?: (messageId: string, option: McqOption) => void;
+  onFeedback?: (messageId: string, rating: 'up' | 'down') => void;
 }
 
 const SQL_PREVIEW_LINES = 3;
@@ -70,7 +71,47 @@ function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function AssistantMessage({ message }: { message: TextMessage }) {
+function FeedbackButtons({
+  messageId,
+  current,
+  onFeedback,
+}: {
+  messageId: string;
+  current: 'up' | 'down' | null | undefined;
+  onFeedback: (id: string, rating: 'up' | 'down') => void;
+}) {
+  const rated = current != null;
+  return (
+    <div className="feedback-btns">
+      <button
+        className={`feedback-btn ${current === 'up' ? 'feedback-btn--active-up' : ''}`}
+        onClick={() => !rated && onFeedback(messageId, 'up')}
+        disabled={rated}
+        title="Good response"
+        aria-label="Thumbs up"
+      >
+        <ThumbsUp size={13} />
+      </button>
+      <button
+        className={`feedback-btn ${current === 'down' ? 'feedback-btn--active-down' : ''}`}
+        onClick={() => !rated && onFeedback(messageId, 'down')}
+        disabled={rated}
+        title="Poor response"
+        aria-label="Thumbs down"
+      >
+        <ThumbsDown size={13} />
+      </button>
+    </div>
+  );
+}
+
+function AssistantMessage({
+  message,
+  onFeedback,
+}: {
+  message: TextMessage;
+  onFeedback?: (id: string, rating: 'up' | 'down') => void;
+}) {
   return (
     <div className="message-wrapper message-bot">
       <div className="message-inner">
@@ -113,6 +154,13 @@ function AssistantMessage({ message }: { message: TextMessage }) {
           {/* Action bar */}
           <div className="msg-actions">
             <CopyButton text={message.content} />
+            {onFeedback && message.turn_id != null && (
+              <FeedbackButtons
+                messageId={message.id}
+                current={message.feedback}
+                onFeedback={onFeedback}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -120,11 +168,11 @@ function AssistantMessage({ message }: { message: TextMessage }) {
   );
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onMcqSelect }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onMcqSelect, onFeedback }) => {
   const isBot = message.role === 'assistant';
 
   if (isBot && message.type === 'text') {
-    return <AssistantMessage message={message} />;
+    return <AssistantMessage message={message} onFeedback={onFeedback} />;
   }
 
   return (

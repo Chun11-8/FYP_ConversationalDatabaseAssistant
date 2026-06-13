@@ -104,6 +104,18 @@ class TestRamMode:
         # "new" was updated most recently
         assert ids[0] == "new"
 
+    def test_add_returns_int_turn_id(self):
+        mem = SessionMemory()
+        tid = mem.add("s1", "q1", "r1")
+        assert isinstance(tid, int)
+
+    def test_add_returns_increasing_ids(self):
+        mem = SessionMemory()
+        t1 = mem.add("s1", "q1", "r1")
+        t2 = mem.add("s1", "q2", "r2")
+        assert t2 is not None and t1 is not None
+        assert t2 > t1
+
     # ── The Issue #3 acceptance scenario, at the memory layer ──────────────
     def test_two_turn_context_preserved(self):
         """'show 5 players' then 'now only the top 3' — turn 2 must see turn 1."""

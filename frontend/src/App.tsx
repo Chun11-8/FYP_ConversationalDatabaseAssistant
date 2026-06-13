@@ -6,7 +6,7 @@ import type { AppTab } from './components/ChatLayout';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { DatabaseTab } from './components/DatabaseTab';
-import { createSession, sendChat } from './api/client';
+import { createSession, sendChat, submitFeedback } from './api/client';
 
 const LS_API_KEY = 'db_assistant_api_key';
 
@@ -65,6 +65,8 @@ function App() {
         intent: result.intent,
         row_count: result.row_count,
         csv_path: result.csv_path,
+        turn_id: result.turn_id,
+        feedback: null,
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
@@ -73,6 +75,26 @@ function App() {
       setIsLoading(false);
     }
   }, [sessionId, isLoading, apiKey]);
+
+  const handleFeedback = useCallback(async (messageId: string, rating: 'up' | 'down') => {
+    // Optimistic update — apply immediately, revert is not needed (feedback is best-effort)
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.type === 'text' && m.role === 'assistant'
+          ? { ...m, feedback: rating }
+          : m,
+      ),
+    );
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg || msg.type !== 'text' || msg.role !== 'assistant') return;
+    const turnId = (msg as TextMessage).turn_id;
+    if (turnId == null || !sessionId) return;
+    try {
+      await submitFeedback(turnId, sessionId, rating);
+    } catch {
+      // Feedback failure is non-critical — keep the optimistic UI state
+    }
+  }, [messages, sessionId]);
 
   const handleNewChat = useCallback(async () => {
     setMessages([]);
@@ -136,7 +158,7 @@ function App() {
             <div className="chat-scroll">
               <div className="chat-container">
                 {messages.map((msg) => (
-                  <ChatMessage key={msg.id} message={msg} />
+                  <ChatMessage key={msg.id} message={msg} onFeedback={handleFeedback} />
                 ))}
 
                 {isLoading && (

@@ -175,6 +175,16 @@ class SemanticCache:
                             created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
                         );
                     """)
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS feedback (
+                            id          SERIAL PRIMARY KEY,
+                            turn_id     INTEGER,
+                            session_id  TEXT,
+                            rating      TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+                            comment     TEXT,
+                            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                        );
+                    """)
         finally:
             conn.close()
 
@@ -281,6 +291,72 @@ class SemanticCache:
             logger.warning("SemanticCache.log_interaction failed: %s", exc)
         finally:
             conn.close()
+
+    def add_feedback(
+        self,
+        turn_id: Optional[int],
+        session_id: Optional[str],
+        rating: str,
+        comment: Optional[str] = None,
+    ) -> None:
+        """
+        Record user feedback (thumbs up / thumbs down) for an assistant turn.
+
+        On a down-vote, finds the SQL executed in that turn (via the ``turns``
+        table) and marks any matching ``query_sql_pairs`` row as ``'low_conf'``
+        so it is no longer injected as a few-shot example.
+        """
+        if not self._enabled:
+            return
+
+        # Two separate transactions so a missing/inaccessible `turns` table
+        # (e.g. SessionMemory is in RAM mode) never rolls back the feedback row.
+        conn = self._connect()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO feedback (turn_id, session_id, rating, comment)
+                        VALUES (%s, %s, %s, %s);
+                        """,
+                        (turn_id, session_id, rating, comment),
+                    )
+        except Exception as exc:
+            logger.warning("SemanticCache.add_feedback insert failed: %s", exc)
+            return
+        finally:
+            conn.close()
+
+        if rating != "down" or turn_id is None:
+            return
+
+        # Best-effort downvote cascade: look up the SQL for this turn, then
+        # mark any active cache pair with that SQL as low_conf.
+        conn2 = self._connect()
+        try:
+            with conn2:
+                with conn2.cursor() as cur:
+                    cur.execute(
+                        "SELECT sql FROM turns WHERE id = %s;", (turn_id,)
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        cur.execute(
+                            """
+                            UPDATE query_sql_pairs
+                            SET status = 'low_conf'
+                            WHERE sql = %s AND status = 'active';
+                            """,
+                            (row[0],),
+                        )
+                        logger.info(
+                            "[FEEDBACK] Marked pair low_conf for turn_id=%s", turn_id
+                        )
+        except Exception as exc:
+            logger.warning("SemanticCache.add_feedback downvote cascade failed: %s", exc)
+        finally:
+            conn2.close()
 
     # ── read path ─────────────────────────────────────────────────────────────
 

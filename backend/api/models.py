@@ -24,6 +24,14 @@ class ChatResponse(BaseModel):
     validation: Dict[str, Any] = Field(default_factory=dict)
     row_count: Optional[int] = None
     csv_path: Optional[str] = None
+    turn_id: Optional[int] = None
+
+
+class FeedbackRequest(BaseModel):
+    turn_id: int
+    session_id: str
+    rating: str = Field(..., pattern=r"^(up|down)$")
+    comment: Optional[str] = None
 
 
 class HealthResponse(BaseModel):

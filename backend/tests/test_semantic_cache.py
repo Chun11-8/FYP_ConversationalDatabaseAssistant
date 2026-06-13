@@ -51,6 +51,7 @@ class TestHelpersAndDisabled:
         # All ops are safe no-ops
         cache.save_pair("q", "SELECT 1")
         cache.log_interaction("s", "q", "SELECT 1", "r", "READ", True, 1, 10)
+        cache.add_feedback(turn_id=1, session_id="s", rating="down")
         assert cache.retrieve_pairs("q") == []
         assert cache.retrieve_few_shots("q") == []
 

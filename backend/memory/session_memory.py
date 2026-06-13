@@ -82,6 +82,8 @@ class _RamBackend:
         self._sessions: Dict[str, dict] = {}
         # session_id -> [ {role, content, sql, valid, timestamp}, ... ]
         self._turns: Dict[str, List[dict]] = {}
+        # Global counter for synthetic turn IDs (consistent within a process lifetime)
+        self._next_id: int = 1
 
     def ensure_session(self, session_id: str, title: str, user_id: Optional[str]) -> None:
         if session_id not in self._sessions:
@@ -95,10 +97,17 @@ class _RamBackend:
             }
             self._turns[session_id] = []
 
-    def append_messages(self, session_id: str, messages: List[dict]) -> None:
-        self._turns.setdefault(session_id, []).extend(messages)
+    def append_messages(self, session_id: str, messages: List[dict]) -> Optional[int]:
+        """Append messages and return the synthetic id of the last inserted message."""
+        turns = self._turns.setdefault(session_id, [])
+        last_id: Optional[int] = None
+        for m in messages:
+            turns.append(m)
+            last_id = self._next_id
+            self._next_id += 1
         if session_id in self._sessions:
             self._sessions[session_id]["updated_at"] = _utcnow_iso()
+        return last_id
 
     def fetch_messages(self, session_id: str) -> List[dict]:
         return list(self._turns.get(session_id, []))
@@ -205,8 +214,10 @@ class _PgBackend:
         finally:
             conn.close()
 
-    def append_messages(self, session_id: str, messages: List[dict]) -> None:
+    def append_messages(self, session_id: str, messages: List[dict]) -> Optional[int]:
+        """Append messages and return the DB id of the last inserted turn."""
         conn = self._connect()
+        last_id: Optional[int] = None
         try:
             with conn:
                 with conn.cursor() as cur:
@@ -214,17 +225,20 @@ class _PgBackend:
                         cur.execute(
                             """
                             INSERT INTO turns (session_id, role, content, sql, valid)
-                            VALUES (%s, %s, %s, %s, %s);
+                            VALUES (%s, %s, %s, %s, %s)
+                            RETURNING id;
                             """,
                             (session_id, m["role"], m["content"],
                              m.get("sql"), m.get("valid")),
                         )
+                        last_id = cur.fetchone()[0]
                     cur.execute(
                         "UPDATE sessions SET updated_at = now() WHERE session_id = %s;",
                         (session_id,),
                     )
         finally:
             conn.close()
+        return last_id
 
     def fetch_messages(self, session_id: str) -> List[dict]:
         conn = self._connect()
@@ -404,18 +418,24 @@ class SessionMemory:
         response: str,
         sql: Optional[str] = None,
         valid: Optional[bool] = None,
-    ) -> None:
-        """Append a user turn and an assistant turn, then maybe summarize."""
+    ) -> Optional[int]:
+        """
+        Append a user turn and an assistant turn, then maybe summarize.
+
+        Returns the turn id of the assistant message (int in PG mode, synthetic
+        int in RAM mode). Callers can store this and pass it to ``/feedback``.
+        """
         self._backend.ensure_session(
             session_id, title=_make_title(user_query), user_id=None
         )
-        self._backend.append_messages(session_id, [
+        last_id = self._backend.append_messages(session_id, [
             {"role": "user", "content": user_query,
              "sql": None, "valid": None, "timestamp": _utcnow_iso()},
             {"role": "assistant", "content": response,
              "sql": sql, "valid": valid, "timestamp": _utcnow_iso()},
         ])
         self._maybe_summarize(session_id)
+        return last_id  # id of the assistant turn
 
     def _maybe_summarize(self, session_id: str) -> None:
         """Roll the oldest messages into the summary once over the limit."""

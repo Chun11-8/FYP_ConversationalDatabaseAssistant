@@ -58,6 +58,7 @@ class AgentState(TypedDict):
     validation: Dict[str, Any]       # {valid, syntax_ok, safety_ok, semantic_ok, error}
     execution_result: Any
     response: str
+    turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     error: Optional[str]
@@ -216,13 +217,28 @@ class OrchestrationAgent:
         except Exception as e:
             logger.warning(f"[GENERAL] LLM call failed: {e}")
             answer = "I'm temporarily unable to answer. Please try again in a moment."
-        return {**state, "response": answer}
+        turn_id = self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=answer,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": answer, "turn_id": turn_id}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:
-        return {**state, "response": (
+        response = (
             "⚠️ This system is read-only. Data modification queries (INSERT/UPDATE/DELETE/DROP) "
             "are not permitted. Please contact your database administrator."
-        )}
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=response,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": response, "turn_id": turn_id}
 
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
@@ -236,15 +252,19 @@ class OrchestrationAgent:
                 results=state["execution_result"],
             )
 
-        # Persist to memory
-        self.memory.add(
+        # Only record the SQL when it was actually valid and executed — not
+        # when we arrived here via the graceful-fallback path (validation failed
+        # twice) or when execution errored. Writing an invalid SQL would poison
+        # get_last_sql() for follow-up reference resolution.
+        sql_valid = state["validation"].get("valid", False) and not state.get("error")
+        turn_id = self.memory.add(
             session_id=state["session_id"],
             user_query=state["user_query"],
-            sql=state["best_sql"],
+            sql=state["best_sql"] if sql_valid else None,
             response=response,
-            valid=state["validation"].get("valid", False),
+            valid=bool(sql_valid),
         )
-        return {**state, "response": response, "csv_path": csv_path}
+        return {**state, "response": response, "csv_path": csv_path, "turn_id": turn_id}
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
@@ -403,6 +423,7 @@ class OrchestrationAgent:
             "validation": {},
             "execution_result": None,
             "response": "",
+            "turn_id": None,
             "csv_path": None,
             "fallback_level": 0,
             "error": None,
@@ -429,6 +450,7 @@ class OrchestrationAgent:
             "validation": final.get("validation", {}),
             "row_count":  row_count,
             "csv_path":   final.get("csv_path"),
+            "turn_id":    final.get("turn_id"),
         }
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).

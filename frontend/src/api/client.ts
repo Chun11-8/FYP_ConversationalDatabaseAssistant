@@ -9,6 +9,7 @@ export interface ChatApiResponse {
   validation: Record<string, unknown>;
   row_count: number | null;
   csv_path: string | null;
+  turn_id: number | null;
 }
 
 export interface Turn {
@@ -56,6 +57,23 @@ export async function getHistory(sessionId: string): Promise<Turn[]> {
 
 export async function getSchema(): Promise<SchemaInfo> {
   return request<SchemaInfo>('/schema');
+}
+
+export async function submitFeedback(
+  turnId: number,
+  sessionId: string,
+  rating: 'up' | 'down',
+  comment?: string,
+): Promise<void> {
+  await request<{ status: string }>('/feedback', {
+    method: 'POST',
+    body: JSON.stringify({
+      turn_id: turnId,
+      session_id: sessionId,
+      rating,
+      ...(comment ? { comment } : {}),
+    }),
+  });
 }
 
 export function downloadUrl(filename: string): string {
