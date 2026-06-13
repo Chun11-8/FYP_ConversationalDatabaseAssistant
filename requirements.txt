@@ -1,0 +1,12 @@
+huggingface_hub
+datasets
+panda
+psycopg2
+openai
+pinecone
+langchain 
+langchain-core 
+langchain-openai 
+langgraph
+sqlglot
+python-dotenv

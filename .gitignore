@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Datasets / large benchmark data (regenerable, exceeds GitHub size limits)
+dataset/
+outputs/
+
+# Secrets / local agent settings
+backend/config/secrets.env
+.claude/settings.local.json
