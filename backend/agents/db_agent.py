@@ -51,6 +51,7 @@ class AgentState(TypedDict):
     validation: Dict[str, Any]       # {valid, syntax_ok, safety_ok, semantic_ok, error}
     execution_result: Any
     response: str
+    csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     error: Optional[str]
 
@@ -171,8 +172,9 @@ class OrchestrationAgent:
         """Format execution results into natural language response."""
         if state.get("error"):
             response = f"I encountered an error executing the query: {state['error']}"
+            csv_path = None
         else:
-            response = self.optimizer.format(
+            response, csv_path = self.optimizer.format(
                 query=state["user_query"],
                 sql=state["best_sql"],
                 results=state["execution_result"],
@@ -186,7 +188,7 @@ class OrchestrationAgent:
             response=response,
             valid=state["validation"].get("valid", False),
         )
-        return {**state, "response": response}
+        return {**state, "response": response, "csv_path": csv_path}
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
@@ -305,7 +307,20 @@ class OrchestrationAgent:
         final = self.graph.invoke(initial_state)
         return final["response"]
     """
-    def run(self, session_id: str, user_query: str) -> str:
+    def run(self, session_id: str, user_query: str) -> Dict[str, Any]:
+        """
+        Run the full pipeline for one user turn.
+
+        Returns:
+            {
+                "response":   str,
+                "sql":        str | None,
+                "intent":     str,
+                "validation": dict,
+                "row_count":  int | None,
+                "csv_path":   str | None,
+            }
+        """
         history = self.memory.get_history(session_id)
         initial_state: AgentState = {
             "session_id": session_id,
@@ -319,11 +334,23 @@ class OrchestrationAgent:
             "validation": {},
             "execution_result": None,
             "response": "",
+            "csv_path": None,
             "fallback_level": 0,
             "error": None,
         }
         final = self.graph.invoke(initial_state)
-        return final["response"]
+
+        rows = final.get("execution_result")
+        row_count = len(rows) if isinstance(rows, list) else None
+
+        return {
+            "response":   final.get("response", ""),
+            "sql":        final.get("best_sql") or None,
+            "intent":     final.get("intent", ""),
+            "validation": final.get("validation", {}),
+            "row_count":  row_count,
+            "csv_path":   final.get("csv_path"),
+        }
 
     # ── Helpers ─────────────────────────────────
 
@@ -353,8 +380,9 @@ if __name__ == "__main__":
     config = load_config()
 
     agent = OrchestrationAgent(config)
-    response = agent.run(
+    result = agent.run(
         session_id="user-123",
         user_query="How many distinct players have overall rating of 67 and above and show me the top 5 names of those players?",
     )
-    print(response)
+    import json
+    print(json.dumps(result, indent=2, default=str))

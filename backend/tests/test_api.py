@@ -1,0 +1,207 @@
+"""
+Tests for backend/api/main.py (Issue #1 — Business Layer).
+
+Run from repo root:
+    pytest backend/tests/test_api.py -v
+
+All LLM and DB calls are mocked — no live services required.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Import the module once so patch.object can reference it
+import backend.api.main as api_main
+
+
+# ── Fixtures ───────────────────────────────────────────────────────────────────
+
+MOCK_RUN_RESULT = {
+    "response": "There are 42 players with overall rating ≥ 67.",
+    "sql": "SELECT player_name FROM players WHERE overall >= 67 LIMIT 5;",
+    "intent": "READ",
+    "validation": {"valid": True, "syntax_ok": True, "safety_ok": True},
+    "row_count": 5,
+    "csv_path": None,
+}
+
+
+@pytest.fixture()
+def client(monkeypatch):
+    """
+    Create a TestClient with the agent fully mocked.
+    Uses patch.object so the already-imported module is patched correctly.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("PG_PASSWORD", "test-pw")
+
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = MOCK_RUN_RESULT
+    mock_agent.memory.get_history.return_value = []
+
+    mock_config = {
+        "llm": {"model": "gpt-4o-mini", "api_key": "sk-test"},
+        "db": {"host": "127.0.0.1", "port": 5432, "name": "FYP",
+               "user": "postgres", "password": "test-pw", "dialect": "postgres"},
+    }
+
+    with patch.object(api_main, "load_config", return_value=mock_config), \
+         patch.object(api_main, "OrchestrationAgent", return_value=mock_agent), \
+         patch.object(api_main, "_check_db", return_value=True):
+
+        with TestClient(api_main.app, raise_server_exceptions=True) as c:
+            yield c
+
+
+# ── /health ────────────────────────────────────────────────────────────────────
+
+class TestHealth:
+
+    def test_returns_ok(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_db_connected_field_present(self, client):
+        resp = client.get("/health")
+        assert "db_connected" in resp.json()
+
+
+# ── /session ───────────────────────────────────────────────────────────────────
+
+class TestCreateSession:
+
+    def test_returns_session_id(self, client):
+        resp = client.post("/session")
+        assert resp.status_code == 200
+        assert "session_id" in resp.json()
+
+    def test_session_id_is_uuid(self, client):
+        import uuid
+        resp = client.post("/session")
+        session_id = resp.json()["session_id"]
+        # Should not raise
+        uuid.UUID(session_id)
+
+    def test_each_call_returns_unique_id(self, client):
+        ids = {client.post("/session").json()["session_id"] for _ in range(5)}
+        assert len(ids) == 5
+
+
+# ── /chat ──────────────────────────────────────────────────────────────────────
+
+class TestChat:
+
+    def test_happy_path_returns_structured_response(self, client):
+        resp = client.post("/chat", json={
+            "session_id": "sess-abc",
+            "message": "Show top 5 players by rating",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["response"] == MOCK_RUN_RESULT["response"]
+        assert data["sql"] == MOCK_RUN_RESULT["sql"]
+        assert data["intent"] == "READ"
+        assert data["row_count"] == 5
+        assert data["csv_path"] is None
+
+    def test_missing_message_returns_422(self, client):
+        resp = client.post("/chat", json={"session_id": "sess-abc"})
+        assert resp.status_code == 422
+
+    def test_missing_session_id_returns_422(self, client):
+        resp = client.post("/chat", json={"message": "hello"})
+        assert resp.status_code == 422
+
+    def test_empty_message_returns_422(self, client):
+        resp = client.post("/chat", json={"session_id": "sess-abc", "message": ""})
+        assert resp.status_code == 422
+
+    def test_agent_exception_returns_500(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.run.side_effect = RuntimeError("LLM timeout")
+            resp = client.post("/chat", json={
+                "session_id": "sess-abc",
+                "message": "break things",
+            })
+        assert resp.status_code == 500
+        assert "Agent error" in resp.json()["detail"]
+
+
+# ── /history ───────────────────────────────────────────────────────────────────
+
+class TestHistory:
+
+    def test_returns_list_for_known_session(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.memory.get_history.return_value = [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ]
+            resp = client.get("/history/sess-abc")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+        assert len(resp.json()) == 2
+
+    def test_returns_empty_list_for_unknown_session(self, client):
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.memory.get_history.return_value = []
+            resp = client.get("/history/unknown-session")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+# ── /download ──────────────────────────────────────────────────────────────────
+
+class TestDownload:
+
+    def test_serves_existing_csv(self, client, tmp_path):
+        # Write a real CSV into the outputs dir
+        from backend.api.main import _OUTPUTS_DIR
+        _OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        csv_file = _OUTPUTS_DIR / "query_results_test.csv"
+        csv_file.write_text("col1,col2\nval1,val2\n")
+
+        resp = client.get("/download/query_results_test.csv")
+        assert resp.status_code == 200
+        assert "col1" in resp.text
+
+        csv_file.unlink(missing_ok=True)
+
+    def test_missing_file_returns_404(self, client):
+        resp = client.get("/download/does_not_exist.csv")
+        assert resp.status_code == 404
+
+    def test_path_traversal_double_dot_rejected(self, client):
+        resp = client.get("/download/../secrets.env")
+        # FastAPI URL routing will 404 on path with .., but our guard is belt-and-suspenders
+        assert resp.status_code in (400, 404)
+
+    def test_path_traversal_encoded_rejected(self, client):
+        resp = client.get("/download/..%2Fsecrets.env")
+        assert resp.status_code in (400, 404)
+
+
+# ── docs ───────────────────────────────────────────────────────────────────────
+
+class TestDocs:
+
+    def test_openapi_docs_render(self, client):
+        resp = client.get("/docs")
+        assert resp.status_code == 200
+
+    def test_openapi_json_has_all_endpoints(self, client):
+        resp = client.get("/openapi.json")
+        assert resp.status_code == 200
+        paths = resp.json()["paths"]
+        assert "/health" in paths
+        assert "/session" in paths
+        assert "/chat" in paths
+        assert "/history/{session_id}" in paths
+        assert "/download/{filename}" in paths
