@@ -120,7 +120,11 @@ class OrchestrationAgent:
                 f"New query: {state['user_query']}"
             )),
         ]
-        result = self._get_llm().invoke(messages).content.strip().upper()
+        try:
+            result = self._get_llm().invoke(messages).content.strip().upper()
+        except Exception as e:
+            logger.warning(f"[INTENT] LLM call failed, defaulting to AMBIGUOUS: {e}")
+            result = "AMBIGUOUS"
 
         # Hard safety: detect DML keywords regardless of LLM output
         dml_keywords = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE"}
@@ -207,7 +211,11 @@ class OrchestrationAgent:
             )),
             HumanMessage(content=state["user_query"]),
         ]
-        answer = self._get_llm().invoke(messages).content
+        try:
+            answer = self._get_llm().invoke(messages).content
+        except Exception as e:
+            logger.warning(f"[GENERAL] LLM call failed: {e}")
+            answer = "I'm temporarily unable to answer. Please try again in a moment."
         return {**state, "response": answer}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:

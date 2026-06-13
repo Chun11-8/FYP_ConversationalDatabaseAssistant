@@ -110,8 +110,16 @@ def _get_agent() -> OrchestrationAgent:
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
 def health() -> HealthResponse:
-    """Service and DB liveness check."""
-    return HealthResponse(status="ok", db_connected=_check_db())
+    """Service and DB liveness check including optional component status."""
+    agent = _agent  # may be None during startup
+    cache_enabled = bool(agent and agent.semantic_cache.is_enabled)
+    memory_persistent = bool(agent and agent.memory.is_persistent)
+    return HealthResponse(
+        status="ok",
+        db_connected=_check_db(),
+        cache_enabled=cache_enabled,
+        memory_persistent=memory_persistent,
+    )
 
 
 @app.post("/session", response_model=SessionResponse, tags=["session"])

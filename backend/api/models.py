@@ -29,6 +29,8 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     db_connected: bool
+    cache_enabled: bool = False
+    memory_persistent: bool = False
 
 
 class SessionSummary(BaseModel):
