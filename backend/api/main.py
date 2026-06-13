@@ -13,6 +13,7 @@ Endpoints:
     POST /chat                      → send a message, get a structured answer
     GET  /history/{session_id}      → return turn history for a session
     GET  /download/{filename}       → serve a CSV from outputs/
+    GET  /schema                    → return table + column schema for the DB
 """
 
 from __future__ import annotations
@@ -29,9 +30,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from backend.agents.db_agent import OrchestrationAgent
-from backend.api.models import ChatRequest, ChatResponse, HealthResponse, SessionResponse
+from backend.api.models import (
+    ChatRequest, ChatResponse, HealthResponse, SessionResponse,
+    SchemaResponse,
+)
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
+from backend.retrieval.data_processing import get_schema_info
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +127,17 @@ def chat(req: ChatRequest) -> ChatResponse:
 
     The agent classifies intent, retrieves schema, generates + validates SQL,
     executes it, and formats the answer.
+
+    If ``api_key`` is supplied in the request body it overrides the system
+    default OpenAI key for this request only — it is never stored server-side.
     """
     agent = _get_agent()
     try:
-        result = agent.run(session_id=req.session_id, user_query=req.message)
+        result = agent.run(
+            session_id=req.session_id,
+            user_query=req.message,
+            api_key=req.api_key or None,
+        )
     except Exception as exc:
         logger.exception("Agent error for session %s", req.session_id)
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
@@ -147,13 +159,11 @@ def download_csv(filename: str) -> FileResponse:
 
     Path-traversal guard: only files directly inside outputs/ are served.
     """
-    # Reject any path separators in the filename component
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename.")
 
     filepath = (_OUTPUTS_DIR / filename).resolve()
 
-    # Confirm the resolved path is still inside _OUTPUTS_DIR
     if not str(filepath).startswith(str(_OUTPUTS_DIR.resolve())):
         raise HTTPException(status_code=400, detail="Invalid filename.")
 
@@ -165,3 +175,18 @@ def download_csv(filename: str) -> FileResponse:
         media_type="text/csv",
         filename=filename,
     )
+
+
+@app.get("/schema", response_model=SchemaResponse, tags=["schema"])
+def get_db_schema() -> SchemaResponse:
+    """
+    Return the table and column schema for the connected PostgreSQL database.
+
+    Used by the frontend Database tab to show the live schema browser.
+    """
+    try:
+        info = get_schema_info()
+    except Exception as exc:
+        logger.exception("Schema fetch failed")
+        raise HTTPException(status_code=500, detail=f"Schema fetch failed: {exc}") from exc
+    return SchemaResponse(**info)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ class SessionResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(..., min_length=1)
+    api_key: Optional[str] = Field(None, description="Override the default OpenAI key for this request")
 
 
 class ChatResponse(BaseModel):
@@ -28,3 +29,25 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     db_connected: bool
+
+
+# ── Schema browser models ──────────────────────────────────────────────────
+
+class SchemaColumn(BaseModel):
+    name: str
+    type: str
+    not_null: bool
+    primary_key: bool
+    foreign_key: Optional[str] = None
+
+
+class SchemaTable(BaseModel):
+    table_name: str
+    column_count: int
+    columns: List[SchemaColumn]
+
+
+class SchemaResponse(BaseModel):
+    db_name: str
+    table_count: int
+    tables: List[SchemaTable]

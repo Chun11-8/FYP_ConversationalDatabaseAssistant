@@ -188,6 +188,99 @@ class TestDownload:
         assert resp.status_code in (400, 404)
 
 
+# ── /chat with api_key ─────────────────────────────────────────────────────────
+
+class TestChatApiKey:
+
+    def test_custom_api_key_forwarded_to_agent(self, client):
+        """The api_key from the request body must be passed to agent.run()."""
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.run.return_value = MOCK_RUN_RESULT
+            client.post("/chat", json={
+                "session_id": "sess-key",
+                "message": "hello",
+                "api_key": "sk-custom-key-123",
+            })
+            call_kwargs = mock_agent.run.call_args.kwargs
+            assert call_kwargs.get("api_key") == "sk-custom-key-123"
+
+    def test_omitted_api_key_passes_none_to_agent(self, client):
+        """When api_key is omitted, agent.run() receives None."""
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.run.return_value = MOCK_RUN_RESULT
+            client.post("/chat", json={"session_id": "sess-key", "message": "hello"})
+            call_kwargs = mock_agent.run.call_args.kwargs
+            assert call_kwargs.get("api_key") is None
+
+    def test_empty_api_key_treated_as_none(self, client):
+        """Empty string api_key should be coerced to None by the endpoint."""
+        with patch("backend.api.main._agent") as mock_agent:
+            mock_agent.run.return_value = MOCK_RUN_RESULT
+            client.post("/chat", json={
+                "session_id": "sess-key",
+                "message": "hello",
+                "api_key": "",
+            })
+            call_kwargs = mock_agent.run.call_args.kwargs
+            assert call_kwargs.get("api_key") is None
+
+
+# ── /schema ────────────────────────────────────────────────────────────────────
+
+MOCK_SCHEMA = {
+    "db_name": "FYP",
+    "table_count": 2,
+    "tables": [
+        {
+            "table_name": "players",
+            "column_count": 3,
+            "columns": [
+                {"name": "id", "type": "integer", "not_null": True, "primary_key": True, "foreign_key": None},
+                {"name": "name", "type": "text", "not_null": True, "primary_key": False, "foreign_key": None},
+                {"name": "overall", "type": "integer", "not_null": False, "primary_key": False, "foreign_key": None},
+            ],
+        },
+        {
+            "table_name": "teams",
+            "column_count": 2,
+            "columns": [
+                {"name": "id", "type": "integer", "not_null": True, "primary_key": True, "foreign_key": None},
+                {"name": "name", "type": "text", "not_null": True, "primary_key": False, "foreign_key": None},
+            ],
+        },
+    ],
+}
+
+
+class TestSchema:
+
+    def test_schema_returns_db_info(self, client):
+        with patch.object(api_main, "get_schema_info", return_value=MOCK_SCHEMA):
+            resp = client.get("/schema")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["db_name"] == "FYP"
+        assert data["table_count"] == 2
+        assert len(data["tables"]) == 2
+
+    def test_schema_tables_have_columns(self, client):
+        with patch.object(api_main, "get_schema_info", return_value=MOCK_SCHEMA):
+            resp = client.get("/schema")
+        players = next(t for t in resp.json()["tables"] if t["table_name"] == "players")
+        assert players["column_count"] == 3
+        assert any(c["primary_key"] for c in players["columns"])
+
+    def test_schema_db_error_returns_500(self, client):
+        with patch.object(api_main, "get_schema_info", side_effect=RuntimeError("DB down")):
+            resp = client.get("/schema")
+        assert resp.status_code == 500
+        assert "Schema fetch failed" in resp.json()["detail"]
+
+    def test_schema_in_openapi(self, client):
+        resp = client.get("/openapi.json")
+        assert "/schema" in resp.json()["paths"]
+
+
 # ── docs ───────────────────────────────────────────────────────────────────────
 
 class TestDocs:
@@ -205,3 +298,4 @@ class TestDocs:
         assert "/chat" in paths
         assert "/history/{session_id}" in paths
         assert "/download/{filename}" in paths
+        assert "/schema" in paths
