@@ -22,17 +22,26 @@ import re
 import csv
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
-def connect_postgres(db_name="FYP", user="postgres", password="Toyo20001108!", host="localhost", port=5432):
+def connect_postgres(
+    db_name=None,
+    user=None,
+    password=None,
+    host=None,
+    port=None,
+):
     try:
         conn = psycopg2.connect(
-            dbname=db_name,
-            user=user,
-            password=password,
-            host=host,
-            port=port
+            dbname=db_name   if db_name   is not None else os.getenv("PG_DB",   "FYP"),
+            user=user         if user      is not None else os.getenv("PG_USER", "postgres"),
+            password=password if password  is not None else os.getenv("PG_PASSWORD"),
+            host=host         if host      is not None else os.getenv("PG_HOST", "127.0.0.1"),
+            port=port         if port      is not None else int(os.getenv("PG_PORT", 5432)),
         )
         return conn
     except Exception as e:

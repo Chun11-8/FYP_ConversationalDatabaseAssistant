@@ -1,0 +1,22 @@
+# Non-secret configuration defaults.
+# Secret values (API keys, passwords) must live in secrets.env — never here.
+
+llm:
+  model: gpt-4o-mini
+
+db:
+  dialect: postgres
+  host: "127.0.0.1"
+  port: 5432
+  name: FYP
+  user: postgres
+
+retrieval:
+  vector_store: pgvector
+  top_k_tables: 5
+  top_k_kb: 3
+
+response:
+  inline_row_limit: 10
+  table_row_limit: 100
+  csv_row_limit: 500

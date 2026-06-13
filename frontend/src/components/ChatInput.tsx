@@ -44,7 +44,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message Chatbot..."
+          placeholder="Ask a question about your data…"
           className="input-textarea"
           disabled={disabled}
           rows={1}
@@ -58,8 +58,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
           <ArrowUp size={20} strokeWidth={3} />
         </button>
       </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', paddingBottom: '0.5rem' }}>
-        Bot can make mistakes. Consider verifying important information.
+      <div className="input-hint">
+        Results are read-only. Always verify critical data.
       </div>
     </div>
   );

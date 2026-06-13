@@ -19,18 +19,17 @@ Usage:
 
 import os
 import time
+from pathlib import Path
 from typing import Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 
-
-load_dotenv("backend/config/secrets.env")  # Load OPENAI_API_KEY from .env if available
-api_key = os.getenv("OPENAI_API_KEY")
+load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
 
 # ── OpenAI client ──────────────────────────────────────────────────────────────
 
 def get_openai_client() -> OpenAI:
-    #print(api_key)
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise EnvironmentError(
             "OPENAI_API_KEY not set. "
