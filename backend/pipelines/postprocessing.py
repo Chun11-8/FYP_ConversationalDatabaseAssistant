@@ -7,11 +7,15 @@ Decides how to return results based on size:
   11–500 rows  → markdown table + summary
   > 500 rows   → save as CSV file, return download path
   Error        → plain English error message
+
+Also provides:
+  - output guardrail: re-scan final response for injection patterns
+  - truncate_general: summarize over-long GENERAL/web answers
 """
 
+import logging
 import os
 import csv
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,9 +23,16 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from backend.agents.safety import scan_output
+
+logger = logging.getLogger(__name__)
+
 # Thresholds
 INLINE_LIMIT  = 10     # rows → natural language
 TABLE_LIMIT   = 500    # rows → markdown table; above this → file
+
+# Max chars for a GENERAL / web-search synthesized answer before summarization
+GENERAL_MAX_CHARS = 3000
 
 
 class ResponseOptimizer:
@@ -68,14 +79,57 @@ class ResponseOptimizer:
 
         # ── Small → LLM natural language summary ────────────────────────
         if count <= INLINE_LIMIT:
-            return self._format_inline(query, sql, rows), None
+            response, csv_path = self._format_inline(query, sql, rows), None
 
         # ── Medium → markdown table ─────────────────────────────────────
-        if count <= TABLE_LIMIT:
-            return self._format_table(query, sql, rows, count), None
+        elif count <= TABLE_LIMIT:
+            response, csv_path = self._format_table(query, sql, rows, count), None
 
         # ── Large → save CSV, return path ───────────────────────────────
-        return self._format_file(query, sql, rows, count)
+        else:
+            response, csv_path = self._format_file(query, sql, rows, count)
+
+        # ── Output guardrail: re-check for injection patterns ───────────
+        response = self._guardrail(response)
+        return response, csv_path
+
+    def _guardrail(self, text: str) -> str:
+        """
+        Output-layer safety check. If injection patterns are found in the
+        generated response text, replace it with a safe message and log a warning.
+        This is a second-pass defense in case the LLM echoed unsafe content.
+        """
+        if scan_output(text):
+            logger.warning("[GUARDRAIL] Injection pattern detected in output; suppressing.")
+            return (
+                "⚠️ The generated response was suppressed by the output safety filter. "
+                "Please rephrase your question."
+            )
+        return text
+
+    def truncate_general(self, text: str, max_chars: int = GENERAL_MAX_CHARS) -> str:
+        """
+        If a GENERAL / web-search answer exceeds *max_chars*, ask the LLM to
+        summarize it to a tighter length. Falls back to hard truncation if the
+        LLM call fails.
+        """
+        if len(text) <= max_chars:
+            return text
+
+        logger.info(f"[OPTIMIZER] GENERAL answer {len(text)} chars > {max_chars}; summarizing.")
+        try:
+            summary = self.llm.invoke([
+                SystemMessage(content=(
+                    "You are a concise technical writer. "
+                    "Summarize the following answer to at most 400 words "
+                    "while keeping all key facts, sources, and code examples."
+                )),
+                HumanMessage(content=text),
+            ]).content
+            return summary
+        except Exception as exc:
+            logger.warning(f"[OPTIMIZER] summarization failed: {exc}; hard-truncating.")
+            return text[:max_chars] + "\n\n_(Answer truncated for length.)_"
 
     # ── Formatters ───────────────────────────────────────────────────────
 

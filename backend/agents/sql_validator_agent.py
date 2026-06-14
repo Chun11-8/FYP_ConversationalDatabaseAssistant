@@ -6,7 +6,6 @@ SQLValidatorAgent: syntax → safety → semantic checks
 
 from __future__ import annotations
 
-import re
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -14,19 +13,8 @@ import sqlglot
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from backend.agents.sql_code_agent import SQLCodeAgent
+from backend.agents.safety import BLOCKED as _BLOCKED, SQL_INJECTION as _SQL_INJECTION
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────
-# Blocked DML patterns (safety enforcement)
-# ─────────────────────────────────────────────
-_BLOCKED = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|REPLACE|MERGE|CALL|EXEC)\b",
-    re.IGNORECASE,
-)
-_SQL_INJECTION = re.compile(
-    r"(--|;.+|\/\*|\*\/|xp_|UNION\s+SELECT|1\s*=\s*1|'OR'|\"OR\")",
-    re.IGNORECASE,
-)
 
 # ─────────────────────────────────────────────
 # SQL Validator Agent

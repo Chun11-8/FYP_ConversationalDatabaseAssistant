@@ -16,11 +16,14 @@ from langgraph.graph import END, StateGraph
 
 from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
+from backend.agents.safety import enforce_limit
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
 from backend.retrieval.indexing import retrieve , execute_query
 from backend.pipelines.postprocessing import ResponseOptimizer
+from backend.tools.registry import ToolRegistry
+from backend.tools.web_search import WebSearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +97,8 @@ class OrchestrationAgent:
         )
         self.semantic_cache = SemanticCache(db_config=config.get("db"))
         self.optimizer = ResponseOptimizer(self.llm)
+        self.tool_registry = ToolRegistry()
+        self.tool_registry.register(WebSearchTool())
         self.graph = self._build_graph()
 
     # ── Per-request LLM helpers (thread-safe via threading.local) ──────────
@@ -194,32 +199,72 @@ class OrchestrationAgent:
 
     def execute_sql(self, state: AgentState) -> AgentState:
         """Execute validated SELECT-only query against PostgreSQL."""
+        sql = enforce_limit(state["best_sql"])
         try:
-            rows = execute_query(state["best_sql"])
-            print(rows)
-            return {**state, "execution_result": rows, "error": None}
+            rows = execute_query(sql)
+            return {**state, "best_sql": sql, "execution_result": rows, "error": None}
         except Exception as e:
             logger.error(f"[EXECUTE] {e}")
             return {**state, "execution_result": None, "error": str(e)}
 
+    # Search results are usable when non-empty and not an error/diagnostic string.
+    _SEARCH_RESULT_PREFIXES = ("Web search results for:", "1.")
+
     def handle_general(self, state: AgentState) -> AgentState:
-        """Handle non-SQL questions (DB how-to, general help) via LLM directly."""
+        """Handle non-SQL questions via web search + LLM synthesis."""
+        query = state["user_query"]
+
+        # 1. Web search for context
+        search_context = ""
+        try:
+            raw = self.tool_registry.run("web_search", {"query": query})
+            # Accept the result only if it looks like real search results, not
+            # an error/diagnostic string (e.g. "Web search failed: ...",
+            # "No web results found ...").
+            if raw and any(raw.startswith(p) for p in self._SEARCH_RESULT_PREFIXES):
+                search_context = raw
+                logger.info(f"[GENERAL] web_search returned {len(search_context)} chars")
+            else:
+                logger.info(f"[GENERAL] web_search returned non-result: {raw[:80]}")
+        except Exception as exc:
+            logger.warning(f"[GENERAL] web_search failed: {exc}")
+
+        # 2. LLM synthesis with search results
+        system_prompt = (
+            "You are a helpful database assistant. "
+            "Answer the user's question clearly and concisely. "
+            + (
+                "Use the web search results below as context. Cite sources where relevant. "
+                if search_context
+                else ""
+            )
+            + "Do NOT generate SQL unless explicitly asked."
+        )
+        user_content = query
+        if search_context:
+            user_content = (
+                f"Question: {query}\n\n"
+                f"Web search results:\n{search_context}\n\n"
+                "Please synthesize the above into a clear, concise answer."
+            )
+
         messages = [
-            SystemMessage(content=(
-                "You are a helpful database assistant. "
-                "Answer the user's general question clearly and concisely. "
-                "Do NOT generate SQL unless explicitly asked."
-            )),
-            HumanMessage(content=state["user_query"]),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_content),
         ]
         try:
             answer = self._get_llm().invoke(messages).content
         except Exception as e:
-            logger.warning(f"[GENERAL] LLM call failed: {e}")
+            logger.warning(f"[GENERAL] LLM synthesis failed: {e}")
             answer = "I'm temporarily unable to answer. Please try again in a moment."
+
+        # 3. Guardrail: summarize over-long answers + output safety check
+        answer = self._get_optimizer().truncate_general(answer)
+        answer = self._get_optimizer()._guardrail(answer)
+
         turn_id = self.memory.add(
             session_id=state["session_id"],
-            user_query=state["user_query"],
+            user_query=query,
             response=answer,
             sql=None,
             valid=None,
