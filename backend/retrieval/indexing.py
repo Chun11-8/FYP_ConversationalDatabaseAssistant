@@ -34,6 +34,8 @@ from openai import OpenAI
 
 from backend.retrieval.data_processing import process_database
 from backend.retrieval.embedding import build_chunks, embed_chunks, get_openai_client, EMBED_MODEL
+import logging as _logging
+_logger = _logging.getLogger(__name__)
 
 #from data_processing import process_database
 #from embedding import build_chunks, embed_chunks, get_openai_client, EMBED_MODEL
@@ -280,6 +282,123 @@ def execute_query(sql: str) -> list[dict]:
     except Exception as e:
         print(f"Error executing query: {e}")
         raise
+
+# ── FK-aware retrieval expansion ──────────────────────────────────────────────
+
+def expand_fk_tables(
+    retrieve_result: dict,
+    db_name: str,
+    max_hops: int = 1,
+    store_conn=None,
+) -> dict:
+    """
+    Expand a retrieve() result with FK-linked tables.
+
+    After cosine retrieval picks the top-K tables by similarity, this function:
+      1. Builds a bidirectional FK graph from information_schema (one cheap query).
+      2. BFS-expands up to *max_hops* from the retrieved table frontier.
+      3. Fetches schema chunks for the newly discovered tables.
+      4. Returns an enriched dict with an updated prompt_context that has three
+         sections:
+           ### Relevant Table Schemas (Retrieved by Query)
+           ### FK-Related Tables (Included via join relationships)
+           ### Foreign Key Relationships
+
+    Args:
+        retrieve_result: Output from retrieve() — must contain "tables" list.
+        db_name:         Database name used to filter schema_embeddings lookups.
+        max_hops:        FK traversal depth (default 1 = direct FK neighbours only).
+        store_conn:      Reuse an existing pgvector connection (None = create one).
+
+    Returns:
+        A copy of retrieve_result with keys added/updated:
+            "fk_tables"      — list of expansion schema chunk dicts
+            "fk_edges"       — list of FK edge dicts relevant to the expanded set
+            "prompt_context" — enriched, ready-to-inject context string
+    """
+    import backend.retrieval.pgvector_store as pgstore
+    import logging
+    logger = logging.getLogger(__name__)
+
+    conn = store_conn or pgstore.get_store()
+
+    primary_table_names = {t["table_name"] for t in retrieve_result.get("tables", [])}
+
+    if not primary_table_names:
+        return {**retrieve_result, "fk_tables": [], "fk_edges": []}
+
+    try:
+        fk_graph, fk_edges = pgstore.get_fk_graph(conn)
+    except Exception as exc:
+        logger.warning(f"[FK_EXPAND] FK graph query failed: {exc}; skipping expansion.")
+        return {**retrieve_result, "fk_tables": [], "fk_edges": []}
+
+    # BFS from primary tables
+    visited: set[str] = set(primary_table_names)
+    frontier: set[str] = set(primary_table_names)
+    for _ in range(max_hops):
+        next_frontier: set[str] = set()
+        for tbl in frontier:
+            for neighbour in fk_graph.get(tbl, set()):
+                if neighbour not in visited:
+                    next_frontier.add(neighbour)
+                    visited.add(neighbour)
+        frontier = next_frontier
+
+    expansion_names = visited - primary_table_names
+
+    if expansion_names:
+        logger.info(f"[FK_EXPAND] Adding {len(expansion_names)} FK-linked table(s): {sorted(expansion_names)}")
+
+    # Fetch schema chunks for expansion tables
+    fk_chunks: list[dict] = []
+    if expansion_names:
+        try:
+            fk_chunks = pgstore.get_chunks_by_tables(conn, list(expansion_names), db_name)
+        except Exception as exc:
+            logger.warning(f"[FK_EXPAND] chunk fetch failed: {exc}")
+
+    # Filter FK edges to those connecting the expanded table set
+    all_names = primary_table_names | expansion_names
+    relevant_edges = [
+        e for e in fk_edges
+        if e["from_table"] in all_names and e["to_table"] in all_names
+    ]
+
+    # Build enriched prompt_context
+    parts: list[str] = []
+
+    parts.append("### Relevant Table Schemas (Retrieved by Query)\n")
+    for item in retrieve_result.get("tables", []):
+        parts.append(item["text"])
+        parts.append("")
+
+    if fk_chunks:
+        parts.append("### FK-Related Tables (Included via join relationships)\n")
+        for chunk in fk_chunks:
+            parts.append(chunk["content"])
+            parts.append("")
+
+    if relevant_edges:
+        parts.append("### Foreign Key Relationships\n")
+        seen_edges: set[tuple] = set()
+        for e in relevant_edges:
+            key = (e["from_table"], e["from_col"], e["to_table"], e["to_col"])
+            if key not in seen_edges:
+                parts.append(
+                    f"  {e['from_table']}.{e['from_col']} → {e['to_table']}.{e['to_col']}"
+                )
+                seen_edges.add(key)
+
+    prompt_context = "\n".join(parts).strip()
+
+    return {
+        **retrieve_result,
+        "fk_tables":      fk_chunks,
+        "fk_edges":       relevant_edges,
+        "prompt_context": prompt_context,
+    }
+
 
 # ── prompt builder ─────────────────────────────────────────────────────────────
 

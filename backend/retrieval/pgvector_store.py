@@ -351,6 +351,79 @@ def retrieve(
     return results
 
 
+# ── FK graph helpers (Option A: FK-aware retrieval expansion) ─────────────────
+
+def get_fk_graph(conn: psycopg2.extensions.connection) -> tuple[dict, list[dict]]:
+    """
+    Query information_schema for all FK edges in the public schema.
+
+    Returns:
+        graph  — bidirectional adjacency map: {table: {connected_table, ...}}
+        edges  — flat list of {from_table, from_col, to_table, to_col} dicts
+                 (one entry per FK column; useful for building the relationship block)
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                tc.table_name        AS from_table,
+                kcu.column_name      AS from_col,
+                ccu.table_name       AS to_table,
+                ccu.column_name      AS to_col
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema    = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema   = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema    = 'public'
+            ORDER BY tc.table_name, kcu.column_name;
+        """)
+        rows = cur.fetchall()
+
+    graph: dict[str, set[str]] = {}
+    edges: list[dict] = []
+
+    for from_table, from_col, to_table, to_col in rows:
+        # Bidirectional so BFS finds neighbours in both directions
+        graph.setdefault(from_table, set()).add(to_table)
+        graph.setdefault(to_table, set()).add(from_table)
+        edges.append({
+            "from_table": from_table,
+            "from_col":   from_col,
+            "to_table":   to_table,
+            "to_col":     to_col,
+        })
+
+    return graph, edges
+
+
+def get_chunks_by_tables(
+    conn: psycopg2.extensions.connection,
+    table_names: list[str],
+    db_name: str,
+) -> list[dict]:
+    """
+    Retrieve schema_embeddings rows for a specific list of table names.
+    No embedding / cosine search — direct lookup by name.
+    Returns list of {chunk_id, db_name, table_name, content} dicts.
+    """
+    if not table_names:
+        return []
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT chunk_id, db_name, table_name, content
+            FROM schema_embeddings
+            WHERE db_name = %s AND table_name = ANY(%s)
+            ORDER BY table_name;
+            """,
+            (db_name, list(table_names)),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
 # ── inspection helpers ─────────────────────────────────────────────────────────
 def run_query(conn: psycopg2.extensions.connection, sql: str) -> list[dict]:
     """Run a raw SQL query and return results as list of dicts."""

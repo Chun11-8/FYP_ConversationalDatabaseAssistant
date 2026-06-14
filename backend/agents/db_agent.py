@@ -20,7 +20,7 @@ from backend.agents.safety import enforce_limit
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
-from backend.retrieval.indexing import retrieve , execute_query
+from backend.retrieval.indexing import retrieve, execute_query, expand_fk_tables
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.tools.registry import ToolRegistry
 from backend.tools.web_search import WebSearchTool
@@ -149,11 +149,17 @@ class OrchestrationAgent:
         few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
 
         try:
-            schema_chunks = retrieve(state["user_query"],"FYP",top_k_tables=5 ,store="pgvector")
+            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=5, store="pgvector")
+            # FK-aware expansion: pull in tables linked by FK to the retrieved set
+            schema_chunks = expand_fk_tables(schema_chunks, "FYP")
             schema_context = schema_chunks["prompt_context"]
 
-            logger.info(f"[RAG] Retrieved {len(schema_chunks['tables'])} tables: "
-                    f"{[t['table_name'] for t in schema_chunks['tables']]}")
+            primary = [t["table_name"] for t in schema_chunks["tables"]]
+            fk_extra = [c["table_name"] for c in schema_chunks.get("fk_tables", [])]
+            logger.info(
+                f"[RAG] Retrieved {len(primary)} table(s): {primary}"
+                + (f" | FK-expanded: {fk_extra}" if fk_extra else "")
+            )
 
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
