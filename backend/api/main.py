@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 
 from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
-    ChatRequest, ChatResponse, HealthResponse, SessionResponse,
+    ChatRequest, ChatResponse, FeedbackRequest, HealthResponse, SessionResponse,
     SchemaResponse, SessionSummary,
 )
 from backend.config.config_loader import load_config
@@ -190,6 +190,28 @@ def download_csv(filename: str) -> FileResponse:
         media_type="text/csv",
         filename=filename,
     )
+
+
+@app.post("/feedback", tags=["feedback"])
+def submit_feedback(req: FeedbackRequest) -> Dict[str, str]:
+    """
+    Record thumbs-up / thumbs-down feedback for an assistant turn.
+
+    On a down-vote, the SQL pair that was used is marked ``low_conf`` in the
+    semantic cache so it is no longer injected as a few-shot example.
+    """
+    agent = _get_agent()
+    try:
+        agent.semantic_cache.add_feedback(
+            turn_id=req.turn_id,
+            session_id=req.session_id,
+            rating=req.rating,
+            comment=req.comment,
+        )
+    except Exception as exc:
+        logger.exception("Feedback error for turn %s", req.turn_id)
+        raise HTTPException(status_code=500, detail=f"Feedback error: {exc}") from exc
+    return {"status": "ok"}
 
 
 @app.get("/schema", response_model=SchemaResponse, tags=["schema"])

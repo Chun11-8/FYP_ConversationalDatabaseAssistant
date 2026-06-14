@@ -600,6 +600,40 @@ body, html, #root {
   border-color: var(--border-strong);
 }
 
+/* ── Feedback Buttons ────────────────────────────────────────────────────── */
+.feedback-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  margin-left: 0.25rem;
+  padding-left: 0.375rem;
+  border-left: 1px solid var(--border-light);
+}
+
+.feedback-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.feedback-btn:hover:not(:disabled) {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.feedback-btn:disabled { cursor: default; opacity: 0.6; }
+
+.feedback-btn--active-up  { color: #22c55e; }
+.feedback-btn--active-down { color: #ef4444; }
+
 /* ── MCQ ─────────────────────────────────────────────────────────────────── */
 .mcq-container {
   margin-top: 0.875rem;

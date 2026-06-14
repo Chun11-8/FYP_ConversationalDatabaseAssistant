@@ -17,6 +17,10 @@ export interface TextMessage extends BaseMessage {
   row_count?: number | null;
   /** CSV filename served at /download/{csv_path} */
   csv_path?: string | null;
+  /** DB id of the assistant turn — used to submit feedback */
+  turn_id?: number | null;
+  /** Feedback the user submitted for this message ('up' | 'down' | null) */
+  feedback?: 'up' | 'down' | null;
 }
 
 export interface McqOption {

@@ -9,18 +9,21 @@ import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional, TypedDict
-import os
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
+from backend.agents.safety import enforce_limit
+from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
-from backend.retrieval.indexing import retrieve , execute_query
+from backend.retrieval.indexing import retrieve, execute_query, expand_fk_tables
 from backend.pipelines.postprocessing import ResponseOptimizer
+from backend.tools.registry import ToolRegistry
+from backend.tools.web_search import WebSearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ class AgentState(TypedDict):
     validation: Dict[str, Any]       # {valid, syntax_ok, safety_ok, semantic_ok, error}
     execution_result: Any
     response: str
+    turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     error: Optional[str]
@@ -72,9 +76,8 @@ class OrchestrationAgent:
     Master agent — routes queries, enforces safety, coordinates sub-agents.
     Uses LangGraph stateful graph for deterministic flow with conditional edges.
     """
-    current_file_dir = os.path.dirname(os.path.abspath(__file__))
-
-    INTENT_PROMPT = open(os.path.join(current_file_dir, "prompt.md")).read()  # loaded once
+    # Load only the intent-classification section — not the full 250-line file
+    INTENT_PROMPT: str = PromptHarness.get("ORCHESTRATION_AGENT")
 
     def __init__(self, config: dict):
         self._config = config
@@ -93,6 +96,8 @@ class OrchestrationAgent:
         )
         self.semantic_cache = SemanticCache(db_config=config.get("db"))
         self.optimizer = ResponseOptimizer(self.llm)
+        self.tool_registry = ToolRegistry()
+        self.tool_registry.register(WebSearchTool())
         self.graph = self._build_graph()
 
     # ── Per-request LLM helpers (thread-safe via threading.local) ──────────
@@ -143,11 +148,17 @@ class OrchestrationAgent:
         few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
 
         try:
-            schema_chunks = retrieve(state["user_query"],"FYP",top_k_tables=5 ,store="pgvector")
+            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=5, store="pgvector")
+            # FK-aware expansion: pull in tables linked by FK to the retrieved set
+            schema_chunks = expand_fk_tables(schema_chunks, "FYP")
             schema_context = schema_chunks["prompt_context"]
 
-            logger.info(f"[RAG] Retrieved {len(schema_chunks['tables'])} tables: "
-                    f"{[t['table_name'] for t in schema_chunks['tables']]}")
+            primary = [t["table_name"] for t in schema_chunks["tables"]]
+            fk_extra = [c["table_name"] for c in schema_chunks.get("fk_tables", [])]
+            logger.info(
+                f"[RAG] Retrieved {len(primary)} table(s): {primary}"
+                + (f" | FK-expanded: {fk_extra}" if fk_extra else "")
+            )
 
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
@@ -174,13 +185,23 @@ class OrchestrationAgent:
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
         sql_agent = self._get_sql_agent()
+
+        few_shots = list(state["few_shot_examples"])
+        # On fallback retry after empty generation, inject a format reminder so the
+        # LLM knows it must wrap SQL in ```sql ... ``` fences.
+        if state.get("fallback_level", 0) >= 1 and not state.get("generated_sqls"):
+            few_shots = [
+                "IMPORTANT: Your previous response did not contain a SQL code block. "
+                "You MUST wrap your SQL in ```sql ... ``` fences."
+            ] + few_shots
+
         sqls = sql_agent.generate(
             query=state["user_query"],
             schema_context=state["schema_context"],
-            few_shots=state["few_shot_examples"],
+            few_shots=few_shots,
             history=state["conversation_history"][-4:],
         )
-        print(f"Generated SQLs: {sqls}")
+        logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
         best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
         logger.info(f"[SQL_GEN] best={best[:80]}")
         return {**state, "generated_sqls": sqls, "best_sql": best}
@@ -193,36 +214,91 @@ class OrchestrationAgent:
 
     def execute_sql(self, state: AgentState) -> AgentState:
         """Execute validated SELECT-only query against PostgreSQL."""
+        sql = enforce_limit(state["best_sql"])
         try:
-            rows = execute_query(state["best_sql"])
-            print(rows)
-            return {**state, "execution_result": rows, "error": None}
+            rows = execute_query(sql)
+            return {**state, "best_sql": sql, "execution_result": rows, "error": None}
         except Exception as e:
             logger.error(f"[EXECUTE] {e}")
             return {**state, "execution_result": None, "error": str(e)}
 
+    # Search results are usable when non-empty and not an error/diagnostic string.
+    _SEARCH_RESULT_PREFIXES = ("Web search results for:", "1.")
+
     def handle_general(self, state: AgentState) -> AgentState:
-        """Handle non-SQL questions (DB how-to, general help) via LLM directly."""
+        """Handle non-SQL questions via web search + LLM synthesis."""
+        query = state["user_query"]
+
+        # 1. Web search for context
+        search_context = ""
+        try:
+            raw = self.tool_registry.run("web_search", {"query": query})
+            # Accept the result only if it looks like real search results, not
+            # an error/diagnostic string (e.g. "Web search failed: ...",
+            # "No web results found ...").
+            if raw and any(raw.startswith(p) for p in self._SEARCH_RESULT_PREFIXES):
+                search_context = raw
+                logger.info(f"[GENERAL] web_search returned {len(search_context)} chars")
+            else:
+                logger.info(f"[GENERAL] web_search returned non-result: {raw[:80]}")
+        except Exception as exc:
+            logger.warning(f"[GENERAL] web_search failed: {exc}")
+
+        # 2. LLM synthesis with search results
+        system_prompt = (
+            "You are a helpful database assistant. "
+            "Answer the user's question clearly and concisely. "
+            + (
+                "Use the web search results below as context. Cite sources where relevant. "
+                if search_context
+                else ""
+            )
+            + "Do NOT generate SQL unless explicitly asked."
+        )
+        user_content = query
+        if search_context:
+            user_content = (
+                f"Question: {query}\n\n"
+                f"Web search results:\n{search_context}\n\n"
+                "Please synthesize the above into a clear, concise answer."
+            )
+
         messages = [
-            SystemMessage(content=(
-                "You are a helpful database assistant. "
-                "Answer the user's general question clearly and concisely. "
-                "Do NOT generate SQL unless explicitly asked."
-            )),
-            HumanMessage(content=state["user_query"]),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_content),
         ]
         try:
             answer = self._get_llm().invoke(messages).content
         except Exception as e:
-            logger.warning(f"[GENERAL] LLM call failed: {e}")
+            logger.warning(f"[GENERAL] LLM synthesis failed: {e}")
             answer = "I'm temporarily unable to answer. Please try again in a moment."
-        return {**state, "response": answer}
+
+        # 3. Guardrail: summarize over-long answers + output safety check
+        answer = self._get_optimizer().truncate_general(answer)
+        answer = self._get_optimizer()._guardrail(answer)
+
+        turn_id = self.memory.add(
+            session_id=state["session_id"],
+            user_query=query,
+            response=answer,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": answer, "turn_id": turn_id}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:
-        return {**state, "response": (
+        response = (
             "⚠️ This system is read-only. Data modification queries (INSERT/UPDATE/DELETE/DROP) "
             "are not permitted. Please contact your database administrator."
-        )}
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=response,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": response, "turn_id": turn_id}
 
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
@@ -236,15 +312,19 @@ class OrchestrationAgent:
                 results=state["execution_result"],
             )
 
-        # Persist to memory
-        self.memory.add(
+        # Only record the SQL when it was actually valid and executed — not
+        # when we arrived here via the graceful-fallback path (validation failed
+        # twice) or when execution errored. Writing an invalid SQL would poison
+        # get_last_sql() for follow-up reference resolution.
+        sql_valid = state["validation"].get("valid", False) and not state.get("error")
+        turn_id = self.memory.add(
             session_id=state["session_id"],
             user_query=state["user_query"],
-            sql=state["best_sql"],
+            sql=state["best_sql"] if sql_valid else None,
             response=response,
-            valid=state["validation"].get("valid", False),
+            valid=bool(sql_valid),
         )
-        return {**state, "response": response, "csv_path": csv_path}
+        return {**state, "response": response, "csv_path": csv_path, "turn_id": turn_id}
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
@@ -252,18 +332,35 @@ class OrchestrationAgent:
 
         if level == 1:
             # Broaden schema scan
-            schema_chunks = retrieve(state["user_query"],"FYP",top_k_tables=10 ,store="pgvector")
+            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=10, store="pgvector")
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
         if level == 2:
-            return {**state, "response": (
-                "I'm having trouble finding the relevant tables for your query. "
+            response = (
+                "I'm having trouble generating a valid SQL query for your question. "
                 "Could you clarify which tables or columns you're referring to? "
-                "For example: 'Show me students from the **enrollments** table...'"
-            ), "fallback_level": 2}
+                "For example: 'Show me players from the **players** table with rating above 80...'"
+            )
+            # Persist clarification so it appears in conversation history
+            self.memory.add(
+                session_id=state["session_id"],
+                user_query=state["user_query"],
+                response=response,
+                sql=None,
+                valid=None,
+            )
+            return {**state, "response": response, "fallback_level": 2}
 
-        return {**state, "response": "Unable to process the query. Please rephrase.", "fallback_level": 3}
+        response = "Unable to process the query. Please rephrase."
+        self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=response,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": response, "fallback_level": 3}
 
     # ── Conditional Edges ───────────────────────
 
@@ -403,6 +500,7 @@ class OrchestrationAgent:
             "validation": {},
             "execution_result": None,
             "response": "",
+            "turn_id": None,
             "csv_path": None,
             "fallback_level": 0,
             "error": None,
@@ -429,6 +527,7 @@ class OrchestrationAgent:
             "validation": final.get("validation", {}),
             "row_count":  row_count,
             "csv_path":   final.get("csv_path"),
+            "turn_id":    final.get("turn_id"),
         }
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).
