@@ -8,13 +8,17 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-PROMPTS_PATH = Path(__file__).parent.parent / "context" / "prompts.md"
+# Section-based master prompt file (backend/agents/prompt.md)
+PROMPTS_PATH = Path(__file__).parent / "prompt.md"
+# Directory for standalone per-feature prompt files
+PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 class PromptHarness:
-    """Loads named sections from prompts.md. Cached after first load."""
-
-    _cache: dict[str, str] = {}
+    """
+    Loads named sections from prompt.md (get) or standalone .md files (get_file).
+    Both are cached after first load.
+    """
 
     @classmethod
     @lru_cache(maxsize=1)
@@ -26,17 +30,26 @@ class PromptHarness:
         for i in range(1, len(sections), 2):
             name = sections[i].strip()
             body = sections[i + 1].strip()
-            # Strip markdown comment lines
             body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL).strip()
             result[name] = body
         return result
 
     @classmethod
     def get(cls, section: str) -> str:
+        """Load a named section from backend/agents/prompt.md."""
         data = cls._load_all()
         if section not in data:
-            raise KeyError(f"Prompt section '{section}' not found in prompts.md")
+            raise KeyError(f"Prompt section '{section}' not found in prompt.md")
         return data[section]
+
+    @classmethod
+    @lru_cache(maxsize=16)
+    def get_file(cls, filename: str) -> str:
+        """Load a standalone prompt file from backend/agents/prompts/<filename>."""
+        path = PROMPTS_DIR / filename
+        if not path.exists():
+            raise FileNotFoundError(f"Prompt file not found: {path}")
+        return path.read_text()
 
 
 def estimate_tokens(text: str) -> int:

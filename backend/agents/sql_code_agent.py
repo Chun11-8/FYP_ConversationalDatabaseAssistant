@@ -8,7 +8,12 @@ import sqlglot
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from backend.agents.utils import PromptHarness
+
 logger = logging.getLogger(__name__)
+
+# Reranker schema context cap — large enough to include FK-expanded schemas
+_RERANKER_SCHEMA_CAP = 3500
 
 
 # ─────────────────────────────────────────────
@@ -93,17 +98,15 @@ class SQLCodeAgent:
         """.strip()
 
     def _system_prompt(self) -> str:
-        return (
-            f"You are an expert {self.dialect.upper()} SQL engineer.\n"
-            "You write correct, safe, read-only SQL queries from natural language.\n"
-            "Rules:\n"
-            "  1. ONLY generate SELECT statements.\n"
-            "  2. Always use explicit column names.\n"
-            "  3. Always add LIMIT (default 100, max 500).\n"
-            "  4. Use proper JOINs based on the schema — never guess FK relationships.\n"
-            "  5. Use CTEs for complex multi-step logic.\n"
-            "  6. Do not add any explanation — return SQL blocks only.\n"
-        )
+        try:
+            base = PromptHarness.get("SQL_CODE_AGENT")
+        except Exception:
+            base = (
+                f"You are an expert {self.dialect.upper()} SQL engineer. "
+                "Write correct, safe, read-only SELECT queries only. "
+                "Always LIMIT ≤500 rows. Explicit columns only. No explanations."
+            )
+        return base
 
     # ── Reranking ───────────────────────────────
 
@@ -118,17 +121,21 @@ class SQLCodeAgent:
             f"Candidate {i+1}:\n```sql\n{s}\n```" for i, s in enumerate(sqls)
         )
 
+        try:
+            reranker_prompt = PromptHarness.get_file("sql_reranker.md")
+        except Exception:
+            reranker_prompt = (
+                "You are a SQL quality judge. Select the BEST candidate that is most "
+                "accurate, efficient, and correct. Reply with ONLY the number: 1, 2, or 3."
+            )
+
         messages = [
-            SystemMessage(content=(
-                "You are a SQL quality judge. Given a user query and SQL candidates, "
-                "select the BEST one that is most accurate, efficient, and correct.\n"
-                "Reply with ONLY the number: 1, 2, or 3."
-            )),
+            SystemMessage(content=reranker_prompt),
             HumanMessage(content=(
                 f"User query: {query}\n\n"
-                f"Schema:\n{schema_context[:1500]}\n\n"
+                f"Schema:\n{schema_context[:_RERANKER_SCHEMA_CAP]}\n\n"
                 f"{candidates_block}\n\n"
-                "Which candidate is best? Reply with only the number."
+                "Which candidate number is best?"
             )),
         ]
 
@@ -142,6 +149,13 @@ class SQLCodeAgent:
     # ── Helpers ─────────────────────────────────
 
     def _extract_sqls(self, raw: str) -> List[str]:
-        """Extract SQL blocks from ```sql ... ``` fences."""
+        """Extract SQL blocks from fenced code blocks.
+
+        Handles both ```sql ... ``` (preferred) and bare ``` ... ``` fallback.
+        """
+        # Primary: explicit ```sql tag
         blocks = re.findall(r"```sql\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+        if not blocks:
+            # Fallback: bare ``` fences that contain a SELECT statement
+            blocks = re.findall(r"```\s*(SELECT[\s\S]*?)```", raw, re.DOTALL | re.IGNORECASE)
         return [b.strip() for b in blocks if b.strip()]

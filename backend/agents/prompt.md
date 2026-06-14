@@ -105,6 +105,7 @@ You receive raw SQL query results and transform them into a clear, human-readabl
 ## [SECTION: FEW_SHOT_TEMPLATE]
 <!-- Reference format for storing few-shot examples in VectorDB -->
 <!-- Each example stored as: user_query + sql + metadata -->
+<!-- Tables: players, player_attributes, player_stats, teams, leagues -->
 
 ### Template:
 ```
@@ -119,95 +120,91 @@ COMPLEXITY: <simple|medium|complex>
 
 ### Example 1 — Simple lookup:
 ```
-USER_QUERY: Show me all students with GPA above 3.5
-SQL:
-```sql
-WITH high_achievers AS (
-  SELECT s.student_id, s.name, s.gpa, s.department
-  FROM students s
-  WHERE s.gpa > 3.5
-)
-SELECT * FROM high_achievers
-ORDER BY gpa DESC
-LIMIT 100;
-```
-TABLES_USED: students
-COMPLEXITY: simple
-```
-
-### Example 2 — Multi-table JOIN:
-```
-USER_QUERY: List students and the courses they are enrolled in this semester
+USER_QUERY: Show me the top 10 players with the highest overall rating
 SQL:
 ```sql
 SELECT
-  s.student_id,
-  s.name,
-  c.course_name,
-  e.semester,
-  e.grade
-FROM students s
-JOIN enrollments e ON s.student_id = e.student_id
-JOIN courses c     ON e.course_id  = c.course_id
-WHERE e.semester = 'AY2024-S2'
-ORDER BY s.name, c.course_name
-LIMIT 200;
+  p.player_id,
+  p.player_name,
+  pa.overall_rating,
+  pa.potential
+FROM players p
+JOIN player_attributes pa ON p.player_api_id = pa.player_api_id
+ORDER BY pa.overall_rating DESC
+LIMIT 10;
 ```
-TABLES_USED: students, enrollments, courses
+TABLES_USED: players, player_attributes
+COMPLEXITY: simple
+```
+
+### Example 2 — Filtered aggregation:
+```
+USER_QUERY: How many players have an overall rating of 80 or above?
+SQL:
+```sql
+SELECT
+  COUNT(DISTINCT p.player_id) AS elite_player_count
+FROM players p
+JOIN player_attributes pa ON p.player_api_id = pa.player_api_id
+WHERE pa.overall_rating >= 80;
+```
+TABLES_USED: players, player_attributes
+COMPLEXITY: simple
+```
+
+### Example 3 — Multi-table JOIN with aggregation:
+```
+USER_QUERY: Which team has the highest average player rating in the Premier League?
+SQL:
+```sql
+WITH team_avg AS (
+  SELECT
+    t.team_long_name,
+    ROUND(AVG(pa.overall_rating)::NUMERIC, 2) AS avg_rating,
+    COUNT(DISTINCT p.player_id)                AS player_count
+  FROM teams t
+  JOIN player_stats ps  ON t.team_api_id  = ps.home_team_api_id
+  JOIN players p        ON p.player_api_id = ps.player_api_id
+  JOIN player_attributes pa ON p.player_api_id = pa.player_api_id
+  JOIN leagues l        ON l.id            = ps.league_id
+  WHERE l.name = 'England Premier League'
+  GROUP BY t.team_long_name
+)
+SELECT team_long_name, avg_rating, player_count
+FROM team_avg
+ORDER BY avg_rating DESC
+LIMIT 10;
+```
+TABLES_USED: teams, player_stats, players, player_attributes, leagues
 COMPLEXITY: medium
 ```
 
-### Example 3 — Aggregation with ranking:
+### Example 4 — Complex ranking with CTE:
 ```
-USER_QUERY: Which department has the highest average GPA?
+USER_QUERY: Find the top 5 leagues by average overall player rating across all seasons
 SQL:
 ```sql
-SELECT
-  s.department,
-  ROUND(AVG(s.gpa)::NUMERIC, 2) AS avg_gpa,
-  COUNT(s.student_id)            AS student_count
-FROM students s
-GROUP BY s.department
-ORDER BY avg_gpa DESC
-LIMIT 10;
-```
-TABLES_USED: students
-COMPLEXITY: simple
-```
-
-### Example 4 — Complex multi-hop (instructor + student + course):
-```
-USER_QUERY: Find the instructor who teaches the most popular course based on enrollment count
-SQL:
-```sql
-WITH course_enrollment AS (
+WITH league_ratings AS (
   SELECT
-    e.course_id,
-    COUNT(e.student_id) AS enrollment_count
-  FROM enrollments e
-  GROUP BY e.course_id
-),
-ranked_courses AS (
-  SELECT
-    c.course_id,
-    c.course_name,
-    ce.enrollment_count,
-    t.instructor_id,
-    i.name AS instructor_name
-  FROM courses c
-  JOIN course_enrollment ce ON c.course_id  = ce.course_id
-  JOIN teaches t             ON c.course_id  = t.course_id
-  JOIN instructors i         ON t.instructor_id = i.instructor_id
-  ORDER BY ce.enrollment_count DESC
-  LIMIT 1
+    l.name                                     AS league_name,
+    l.country_id,
+    ROUND(AVG(pa.overall_rating)::NUMERIC, 2)  AS avg_rating,
+    COUNT(DISTINCT p.player_id)                AS player_count
+  FROM leagues l
+  JOIN player_stats ps  ON l.id             = ps.league_id
+  JOIN players p        ON p.player_api_id  = ps.player_api_id
+  JOIN player_attributes pa ON p.player_api_id = pa.player_api_id
+  GROUP BY l.name, l.country_id
 )
 SELECT
-  instructor_name,
-  course_name,
-  enrollment_count
-FROM ranked_courses;
+  league_name,
+  avg_rating,
+  player_count
+FROM league_ratings
+ORDER BY avg_rating DESC
+LIMIT 5;
 ```
-TABLES_USED: enrollments, courses, teaches, instructors
+TABLES_USED: leagues, player_stats, players, player_attributes
 COMPLEXITY: complex
 ```
 

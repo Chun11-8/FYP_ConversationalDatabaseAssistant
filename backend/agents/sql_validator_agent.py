@@ -95,21 +95,41 @@ class SQLValidatorAgent:
 
     def _check_semantic(self, sql: str, schema_context: str):
         """
-        Lightweight semantic check: extract table names from SQL and verify
-        they appear in schema_context. 
-        Note: this is best-effort — SchemaRetriever is the authoritative source.
+        Lightweight semantic check: verify table and column names from the SQL
+        appear in schema_context using word-boundary matching.
+        Note: advisory only — SchemaRetriever is the authoritative source.
         """
+        import re as _re
         try:
             ast = sqlglot.parse_one(sql, dialect=self.dialect)
+            schema_lower = schema_context.lower()
+
+            # ── Table check (word-boundary to avoid substring false-positives) ──
             tables_in_sql = {
                 t.name.lower()
                 for t in ast.find_all(sqlglot.exp.Table)
                 if t.name
             }
-            schema_lower = schema_context.lower()
-            missing = [t for t in tables_in_sql if t not in schema_lower]
-            if missing:
-                return False, f"Tables not found in schema: {missing}"
+            missing_tables = [
+                t for t in tables_in_sql
+                if not _re.search(rf"\b{_re.escape(t)}\b", schema_lower)
+            ]
+            if missing_tables:
+                return False, f"Tables not found in schema: {missing_tables}"
+
+            # ── Column check (word-boundary, advisory) ───────────────────────
+            columns_in_sql = {
+                c.name.lower()
+                for c in ast.find_all(sqlglot.exp.Column)
+                if c.name
+            }
+            missing_cols = [
+                c for c in columns_in_sql
+                if not _re.search(rf"\b{_re.escape(c)}\b", schema_lower)
+            ]
+            if missing_cols:
+                return False, f"Columns not found in schema: {missing_cols}"
+
         except Exception as e:
             return False, f"Could not parse for semantic check: {e}"
 

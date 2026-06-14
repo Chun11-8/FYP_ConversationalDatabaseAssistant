@@ -9,7 +9,6 @@ import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional, TypedDict
-import os
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
@@ -17,6 +16,7 @@ from langgraph.graph import END, StateGraph
 from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
 from backend.agents.safety import enforce_limit
+from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
@@ -76,9 +76,8 @@ class OrchestrationAgent:
     Master agent — routes queries, enforces safety, coordinates sub-agents.
     Uses LangGraph stateful graph for deterministic flow with conditional edges.
     """
-    current_file_dir = os.path.dirname(os.path.abspath(__file__))
-
-    INTENT_PROMPT = open(os.path.join(current_file_dir, "prompt.md")).read()  # loaded once
+    # Load only the intent-classification section — not the full 250-line file
+    INTENT_PROMPT: str = PromptHarness.get("ORCHESTRATION_AGENT")
 
     def __init__(self, config: dict):
         self._config = config
@@ -186,13 +185,23 @@ class OrchestrationAgent:
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
         sql_agent = self._get_sql_agent()
+
+        few_shots = list(state["few_shot_examples"])
+        # On fallback retry after empty generation, inject a format reminder so the
+        # LLM knows it must wrap SQL in ```sql ... ``` fences.
+        if state.get("fallback_level", 0) >= 1 and not state.get("generated_sqls"):
+            few_shots = [
+                "IMPORTANT: Your previous response did not contain a SQL code block. "
+                "You MUST wrap your SQL in ```sql ... ``` fences."
+            ] + few_shots
+
         sqls = sql_agent.generate(
             query=state["user_query"],
             schema_context=state["schema_context"],
-            few_shots=state["few_shot_examples"],
+            few_shots=few_shots,
             history=state["conversation_history"][-4:],
         )
-        print(f"Generated SQLs: {sqls}")
+        logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
         best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
         logger.info(f"[SQL_GEN] best={best[:80]}")
         return {**state, "generated_sqls": sqls, "best_sql": best}
@@ -323,18 +332,35 @@ class OrchestrationAgent:
 
         if level == 1:
             # Broaden schema scan
-            schema_chunks = retrieve(state["user_query"],"FYP",top_k_tables=10 ,store="pgvector")
+            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=10, store="pgvector")
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
         if level == 2:
-            return {**state, "response": (
-                "I'm having trouble finding the relevant tables for your query. "
+            response = (
+                "I'm having trouble generating a valid SQL query for your question. "
                 "Could you clarify which tables or columns you're referring to? "
-                "For example: 'Show me students from the **enrollments** table...'"
-            ), "fallback_level": 2}
+                "For example: 'Show me players from the **players** table with rating above 80...'"
+            )
+            # Persist clarification so it appears in conversation history
+            self.memory.add(
+                session_id=state["session_id"],
+                user_query=state["user_query"],
+                response=response,
+                sql=None,
+                valid=None,
+            )
+            return {**state, "response": response, "fallback_level": 2}
 
-        return {**state, "response": "Unable to process the query. Please rephrase.", "fallback_level": 3}
+        response = "Unable to process the query. Please rephrase."
+        self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=response,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": response, "fallback_level": 3}
 
     # ── Conditional Edges ───────────────────────
 
