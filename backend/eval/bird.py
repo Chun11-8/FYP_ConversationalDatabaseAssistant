@@ -324,8 +324,13 @@ def run_bird_eval(
             continue
 
         # ── SQL generation ───────────────────────────────────────────────────
+        # Promote the BIRD evidence hint into a structured block so the generator
+        # gives it higher salience — it often names the exact column/table needed
+        # for a correct JOIN.
         full_query = (
-            f"{question}\n\nHint: {evidence}" if evidence.strip() else question
+            f"<domain_context>{evidence.strip()}</domain_context>\n\n{question}"
+            if evidence.strip()
+            else question
         )
         t_gen = time.perf_counter()
         pred_sql = ""

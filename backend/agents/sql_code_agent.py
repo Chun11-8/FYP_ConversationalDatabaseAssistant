@@ -17,6 +17,53 @@ _RERANKER_SCHEMA_CAP = 3500
 
 
 # ─────────────────────────────────────────────
+# SQLite dialect normalization
+# ─────────────────────────────────────────────
+# The agent generates PostgreSQL-flavoured SQL. When the target backend is
+# SQLite (e.g. the BIRD benchmark harness), several PostgreSQL-only constructs
+# are syntactically valid but fail at execution — producing EX/F1/VES = 0 even
+# when the query logic is correct. These transforms rewrite the common ones.
+# All are idempotent so they are safe to apply after a sqlglot transpile pass.
+
+def _to_sqlite(sql: str) -> str:
+    """Deterministic regex rewrites of PostgreSQL-only constructs to SQLite."""
+    out = sql
+
+    # ILIKE → LIKE (SQLite LIKE is already case-insensitive for ASCII)
+    out = re.sub(r"\bILIKE\b", "LIKE", out, flags=re.IGNORECASE)
+
+    # STRING_AGG(expr, sep) → GROUP_CONCAT(expr, sep)
+    out = re.sub(r"\bSTRING_AGG\s*\(", "GROUP_CONCAT(", out, flags=re.IGNORECASE)
+
+    # x::NUMERIC / x::numeric(10,2) → CAST(x AS REAL); other ::TYPE → CAST(x AS TYPE)
+    def _cast_repl(m: "re.Match") -> str:
+        expr, typ = m.group(1), m.group(2).upper()
+        if typ in ("NUMERIC", "DECIMAL"):
+            typ = "REAL"
+        return f"CAST({expr} AS {typ})"
+
+    out = re.sub(
+        r"(\w+)\s*::\s*([A-Za-z]+)(?:\s*\([0-9,\s]*\))?",
+        _cast_repl,
+        out,
+    )
+
+    # CAST(x AS NUMERIC[(p,s)]) / DECIMAL → CAST(x AS REAL)
+    out = re.sub(
+        r"CAST\((.*?)\s+AS\s+(?:NUMERIC|DECIMAL)(?:\s*\([0-9,\s]*\))?\)",
+        r"CAST(\1 AS REAL)",
+        out,
+        flags=re.IGNORECASE,
+    )
+
+    # Boolean literals → integer literals
+    out = re.sub(r"\bTRUE\b", "1", out, flags=re.IGNORECASE)
+    out = re.sub(r"\bFALSE\b", "0", out, flags=re.IGNORECASE)
+
+    return out
+
+
+# ─────────────────────────────────────────────
 # SQL Code Agent
 # ─────────────────────────────────────────────
 
@@ -50,13 +97,36 @@ class SQLCodeAgent:
         ]
 
         raw = self.llm.invoke(messages).content
-        
+
         #print(raw)
         sqls = self._extract_sqls(raw)
+        sqls = [self.normalize_dialect(s) for s in sqls]
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
         return sqls[: self.TOP_K]
+
+    def normalize_dialect(self, sql: str) -> str:
+        """
+        Rewrite generated SQL to the configured target dialect.
+
+        No-op unless ``self.dialect == "sqlite"``. For SQLite, runs a best-effort
+        sqlglot transpile (postgres → sqlite) followed by a deterministic regex
+        pass (:func:`_to_sqlite`) that guarantees the named PostgreSQL-only
+        constructs are rewritten even when sqlglot leaves them untouched or fails.
+        """
+        if not sql or self.dialect != "sqlite":
+            return sql
+
+        out = sql
+        try:
+            transpiled = sqlglot.transpile(out, read="postgres", write="sqlite")
+            if transpiled and transpiled[0].strip():
+                out = transpiled[0]
+        except Exception as exc:  # malformed candidate — fall back to regex only
+            logger.debug(f"[DIALECT] sqlglot transpile failed: {exc}")
+
+        return _to_sqlite(out)
 
     def _build_prompt(
         self,
