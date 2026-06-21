@@ -23,19 +23,16 @@ export interface TextMessage extends BaseMessage {
   feedback?: 'up' | 'down' | null;
 }
 
-export interface McqOption {
-  id: string;
-  text: string;
-}
+export type Message = TextMessage;
 
-export interface McqMessage extends BaseMessage {
-  type: 'mcq';
-  question: string;
-  options: McqOption[];
-  selectedOptionId?: string;
-}
+// ── Session sidebar types ────────────────────────────────────────────────────
 
-export type Message = TextMessage | McqMessage;
+export interface SessionSummary {
+  session_id: string;
+  title: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
 
 // ── Schema browser types ────────────────────────────────────────────────────
 

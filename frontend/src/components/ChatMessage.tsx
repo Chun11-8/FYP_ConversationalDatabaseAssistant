@@ -4,12 +4,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import type { Message, McqOption, TextMessage } from '../types';
+import type { Message, TextMessage } from '../types';
 import { downloadUrl } from '../api/client';
 
 interface ChatMessageProps {
   message: Message;
-  onMcqSelect?: (messageId: string, option: McqOption) => void;
   onFeedback?: (messageId: string, rating: 'up' | 'down') => void;
 }
 
@@ -168,60 +167,28 @@ function AssistantMessage({
   );
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onMcqSelect, onFeedback }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onFeedback }) => {
   const isBot = message.role === 'assistant';
 
-  if (isBot && message.type === 'text') {
+  if (isBot) {
     return <AssistantMessage message={message} onFeedback={onFeedback} />;
   }
 
   return (
-    <div className={`message-wrapper ${isBot ? 'message-bot' : 'message-user'}`}>
+    <div className="message-wrapper message-user">
       <div className="message-inner">
-        {isBot && (
-          <div className="avatar avatar-bot">
-            <Bot size={16} />
-          </div>
-        )}
-
         <div className="message-content w-full">
           {/* Timestamp for user messages */}
-          {!isBot && (
-            <div className="msg-meta msg-meta--right">
-              <span className="msg-time">{formatTime(message.timestamp)}</span>
-            </div>
-          )}
+          <div className="msg-meta msg-meta--right">
+            <span className="msg-time">{formatTime(message.timestamp)}</span>
+          </div>
 
-          {message.type === 'text' && <div>{message.content}</div>}
-
-          {message.type === 'mcq' && (
-            <>
-              <div>{message.question}</div>
-              <div className="mcq-container">
-                {message.options.map((option) => {
-                  const isSelected = message.selectedOptionId === option.id;
-                  const isDisabled = message.selectedOptionId !== undefined;
-                  return (
-                    <button
-                      key={option.id}
-                      className={`mcq-option ${isSelected ? 'selected' : ''}`}
-                      disabled={isDisabled}
-                      onClick={() => !isDisabled && onMcqSelect?.(message.id, option)}
-                    >
-                      {option.text}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <div>{message.content}</div>
         </div>
 
-        {!isBot && (
-          <div className="avatar" style={{ backgroundColor: '#4b5563' }}>
-            <User size={16} />
-          </div>
-        )}
+        <div className="avatar" style={{ backgroundColor: '#4b5563' }}>
+          <User size={16} />
+        </div>
       </div>
     </div>
   );

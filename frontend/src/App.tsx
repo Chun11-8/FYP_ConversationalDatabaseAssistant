@@ -1,18 +1,34 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Message, TextMessage } from './types';
+import type { Message, TextMessage, Role, SessionSummary } from './types';
 import { ChatLayout } from './components/ChatLayout';
 import type { AppTab } from './components/ChatLayout';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { DatabaseTab } from './components/DatabaseTab';
-import { createSession, sendChat, submitFeedback } from './api/client';
+import {
+  createSession, sendChat, submitFeedback, listSessions, getHistory,
+} from './api/client';
 
 const LS_API_KEY = 'db_assistant_api_key';
+const LS_SESSION_ID = 'db_assistant_session_id';
+const LS_MESSAGES = 'db_assistant_messages';
+
+function loadStoredMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(LS_MESSAGES);
+    return raw ? (JSON.parse(raw) as Message[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function App() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(
+    () => localStorage.getItem(LS_SESSION_ID),
+  );
+  const [messages, setMessages] = useState<Message[]>(loadStoredMessages);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
@@ -28,12 +44,28 @@ function App() {
     }
   }, [apiKey]);
 
-  // Initialise session on mount
+  // Persist current session id + messages so a page refresh restores the chat
   useEffect(() => {
-    createSession()
-      .then(setSessionId)
-      .catch(() => setError('Could not connect to the server. Is the backend running?'));
+    if (sessionId) localStorage.setItem(LS_SESSION_ID, sessionId);
+  }, [sessionId]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_MESSAGES, JSON.stringify(messages));
+  }, [messages]);
+
+  const refreshSessions = useCallback(() => {
+    listSessions().then(setSessions).catch(() => { /* sidebar is best-effort */ });
   }, []);
+
+  // Initialise: reuse the persisted session if present, else create a new one.
+  useEffect(() => {
+    if (!sessionId) {
+      createSession()
+        .then(setSessionId)
+        .catch(() => setError('Could not connect to the server. Is the backend running?'));
+    }
+    refreshSessions();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -69,12 +101,13 @@ function App() {
         feedback: null,
       };
       setMessages((prev) => [...prev, botMsg]);
+      refreshSessions();  // surface the (possibly new) session in the sidebar
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, isLoading, apiKey]);
+  }, [sessionId, isLoading, apiKey, refreshSessions]);
 
   const handleFeedback = useCallback(async (messageId: string, rating: 'up' | 'down') => {
     // Optimistic update — apply immediately, revert is not needed (feedback is best-effort)
@@ -107,10 +140,57 @@ function App() {
     }
   }, []);
 
+  const handleSelectSession = useCallback(async (id: string) => {
+    if (id === sessionId || isLoading) return;
+    setError(null);
+    try {
+      const turns = await getHistory(id);
+      const restored: Message[] = turns
+        .filter((t) => t.role === 'user' || t.role === 'assistant')
+        .map((t) => ({
+          id: uuidv4(),
+          role: t.role as Role,
+          timestamp: t.timestamp ? Date.parse(t.timestamp) : Date.now(),
+          type: 'text',
+          content: t.content,
+          sql: t.sql ?? null,
+          feedback: null,
+        }));
+      setSessionId(id);
+      setMessages(restored);
+    } catch {
+      setError('Could not load that conversation.');
+    }
+  }, [sessionId, isLoading]);
+
+  const handleExport = useCallback(() => {
+    if (messages.length === 0) return;
+    const blocks = messages.map((m) => {
+      const who = m.role === 'user' ? '## You' : '## Assistant';
+      let block = `${who}\n\n${m.content}`;
+      if (m.role === 'assistant' && m.sql) {
+        block += `\n\n\`\`\`sql\n${m.sql.trim()}\n\`\`\``;
+      }
+      return block;
+    });
+    const md = `# Conversation Export\n\n${blocks.join('\n\n---\n\n')}\n`;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversation_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [messages]);
+
   return (
     <ChatLayout
       onNewChat={handleNewChat}
-      chatHistory={[]}
+      sessions={sessions}
+      activeSessionId={sessionId}
+      onSelectSession={handleSelectSession}
+      onExport={handleExport}
+      canExport={messages.length > 0}
       activeTab={activeTab}
       onTabChange={setActiveTab}
       apiKey={apiKey}
