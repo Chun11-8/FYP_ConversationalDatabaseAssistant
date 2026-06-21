@@ -154,12 +154,8 @@ class ResponseOptimizer:
             )),
         ]).content
 
-        return (
-            f"{raw}\n\n"
-            f"**SQL Used:**\n```sql\n{sql}\n```\n\n"
-            f"_{len(rows)} record(s) returned_"
-        )
- 
+        return raw.strip()
+
     def _format_table(self, query: str, sql: str, rows: list, count: int) -> str:
         """11–500 rows: markdown table with a short LLM summary header."""
         headers = list(rows[0].keys()) if isinstance(rows[0], dict) else [f"col_{i}" for i in range(len(rows[0]))]
@@ -186,12 +182,7 @@ class ResponseOptimizer:
             )),
         ]).content
 
-        return (
-            f"{summary}\n\n"
-            f"{table}\n\n"
-            f"**SQL Used:**\n```sql\n{sql}\n```\n\n"
-            f"_{count} record(s) returned_"
-        )
+        return f"{summary.strip()}\n\n{table}"
         
     def _format_file(
         self, query: str, sql: str, rows: list, count: int
@@ -223,9 +214,7 @@ class ResponseOptimizer:
             )
 
         text = (
-            f"Your query returned **{count} records** — too large to display inline.\n\n"
-            f"A CSV file has been prepared for download.\n\n"
-            f"**SQL Used:**\n```sql\n{sql}\n```\n\n"
-            f"_{count} record(s) returned_"
+            f"Your query returned **{count} records** — too large to display inline. "
+            f"A CSV file has been prepared for download."
         )
         return text, filename
