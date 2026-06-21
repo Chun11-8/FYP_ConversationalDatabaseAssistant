@@ -251,6 +251,53 @@ Generate {self.TOP_K} candidate queries. Each must:
 Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
 """.strip()
 
+    # ── ReAct refine: regenerate from an execution observation ──────────────
+
+    def regenerate(
+        self,
+        query: str,
+        schema_context: str,
+        original_sql: str,
+        error: str,
+        history: List[Dict[str, str]],
+    ) -> List[str]:
+        """
+        Produce corrected SQL candidates given a failed query and the observation
+        (an execution error or a 0-row result). Uses the standalone
+        ``sql_regeneration.md`` prompt. Never raises a missing-template error to
+        the caller — falls back to a built-in template if the file is absent.
+        """
+        try:
+            template = PromptHarness.get_file("sql_regeneration.md")
+        except Exception:
+            template = (
+                "Fix the failed SQL so it answers the question. "
+                "Question: {user_question}\nObservation: {validation_error}\n"
+                "Original SQL:\n{original_sql}\nSchema:\n{schema_context}\n"
+                "Return {top_k} corrected ```sql``` blocks."
+            )
+
+        # Use replace (not str.format) so literal braces in the template/SQL
+        # examples can never raise KeyError/IndexError.
+        prompt = (
+            template
+            .replace("{validation_error}", error)
+            .replace("{original_sql}", original_sql or "")
+            .replace("{top_k}", str(self.TOP_K))
+            .replace("{schema_context}", schema_context or "")
+            .replace("{user_question}", query)
+        )
+
+        messages = [
+            SystemMessage(content=self._system_prompt()),
+            HumanMessage(content=prompt),
+        ]
+        raw = self.llm.invoke(messages).content
+        sqls = [self.normalize_dialect(s) for s in self._extract_sqls(raw)]
+        if not sqls:
+            logger.warning("[REFINE] No SQL extracted from regeneration output")
+        return sqls[: self.TOP_K]
+
     def _system_prompt(self) -> str:
         try:
             base = PromptHarness.get("SQL_CODE_AGENT")

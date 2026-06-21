@@ -64,6 +64,7 @@ class AgentState(TypedDict):
     turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
+    refine_level: int                # ReAct execute→refine rounds taken (0=none)
     error: Optional[str]
 
 
@@ -78,6 +79,9 @@ class OrchestrationAgent:
     """
     # Load only the intent-classification section — not the full 250-line file
     INTENT_PROMPT: str = PromptHarness.get("ORCHESTRATION_AGENT")
+
+    # ReAct: max execute→refine rounds before we accept the result as-is.
+    MAX_REFINE_ROUNDS: int = 1
 
     def __init__(self, config: dict):
         self._config = config
@@ -303,6 +307,57 @@ class OrchestrationAgent:
             logger.error(f"[EXECUTE] {e}")
             return {**state, "execution_result": None, "error": str(e)}
 
+    def refine_sql(self, state: AgentState) -> AgentState:
+        """
+        ReAct refine step: the last query errored or returned 0 rows. Feed the
+        failed SQL + the observation back through the regeneration prompt so the
+        LLM can fix the specific problem, then re-validate and re-execute.
+        """
+        level = state.get("refine_level", 0) + 1
+        print("\n" + "─" * 70)
+        print(f"🔁  NODE: refine_sql  (round {level}/{self.MAX_REFINE_ROUNDS})")
+        print("─" * 70)
+
+        # Build the observation the model must react to.
+        if state.get("error"):
+            observation = f"The query raised an execution error: {state['error']}"
+        else:
+            observation = (
+                "The query is valid and executed successfully but returned 0 rows. "
+                "If a filter, JOIN, or value/format looks too strict or wrong, fix it; "
+                "if the query already looks correct, return it unchanged."
+            )
+        print(f"  Observation: {observation}")
+        print("  Failed SQL:")
+        for line in (state.get("best_sql") or "").splitlines():
+            print(f"    {line}")
+
+        sql_agent = self._get_sql_agent()
+        try:
+            sqls = sql_agent.regenerate(
+                query=state["user_query"],
+                schema_context=state["schema_context"],
+                original_sql=state["best_sql"],
+                error=observation,
+                history=state["conversation_history"][-4:],
+            )
+            best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"]) if sqls else ""
+        except Exception as exc:
+            print(f"  ❌ Refine failed: {exc}")
+            logger.warning(f"[REFINE] regeneration failed: {exc}")
+            return {**state, "refine_level": level}
+
+        if not best:
+            print("  ⚠️  Refine produced no SQL — giving up, will format prior result.")
+            return {**state, "refine_level": level}
+
+        print("  ✏️  Refined SQL:")
+        for line in best.splitlines():
+            print(f"    {line}")
+        # Clear the prior error so the refined SQL gets a clean validate→execute pass.
+        return {**state, "best_sql": best, "generated_sqls": sqls,
+                "refine_level": level, "error": None}
+
     # Search results are usable when non-empty and not an error/diagnostic string.
     _SEARCH_RESULT_PREFIXES = ("Web search results for:", "1.")
 
@@ -474,6 +529,17 @@ class OrchestrationAgent:
             return "fallback_handler"
         return "generate_sql"
 
+    def route_after_execution(self, state: AgentState) -> str:
+        """ReAct: refine once on an execution error or an empty result set."""
+        if state.get("refine_level", 0) >= self.MAX_REFINE_ROUNDS:
+            return "format_response"
+        rows = state.get("execution_result")
+        has_error = bool(state.get("error"))
+        zero_rows = isinstance(rows, list) and len(rows) == 0
+        if has_error or zero_rows:
+            return "refine_sql"
+        return "format_response"
+
     # ── Graph Builder ───────────────────────────
 
     def _build_graph(self) -> Any:
@@ -484,6 +550,7 @@ class OrchestrationAgent:
         g.add_node("generate_sql", self.generate_sql)
         g.add_node("validate_sql", self.validate_sql)
         g.add_node("execute_sql", self.execute_sql)
+        g.add_node("refine_sql", self.refine_sql)
         g.add_node("format_response", self.format_response)
         g.add_node("handle_general", self.handle_general)
         g.add_node("handle_write_blocked", self.handle_write_blocked)
@@ -510,7 +577,14 @@ class OrchestrationAgent:
             "format_response": "format_response",
         })
 
-        g.add_edge("execute_sql", "format_response")
+        # ReAct: after execution, refine once on error/empty result, else format.
+        g.add_conditional_edges("execute_sql", self.route_after_execution, {
+            "refine_sql": "refine_sql",
+            "format_response": "format_response",
+        })
+        # Refined SQL re-enters validation (safety must run on it) → execute.
+        g.add_edge("refine_sql", "validate_sql")
+
         g.add_edge("handle_general", END)
         g.add_edge("handle_write_blocked", END)
         g.add_edge("format_response", END)
@@ -592,6 +666,7 @@ class OrchestrationAgent:
             "turn_id": None,
             "csv_path": None,
             "fallback_level": 0,
+            "refine_level": 0,
             "error": None,
         }
         t0 = time.perf_counter()
