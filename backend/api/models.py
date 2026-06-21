@@ -37,6 +37,7 @@ class FeedbackRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     db_connected: bool
+    vector_index: bool = False
     cache_enabled: bool = False
     memory_persistent: bool = False
 

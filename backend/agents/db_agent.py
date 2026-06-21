@@ -195,15 +195,23 @@ class OrchestrationAgent:
                 "You MUST wrap your SQL in ```sql ... ``` fences."
             ] + few_shots
 
-        sqls = sql_agent.generate(
-            query=state["user_query"],
-            schema_context=state["schema_context"],
-            few_shots=few_shots,
-            history=state["conversation_history"][-4:],
-        )
-        logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
-        best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
-        logger.info(f"[SQL_GEN] best={best[:80]}")
+        # Wrap LLM calls so an outage (bad key, network, rate limit) degrades to
+        # the graceful fallback path instead of bubbling up a 500. An empty
+        # best_sql is treated as invalid by validate_sql → fallback_handler.
+        try:
+            sqls = sql_agent.generate(
+                query=state["user_query"],
+                schema_context=state["schema_context"],
+                few_shots=few_shots,
+                history=state["conversation_history"][-4:],
+            )
+            logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
+            best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
+            logger.info(f"[SQL_GEN] best={best[:80]}")
+        except Exception as exc:
+            logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
+            return {**state, "generated_sqls": [], "best_sql": ""}
+
         return {**state, "generated_sqls": sqls, "best_sql": best}
 
     def validate_sql(self, state: AgentState) -> AgentState:
