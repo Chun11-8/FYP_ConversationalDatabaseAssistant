@@ -269,25 +269,36 @@ def get_schema_info(db_name: str | None = None) -> dict:
     finally:
         conn.close()
 
+    # Column descriptions (best-effort) from the dataset CSVs. Keyed by column
+    # name → (description, value_description). Never fatal if the files are absent.
+    try:
+        column_meanings = load_column_meanings()
+    except Exception as e:
+        print(f"  [WARN] Could not load column meanings: {e}")
+        column_meanings = {}
+
     clean: list[dict] = []
     for t in raw_tables:
         fk_map = {
             fk["from_col"]: f"{fk['to_table']}.{fk['to_col']}"
             for fk in t.get("foreign_keys", [])
         }
+        columns = []
+        for c in t["columns"]:
+            desc, val_desc = column_meanings.get(c["name"], ("", ""))
+            columns.append({
+                "name": c["name"],
+                "type": c["type"],
+                "not_null": c["not_null"],
+                "primary_key": c["primary_key"],
+                "foreign_key": fk_map.get(c["name"]),
+                "description": desc or None,
+                "value_description": val_desc or None,
+            })
         clean.append({
             "table_name": t["table_name"],
             "column_count": len(t["columns"]),
-            "columns": [
-                {
-                    "name": c["name"],
-                    "type": c["type"],
-                    "not_null": c["not_null"],
-                    "primary_key": c["primary_key"],
-                    "foreign_key": fk_map.get(c["name"]),
-                }
-                for c in t["columns"]
-            ],
+            "columns": columns,
         })
 
     return {

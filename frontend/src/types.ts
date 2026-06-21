@@ -44,6 +44,8 @@ export interface SchemaColumn {
   not_null: boolean;
   primary_key: boolean;
   foreign_key: string | null;
+  description?: string | null;
+  value_description?: string | null;
 }
 
 export interface SchemaTable {
