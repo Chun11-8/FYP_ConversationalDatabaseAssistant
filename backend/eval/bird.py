@@ -69,6 +69,8 @@ def extract_sqlite_schema(db_path: str) -> str:
     Introspect a SQLite database and return a plain-text schema context string
     suitable for passing to SQLCodeAgent and SQLValidatorAgent.
     """
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"SQLite database not found: {db_path}")
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()

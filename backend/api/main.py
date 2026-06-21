@@ -100,6 +100,29 @@ def _check_db() -> bool:
         return False
 
 
+def _check_vector_index() -> bool:
+    """Is the schema vector index populated? False on any error (degraded mode)."""
+    if not _db_config:
+        return False
+    try:
+        conn = psycopg2.connect(
+            dbname=_db_config.get("name", "FYP"),
+            user=_db_config.get("user", "postgres"),
+            password=_db_config.get("password"),
+            host=_db_config.get("host", "127.0.0.1"),
+            port=_db_config.get("port", 5432),
+            connect_timeout=2,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM schema_embeddings;")
+                return (cur.fetchone()[0] or 0) > 0
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
 def _get_agent() -> OrchestrationAgent:
     if _agent is None:
         raise HTTPException(status_code=503, detail="Agent not initialised yet.")
@@ -117,6 +140,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         db_connected=_check_db(),
+        vector_index=_check_vector_index(),
         cache_enabled=cache_enabled,
         memory_persistent=memory_persistent,
     )

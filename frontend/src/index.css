@@ -169,6 +169,12 @@ body, html, #root {
 
 .history-item:hover { background-color: var(--bg-surface); color: var(--text-primary); }
 
+.history-item--active {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .history-item-text {
   white-space: nowrap;
   overflow: hidden;

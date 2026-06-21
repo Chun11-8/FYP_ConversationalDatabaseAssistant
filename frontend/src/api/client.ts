@@ -1,4 +1,4 @@
-import type { SchemaInfo } from '../types';
+import type { SchemaInfo, SessionSummary } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
 
@@ -13,10 +13,11 @@ export interface ChatApiResponse {
 }
 
 export interface Turn {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'summary';
   content: string;
   sql?: string | null;
-  timestamp?: string;
+  valid?: boolean | null;
+  timestamp?: string | null;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -53,6 +54,10 @@ export async function sendChat(
 
 export async function getHistory(sessionId: string): Promise<Turn[]> {
   return request<Turn[]>(`/history/${encodeURIComponent(sessionId)}`);
+}
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  return request<SessionSummary[]>('/sessions');
 }
 
 export async function getSchema(): Promise<SchemaInfo> {

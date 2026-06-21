@@ -200,6 +200,10 @@ class ResponseOptimizer:
         >500 rows: write to CSV file, return (response_text, csv_filepath).
         The caller (FastAPI route) should serve the file as a download.
         """
+        # Belt-and-suspenders: recreate the output dir in case it was removed
+        # after construction, so a large result never crashes the response path.
+        os.makedirs(self.output_dir, exist_ok=True)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename  = f"query_results_{timestamp}.csv"
         filepath  = os.path.join(self.output_dir, filename)

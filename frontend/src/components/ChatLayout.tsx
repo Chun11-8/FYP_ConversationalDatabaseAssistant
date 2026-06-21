@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Plus, Menu, X, Database, MessageSquare, Eye, EyeOff } from 'lucide-react';
+import { Plus, Menu, X, Database, MessageSquare, Eye, EyeOff, Download } from 'lucide-react';
+import type { SessionSummary } from '../types';
 
 export type AppTab = 'chat' | 'database';
 
 interface ChatLayoutProps {
   children: ReactNode;
   onNewChat: () => void;
-  chatHistory: { id: string; title: string }[];
+  sessions: SessionSummary[];
+  activeSessionId: string | null;
+  onSelectSession: (sessionId: string) => void;
+  onExport: () => void;
+  canExport: boolean;
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   apiKey: string;
@@ -17,7 +22,11 @@ interface ChatLayoutProps {
 export const ChatLayout: React.FC<ChatLayoutProps> = ({
   children,
   onNewChat,
-  chatHistory,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onExport,
+  canExport,
   activeTab,
   onTabChange,
   apiKey,
@@ -50,13 +59,18 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             New Chat
           </button>
 
-          {chatHistory.length > 0 && (
+          {sessions.length > 0 && (
             <>
               <div className="sidebar-section-label">Recent</div>
               <div className="sidebar-history">
-                {chatHistory.map((chat) => (
-                  <button key={chat.id} className="history-item">
-                    <span className="history-item-text">{chat.title}</span>
+                {sessions.map((s) => (
+                  <button
+                    key={s.session_id}
+                    className={`history-item ${s.session_id === activeSessionId ? 'history-item--active' : ''}`}
+                    onClick={() => { onSelectSession(s.session_id); setIsSidebarOpen(false); }}
+                    title={s.title ?? 'Untitled conversation'}
+                  >
+                    <span className="history-item-text">{s.title ?? 'Untitled conversation'}</span>
                   </button>
                 ))}
               </div>
@@ -118,7 +132,19 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             </button>
           </nav>
 
-          <div style={{ width: '2.5rem' }} />
+          {activeTab === 'chat' ? (
+            <button
+              className="icon-button"
+              onClick={onExport}
+              disabled={!canExport}
+              aria-label="Export conversation"
+              title="Export conversation as Markdown"
+            >
+              <Download size={18} />
+            </button>
+          ) : (
+            <div style={{ width: '2.5rem' }} />
+          )}
         </header>
 
         {children}
