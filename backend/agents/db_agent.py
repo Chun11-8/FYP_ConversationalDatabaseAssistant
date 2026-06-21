@@ -612,12 +612,19 @@ class OrchestrationAgent:
         rows = final.get("execution_result")
         row_count = len(rows) if isinstance(rows, list) else None
 
+        # Send the raw rows to the frontend (capped at 500 to bound payload size).
+        # The frontend RecordsPanel handles display — first 10 visible, rest toggleable.
+        serialised_rows: list[dict] | None = None
+        if isinstance(rows, list) and rows:
+            serialised_rows = [dict(r) for r in rows[:500]]
+
         result = {
             "response":   final.get("response", ""),
             "sql":        final.get("best_sql") or None,
             "intent":     final.get("intent", ""),
             "validation": final.get("validation", {}),
             "row_count":  row_count,
+            "rows":       serialised_rows,
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
         }

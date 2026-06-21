@@ -59,8 +59,9 @@ class TestFormatBranchSelection:
         opt = _make_optimizer("Found many players.")
         text, path = opt.format("show all", "SELECT name FROM p", _rows(50))
         assert path is None
-        # markdown table headers present
-        assert "|" in text
+        # Table is now rendered by the frontend RecordsPanel;
+        # response is LLM text only.
+        assert "Found many players." in text
 
     def test_csv_branch_for_large_result(self, tmp_path):
         mock_llm = MagicMock()
@@ -79,7 +80,8 @@ class TestFormatBranchSelection:
         opt = _make_optimizer()
         text, path = opt.format("q", "SELECT 1", _rows(TABLE_LIMIT))
         assert path is None
-        assert "|" in text
+        # response is LLM text only; table rendered by frontend
+        assert "```sql" not in text
 
 
 # ── Output guardrail ──────────────────────────────────────────────────────────
@@ -165,11 +167,12 @@ class TestSqlInOutput:
         text, _ = opt.format("q", "SELECT 1", _rows(1))
         assert text == "Exactly this text."
 
-    def test_table_response_contains_markdown_table_not_sql(self):
+    def test_table_response_contains_no_embedded_table_or_sql(self):
         opt = _make_optimizer("Summary header.")
         text, _ = opt.format("q", "SELECT id, name FROM p", _rows(20))
-        assert "|" in text          # markdown table present
-        assert "```sql" not in text  # SQL block NOT embedded
+        # Table is rendered by frontend RecordsPanel; response is LLM text only
+        assert "Summary header." in text
+        assert "```sql" not in text
 
     def test_file_response_is_plain_message_not_sql(self, tmp_path):
         mock_llm = MagicMock()

@@ -23,6 +23,7 @@ class ChatResponse(BaseModel):
     intent: str
     validation: Dict[str, Any] = Field(default_factory=dict)
     row_count: Optional[int] = None
+    rows: Optional[List[Dict[str, Any]]] = None   # actual DB rows sent to frontend
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
 

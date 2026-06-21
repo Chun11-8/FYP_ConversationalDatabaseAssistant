@@ -96,6 +96,7 @@ function App() {
         sql: result.sql,
         intent: result.intent,
         row_count: result.row_count,
+        rows: result.rows,
         csv_path: result.csv_path,
         turn_id: result.turn_id,
         feedback: null,

@@ -15,6 +15,8 @@ export interface TextMessage extends BaseMessage {
   intent?: string;
   /** Number of DB rows returned */
   row_count?: number | null;
+  /** Raw DB rows — rendered by RecordsPanel (first 10 visible, rest toggleable) */
+  rows?: Record<string, unknown>[] | null;
   /** CSV filename served at /download/{csv_path} */
   csv_path?: string | null;
   /** DB id of the assistant turn — used to submit feedback */
