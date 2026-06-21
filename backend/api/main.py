@@ -38,6 +38,10 @@ from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.retrieval.data_processing import get_schema_info
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)-8s %(name)s — %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 # ── outputs directory — single source of truth shared with ResponseOptimizer ───
