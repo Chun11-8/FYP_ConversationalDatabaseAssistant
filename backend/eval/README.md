@@ -16,6 +16,36 @@ There are two ways to do it. Read the difference before you pick one.
 **Recommendation:** use **Path A** for the numbers you put in your report, and
 **Path B** while iterating on prompts/agents because it's faster and self-contained.
 
+> **One-command shortcut:** once the dataset is downloaded and the official repo
+> is cloned, `backend/eval/run_bird.sh` does all of Path A (generate predictions
+> → score EX + F1 + VES) in a single run. See [TL;DR](#tldr--one-command-path-a) below.
+
+---
+
+## TL;DR — one command (Path A)
+
+```bash
+# from the repo root, after downloading the data and cloning the official repo
+export OPENAI_API_KEY=sk-your-key
+BIRD_DATA=path/to/mini_dev_data \
+MINI_DEV_REPO=path/to/mini_dev \
+bash backend/eval/run_bird.sh
+```
+
+That script generates predictions with your system and runs all three official
+scorers, writing logs to `<mini_dev>/eval_result/predict_mini_dev_MYSYS_SQLite_{EX,F1,VES}.txt`.
+Useful overrides (all optional):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `BIRD_DATA` | `./mini_dev_data` | dataset root (questions, gold, dev_databases) |
+| `MINI_DEV_REPO` | `./mini_dev` | cloned official evaluator |
+| `SQL_DIALECT` | `SQLite` | `SQLite` \| `MySQL` \| `PostgreSQL` |
+| `NUM_CPUS` | `4` | parallelism for the scorers |
+| `SKIP_GENERATE` | `0` | set `1` to re-score existing predictions without regenerating |
+
+The sections below explain each step that this wrapper automates.
+
 ---
 
 ## How the official BIRD evaluation actually works
