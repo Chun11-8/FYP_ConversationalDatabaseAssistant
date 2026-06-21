@@ -499,7 +499,7 @@ class TestRunBirdEval:
         assert results[0]["pred_sql"] == ""
         assert results[0]["ex"] == 0.0
 
-    def test_evidence_appended_to_query(self, dev_json: str, db_dir_with_test_db: str):
+    def test_evidence_wrapped_in_domain_context(self, dev_json: str, db_dir_with_test_db: str):
         sql_agent, validator = self._make_agents("SELECT MAX(rating) FROM players")
         run_bird_eval(
             dev_json_path=dev_json,
@@ -508,11 +508,25 @@ class TestRunBirdEval:
             validator=validator,
             subset=2,
         )
-        # The second question has evidence="higher is better"; check it was passed
+        # The second question has evidence="higher is better"; it must be promoted
+        # into a <domain_context> block prepended to the question.
         call_args_list = sql_agent.generate.call_args_list
         second_call_query = call_args_list[1][1]["query"]  # keyword arg
-        assert "Hint:" in second_call_query
-        assert "higher is better" in second_call_query
+        assert "<domain_context>higher is better</domain_context>" in second_call_query
+        assert second_call_query.strip().startswith("<domain_context>")
+
+    def test_no_evidence_omits_domain_context(self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._make_agents("SELECT COUNT(*) FROM players")
+        run_bird_eval(
+            dev_json_path=dev_json,
+            db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent,
+            validator=validator,
+            subset=1,
+        )
+        # The first question has evidence=""; no empty block should be added.
+        first_call_query = sql_agent.generate.call_args_list[0][1]["query"]
+        assert "<domain_context>" not in first_call_query
 
     def test_result_record_has_all_fields(self, dev_json: str, db_dir_with_test_db: str):
         sql_agent, validator = self._make_agents()
