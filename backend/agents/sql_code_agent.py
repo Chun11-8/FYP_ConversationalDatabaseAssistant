@@ -64,6 +64,51 @@ def _to_sqlite(sql: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# Default few-shot examples (decomposition + correct aggregation grain)
+# ─────────────────────────────────────────────
+# The semantic cache supplies dynamic few-shots, but it is empty until enough
+# successful queries accumulate. Until then `few_shots` is []. These static
+# examples teach the two failure modes we keep hitting on JOIN questions:
+#   1. filter-in-one-table / metric-in-another → must JOIN before filtering;
+#   2. aggregate GRAIN → one AVG over joined rows, NOT AVG of per-group AVGs,
+#      and honor an evidence formula (e.g. /12) verbatim.
+# Kept in sync with prompt.md [SECTION: FEW_SHOT_TEMPLATE].
+
+DEFAULT_FEWSHOTS: List[str] = [
+    (
+        "USER_QUESTION: In 2012, which customer in the LAM segment had the least consumption?\n"
+        "REASONING: segment is in customers, consumption/date in yearmonth → JOIN on FK; "
+        "sum per customer over joined+filtered rows; 'least' → ORDER BY SUM ASC LIMIT 1.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t1.customerid\n"
+        "FROM customers AS t1\n"
+        "INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid\n"
+        "WHERE t1.segment = 'LAM' AND SUBSTR(t2.date, 1, 4) = '2012'\n"
+        "GROUP BY t1.customerid\n"
+        "ORDER BY SUM(t2.consumption) ASC\n"
+        "LIMIT 1;\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: What is the average monthly consumption of SME customers in 2013? "
+        "(evidence: average monthly consumption = AVG(consumption) / 12)\n"
+        "REASONING: ONE scalar number. Copy the evidence formula EXACTLY. JOIN customers↔"
+        "yearmonth, filter, then a SINGLE AVG over joined rows divided by 12 — do NOT "
+        "average per customer first (AVG(x)/12 != AVG(per-customer AVG(x))). Scalar → no "
+        "GROUP BY, no LIMIT.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT AVG(t2.consumption) / 12\n"
+        "FROM customers AS t1\n"
+        "INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid\n"
+        "WHERE SUBSTR(t2.date, 1, 4) = '2013' AND t1.segment = 'SME';\n"
+        "```"
+    ),
+]
+
+
+# ─────────────────────────────────────────────
 # SQL Code Agent
 # ─────────────────────────────────────────────
 
@@ -89,6 +134,10 @@ class SQLCodeAgent:
         history: List[Dict[str, str]],
     ) -> List[str]:
         """Generate TOP_K SQL candidates."""
+        # Fall back to the static decomposition examples when the semantic cache
+        # has no dynamic few-shots yet — they teach the JOIN/grain patterns.
+        if not few_shots:
+            few_shots = DEFAULT_FEWSHOTS
         prompt = self._build_prompt(query, schema_context, few_shots, history)
 
         system_p = self._system_prompt()
@@ -174,21 +223,30 @@ class SQLCodeAgent:
 
 Target SQL dialect: {dialect}
 
-Before writing SQL, silently deconstruct the question:
-- ANSWER COLUMNS: exactly what is asked for — for "who/which/what X" return only
-  X's identifying column; do NOT add the metric you sort by or any extra column.
-- FILTERS: turn EVERY term into a predicate. If the question names a value
-  (a code/label/category/name/year) that is not a table or column in the schema,
-  map it to the categorical column that holds it and filter on it — do not drop it.
-- EXTREMITY: least/most/lowest/highest/top → ORDER BY <metric> ASC|DESC + LIMIT 1
-  (or LIMIT N for "top N"), ordering by the aggregate.
+Decompose the question silently before writing SQL:
+1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
+   given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
+2. TABLES & JOINS: locate each needed column's table. If a filter column lives in
+   one table and the metric in another, JOIN them on the FK columns shown in the
+   schema. You cannot filter on a column that is not in your FROM/JOIN.
+3. GRAIN (most important): JOIN first → FILTER in WHERE → aggregate ONCE over the
+   resulting rows. Do NOT pre-aggregate in a CTE/subquery and aggregate again —
+   AVG(x) over joined rows is NOT the same number as AVG(per-group AVG(x)). Only
+   nest aggregates when the question explicitly asks "average per X then overall".
+4. FILTERS: every term → a predicate. Map a literal value (e.g. 'SME') to its
+   categorical column. Dates: SUBSTR(date,1,4)='2013' or date LIKE '2013%'.
+5. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
+   ORDER BY <agg> + LIMIT 1 (or N).
+
+Prefer the simplest correct shape:
+  SELECT <agg>(...) FROM a JOIN b ON a.k=b.k WHERE <filters>;
+Use a CTE only for genuine multi-step logic (e.g. rank-then-filter).
 
 Generate {self.TOP_K} candidate queries. Each must:
 - Use only tables/columns in <schema_context>; JOIN on the shown FK columns.
 - Be read-only (SELECT only) with explicit columns — never SELECT *.
-- Return ONLY the answer columns identified above (fewer is safer than extra).
-- Use a LIMIT matching intent: LIMIT 1 for a single superlative answer,
-  LIMIT N for "top N", otherwise ≤ 500.
+- Return ONLY the FINAL VALUE; honor any evidence formula exactly.
+- Aggregate at the correct grain (Step 3); no spurious GROUP BY/LIMIT on scalars.
 
 Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
 """.strip()

@@ -116,6 +116,32 @@ class TestGenerateNormalizes:
         assert "GROUP_CONCAT" in sqls[0].upper()
 
 
+# ── Default few-shots (decomposition + grain) injected when cache empty ────────
+
+class TestDefaultFewShots:
+
+    def test_default_fewshots_injected_when_cache_empty(self):
+        from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
+
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s", few_shots=[], history=[])
+
+        # The prompt sent to the LLM should embed the default examples.
+        sent_prompt = agent.llm.invoke.call_args[0][0][1].content
+        assert "AVG(t2.consumption) / 12" in sent_prompt   # grain/formula example
+        assert "ORDER BY SUM(t2.consumption) ASC" in sent_prompt
+
+    def test_cache_fewshots_take_precedence(self):
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s",
+                       few_shots=["CACHED_EXAMPLE_X"], history=[])
+        sent_prompt = agent.llm.invoke.call_args[0][0][1].content
+        assert "CACHED_EXAMPLE_X" in sent_prompt
+        assert "AVG(t2.consumption) / 12" not in sent_prompt
+
+
 # ── Reranker prompt + JOIN criterion ──────────────────────────────────────────
 
 class TestReranker:
