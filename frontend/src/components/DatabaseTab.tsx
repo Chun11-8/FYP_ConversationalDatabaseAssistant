@@ -1,7 +1,57 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronDown, Key, Link, RefreshCw } from 'lucide-react';
-import type { SchemaInfo, SchemaTable } from '../types';
+import { ChevronRight, ChevronDown, Key, Link, RefreshCw, Info } from 'lucide-react';
+import type { SchemaInfo, SchemaTable, SchemaColumn } from '../types';
 import { getSchema } from '../api/client';
+
+function ColumnRow({ col }: { col: SchemaColumn }) {
+  const [showDesc, setShowDesc] = useState(false);
+  const hasDesc = Boolean(col.description || col.value_description);
+
+  return (
+    <div className="schema-column-wrap">
+      <div
+        className={`schema-column ${hasDesc ? 'schema-column--has-desc' : ''}`}
+        onClick={hasDesc ? () => setShowDesc((v) => !v) : undefined}
+        role={hasDesc ? 'button' : undefined}
+        title={hasDesc ? (showDesc ? 'Hide description' : 'Show description') : undefined}
+      >
+        <span className="schema-col-name">{col.name}</span>
+        <span className="schema-col-type">{col.type}</span>
+        <span className="schema-col-badges">
+          {col.primary_key && (
+            <span className="col-badge col-badge--pk" title="Primary Key">
+              <Key size={9} /> PK
+            </span>
+          )}
+          {col.foreign_key && (
+            <span className="col-badge col-badge--fk" title={`→ ${col.foreign_key}`}>
+              <Link size={9} /> FK
+            </span>
+          )}
+          {col.not_null && !col.primary_key && (
+            <span className="col-badge col-badge--nn" title="Not Null">NN</span>
+          )}
+          {hasDesc && (
+            <span className={`col-desc-toggle ${showDesc ? 'col-desc-toggle--open' : ''}`}>
+              <Info size={11} />
+            </span>
+          )}
+        </span>
+      </div>
+
+      {hasDesc && showDesc && (
+        <div className="schema-col-desc">
+          {col.description && <p className="col-desc-text">{col.description}</p>}
+          {col.value_description && (
+            <p className="col-desc-values">
+              <span className="col-desc-label">Values:</span> {col.value_description}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TableRow({ table }: { table: SchemaTable }) {
   const [open, setOpen] = useState(false);
@@ -19,25 +69,7 @@ function TableRow({ table }: { table: SchemaTable }) {
       {open && (
         <div className="schema-columns">
           {table.columns.map((col) => (
-            <div key={col.name} className="schema-column">
-              <span className="schema-col-name">{col.name}</span>
-              <span className="schema-col-type">{col.type}</span>
-              <span className="schema-col-badges">
-                {col.primary_key && (
-                  <span className="col-badge col-badge--pk" title="Primary Key">
-                    <Key size={9} /> PK
-                  </span>
-                )}
-                {col.foreign_key && (
-                  <span className="col-badge col-badge--fk" title={`→ ${col.foreign_key}`}>
-                    <Link size={9} /> FK
-                  </span>
-                )}
-                {col.not_null && !col.primary_key && (
-                  <span className="col-badge col-badge--nn" title="Not Null">NN</span>
-                )}
-              </span>
-            </div>
+            <ColumnRow key={col.name} col={col} />
           ))}
         </div>
       )}

@@ -160,31 +160,39 @@ def extract_sample_rows_pg(conn, table_name: str, n: int = 3):
 
 def load_column_meanings(dataset_root: Path = None) -> dict:
     """
-    Load column descriptions from CSV files in dataset/minidev/MINIDEV/dev_databases/*/database_description/
-    Returns a flat dict: { "table.column" -> "meaning" }
+    Load column descriptions from CSV files in
+    dataset/minidev/MINIDEV/dev_databases/*/database_description/
+
+    Returns a dict keyed by the FULLY-QUALIFIED, lowercased "table.column":
+        { "customers.segment": (col_description, value_description), ... }
+
+    Keying by table.column (the CSV file stem is the table name) prevents columns
+    that share a name across tables from clobbering each other. Use
+    :func:`resolve_column_meaning` to look up a description (it handles the
+    qualified key plus a safe unambiguous bare-name fallback).
     """
     if dataset_root is None:
         dataset_root = Path("dataset/minidev/MINIDEV/dev_databases")
-    
+
     if not dataset_root.exists():
         print(f"  [WARN] Dataset root not found: {dataset_root}")
         return {}
-    
+
     meanings = {}
-    
+
     # Iterate through each database folder
     for db_folder in dataset_root.iterdir():
         if not db_folder.is_dir():
             continue
-        
+
         db_description_dir = db_folder / "database_description"
         if not db_description_dir.exists():
             continue
-        
+
         # Find all CSV files in database_description folder
         for csv_file in db_description_dir.glob("*.csv"):
-            table_name = csv_file.stem  # filename without .csv extension
-            
+            table_name = csv_file.stem  # filename without .csv extension == table name
+
             try:
                 with open(csv_file, "r", encoding="utf-8",errors="ignore") as f:
                     reader = csv.DictReader(f)
@@ -195,12 +203,39 @@ def load_column_meanings(dataset_root: Path = None) -> dict:
                             val_desc = row.get("value_description", "").strip()  # optional value description
                             #print(f"  [INFO] Loaded meaning for {table_name}.{col_name}: {col_desc}")
                             if col_name and col_desc:
-                                key = col_name
-                                meanings[key] = (clean_text(col_desc), clean_text(val_desc))    
+                                key = f"{table_name}.{col_name}".lower()
+                                meanings[key] = (clean_text(col_desc), clean_text(val_desc))
             except Exception as e:
                 print(f"  [WARN] Error reading {csv_file}: {e}")
     #print(meanings)
     return meanings
+
+
+def resolve_column_meaning(meanings: dict, table_name: str, col_name: str) -> tuple[str, str]:
+    """
+    Look up a column's (description, value_description) from a meanings dict that
+    is keyed by lowercased "table.column".
+
+    Resolution order:
+      1. Exact "table.column" match (correct, unambiguous).
+      2. Fallback: a bare column-name match, but ONLY when that column name is
+         unique across all tables — so we never attach a wrong description when
+         the same name exists in multiple tables.
+
+    Returns ("", "") when nothing matches.
+    """
+    if not meanings:
+        return ("", "")
+
+    qualified = f"{table_name}.{col_name}".lower()
+    if qualified in meanings:
+        return meanings[qualified]
+
+    target = col_name.lower()
+    hits = [v for k, v in meanings.items() if k.split(".", 1)[-1] == target]
+    if len(hits) == 1:
+        return hits[0]
+    return ("", "")
 
 
 
@@ -232,14 +267,11 @@ def process_database(db_name: str) -> Optional[dict]:
     for table in tables:
         table["sample_rows"] = extract_sample_rows_pg(conn, table["table_name"])
         for col in table["columns"]:
-            key = col["name"]
-            #print(col)
-            if key in column_meanings:
-                col["description"], col["value_description"] = column_meanings[key]
-            else:
-                col["description"] = ""
-                col["value_description"] = ""
-            #print(f"  → Sampled {len(table['sample_rows'])} rows from {table['table_name']}")
+            # Resolve by table.column (unambiguous), falling back to a unique
+            # bare column name only when it exists in exactly one table.
+            col["description"], col["value_description"] = resolve_column_meaning(
+                column_meanings, table["table_name"], col["name"]
+            )
     
     
     conn.close()
@@ -269,25 +301,38 @@ def get_schema_info(db_name: str | None = None) -> dict:
     finally:
         conn.close()
 
+    # Column descriptions (best-effort) from the dataset CSVs. Keyed by column
+    # name → (description, value_description). Never fatal if the files are absent.
+    try:
+        column_meanings = load_column_meanings()
+    except Exception as e:
+        print(f"  [WARN] Could not load column meanings: {e}")
+        column_meanings = {}
+
     clean: list[dict] = []
     for t in raw_tables:
         fk_map = {
             fk["from_col"]: f"{fk['to_table']}.{fk['to_col']}"
             for fk in t.get("foreign_keys", [])
         }
+        columns = []
+        for c in t["columns"]:
+            desc, val_desc = resolve_column_meaning(
+                column_meanings, t["table_name"], c["name"]
+            )
+            columns.append({
+                "name": c["name"],
+                "type": c["type"],
+                "not_null": c["not_null"],
+                "primary_key": c["primary_key"],
+                "foreign_key": fk_map.get(c["name"]),
+                "description": desc or None,
+                "value_description": val_desc or None,
+            })
         clean.append({
             "table_name": t["table_name"],
             "column_count": len(t["columns"]),
-            "columns": [
-                {
-                    "name": c["name"],
-                    "type": c["type"],
-                    "not_null": c["not_null"],
-                    "primary_key": c["primary_key"],
-                    "foreign_key": fk_map.get(c["name"]),
-                }
-                for c in t["columns"]
-            ],
+            "columns": columns,
         })
 
     return {

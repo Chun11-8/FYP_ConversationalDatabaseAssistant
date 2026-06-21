@@ -58,6 +58,8 @@ class SchemaColumn(BaseModel):
     not_null: bool
     primary_key: bool
     foreign_key: Optional[str] = None
+    description: Optional[str] = None        # what the column represents
+    value_description: Optional[str] = None  # what its values mean (optional)
 
 
 class SchemaTable(BaseModel):
