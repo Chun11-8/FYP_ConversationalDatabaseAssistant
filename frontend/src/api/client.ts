@@ -8,6 +8,7 @@ export interface ChatApiResponse {
   intent: string;
   validation: Record<string, unknown>;
   row_count: number | null;
+  rows: Record<string, unknown>[] | null;
   csv_path: string | null;
   turn_id: number | null;
 }

@@ -12,6 +12,53 @@ interface ChatMessageProps {
   onFeedback?: (messageId: string, rating: 'up' | 'down') => void;
 }
 
+const RECORDS_PREVIEW = 10;
+
+function RecordsPanel({ rows, total }: { rows: Record<string, unknown>[]; total: number }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!rows.length) return null;
+
+  const headers = Object.keys(rows[0]);
+  const visible = expanded ? rows : rows.slice(0, RECORDS_PREVIEW);
+  const hidden  = rows.length - RECORDS_PREVIEW;
+
+  return (
+    <div className="records-panel">
+      <div className="records-header">
+        <span className="records-title">Fetched records from database</span>
+        <span className="records-count">{total} record{total !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="records-table-wrap">
+        <table className="records-table">
+          <thead>
+            <tr>
+              {headers.map((h) => <th key={h}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((row, i) => (
+              <tr key={i}>
+                {headers.map((h) => (
+                  <td key={h}>{row[h] == null ? <span className="null-val">NULL</span> : String(row[h])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > RECORDS_PREVIEW && (
+        <button className="records-toggle" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? (
+            <><ChevronDown size={13} /> Show less</>
+          ) : (
+            <><ChevronRight size={13} /> Show {hidden} more record{hidden !== 1 ? 's' : ''}</>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SqlPanel({ sql }: { sql: string }) {
   const [expanded, setExpanded] = useState(false);
   const lines = sql.trim().split('\n');
@@ -111,25 +158,25 @@ function AssistantMessage({
         </div>
 
         <div className="message-content w-full">
-          {/* Metadata row: intent badge · row count · timestamp */}
+          {/* Metadata row: intent badge · timestamp */}
           <div className="msg-meta">
             {message.intent && <IntentBadge intent={message.intent} />}
-            {message.row_count != null && (
-              <span className="row-count-chip">
-                {message.row_count} record{message.row_count !== 1 ? 's' : ''} returned
-              </span>
-            )}
             <span className="msg-time">{formatTime(message.timestamp)}</span>
           </div>
 
-          {/* 1. LLM response text (+ inline table for medium result sets) */}
+          {/* 1. LLM response text */}
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {message.content}
             </ReactMarkdown>
           </div>
 
-          {/* 2. CSV download — only for large result sets (>500 rows) */}
+          {/* 2. Fetched records — first 10 visible, rest behind toggle */}
+          {message.rows && message.rows.length > 0 && (
+            <RecordsPanel rows={message.rows} total={message.row_count ?? message.rows.length} />
+          )}
+
+          {/* 3. CSV download — only when results exceed 500 rows */}
           {message.csv_path && (
             <a
               className="download-btn"
@@ -137,11 +184,11 @@ function AssistantMessage({
               download={message.csv_path}
             >
               <Download size={14} />
-              Download CSV ({message.row_count?.toLocaleString()} records)
+              Download full CSV ({message.row_count?.toLocaleString()} records)
             </a>
           )}
 
-          {/* 3. SQL Used — collapsible toggle, always last before actions */}
+          {/* 4. Toggleable SQL Used */}
           {message.sql && <SqlPanel sql={message.sql} />}
 
           {/* Action bar */}

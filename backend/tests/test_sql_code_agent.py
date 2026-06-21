@@ -116,6 +116,72 @@ class TestGenerateNormalizes:
         assert "GROUP_CONCAT" in sqls[0].upper()
 
 
+# ── Default few-shots (decomposition + grain) injected when cache empty ────────
+
+class TestDefaultFewShots:
+
+    def test_default_fewshots_injected_when_cache_empty(self):
+        from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
+
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s", few_shots=[], history=[])
+
+        # The prompt sent to the LLM should embed the default examples.
+        sent_prompt = agent.llm.invoke.call_args[0][0][1].content
+        assert "AVG(t2.consumption) / 12" in sent_prompt   # grain/formula example
+        assert "ORDER BY SUM(t2.consumption) ASC" in sent_prompt
+
+    def test_cache_fewshots_take_precedence(self):
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s",
+                       few_shots=["CACHED_EXAMPLE_X"], history=[])
+        sent_prompt = agent.llm.invoke.call_args[0][0][1].content
+        assert "CACHED_EXAMPLE_X" in sent_prompt
+        assert "AVG(t2.consumption) / 12" not in sent_prompt
+
+
+# ── ReAct regenerate (refine on execution observation) ────────────────────────
+
+class TestRegenerate:
+
+    def test_regenerate_fills_template_and_extracts_sql(self):
+        agent = _agent("postgres")
+        agent.llm.invoke.return_value = MagicMock(
+            content="```sql\nSELECT AVG(c) / 12 FROM t\n```"
+        )
+        sqls = agent.regenerate(
+            query="avg monthly consumption",
+            schema_context="t(c)",
+            original_sql="SELECT AVG(c) FROM t",
+            error="The query returned 0 rows.",
+            history=[],
+        )
+        assert sqls == ["SELECT AVG(c) / 12 FROM t"]
+        # The observation + original SQL + question must reach the prompt.
+        sent = agent.llm.invoke.call_args[0][0][1].content
+        assert "0 rows" in sent
+        assert "SELECT AVG(c) FROM t" in sent
+        assert "avg monthly consumption" in sent
+
+    def test_regenerate_normalizes_dialect(self):
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(
+            content="```sql\nSELECT STRING_AGG(name, ',') FROM t\n```"
+        )
+        sqls = agent.regenerate(query="q", schema_context="t", original_sql="bad",
+                                error="boom", history=[])
+        assert "GROUP_CONCAT" in sqls[0].upper()
+        assert "STRING_AGG" not in sqls[0].upper()
+
+    def test_regenerate_empty_output_returns_empty(self):
+        agent = _agent("postgres")
+        agent.llm.invoke.return_value = MagicMock(content="sorry, no idea")
+        assert agent.regenerate(query="q", schema_context="t", original_sql="x",
+                                error="e", history=[]) == []
+
+
 # ── Reranker prompt + JOIN criterion ──────────────────────────────────────────
 
 class TestReranker:

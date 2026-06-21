@@ -157,20 +157,7 @@ class ResponseOptimizer:
         return raw.strip()
 
     def _format_table(self, query: str, sql: str, rows: list, count: int) -> str:
-        """11–500 rows: markdown table with a short LLM summary header."""
-        headers = list(rows[0].keys()) if isinstance(rows[0], dict) else [f"col_{i}" for i in range(len(rows[0]))]
-
-        # Build markdown table
-        header_row = "| " + " | ".join(headers) + " |"
-        divider    = "| " + " | ".join(["---"] * len(headers)) + " |"
-        data_rows  = []
-        for row in rows:
-            values = row.values() if isinstance(row, dict) else row
-            data_rows.append("| " + " | ".join(str(v) for v in values) + " |")
-
-        table = "\n".join([header_row, divider] + data_rows)
-
-        # Short summary from LLM
+        """11–500 rows: LLM summary only — the frontend RecordsPanel renders the table."""
         summary = self.llm.invoke([
             SystemMessage(content=self.RESPONSE_PROMPT),
             HumanMessage(content=(
@@ -182,7 +169,7 @@ class ResponseOptimizer:
             )),
         ]).content
 
-        return f"{summary.strip()}\n\n{table}"
+        return summary.strip()
         
     def _format_file(
         self, query: str, sql: str, rows: list, count: int

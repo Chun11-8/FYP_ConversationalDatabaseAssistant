@@ -87,6 +87,70 @@ class TestGenerateSqlDegraded:
         assert result["generated_sqls"] == []
 
 
+# ── ReAct refine routing (execute → refine → re-execute, bounded) ─────────────
+
+class TestRefineRouting:
+
+    def _agent(self):
+        from backend.agents.db_agent import OrchestrationAgent
+        return OrchestrationAgent.__new__(OrchestrationAgent)
+
+    def test_refine_on_execution_error_under_budget(self):
+        agent = self._agent()
+        state = {"execution_result": None, "error": "boom", "refine_level": 0}
+        assert agent.route_after_execution(state) == "refine_sql"
+
+    def test_refine_on_zero_rows_under_budget(self):
+        agent = self._agent()
+        state = {"execution_result": [], "error": None, "refine_level": 0}
+        assert agent.route_after_execution(state) == "refine_sql"
+
+    def test_no_refine_when_budget_exhausted(self):
+        agent = self._agent()
+        state = {"execution_result": None, "error": "boom",
+                 "refine_level": agent.MAX_REFINE_ROUNDS}
+        assert agent.route_after_execution(state) == "format_response"
+
+    def test_no_refine_on_successful_nonempty_result(self):
+        agent = self._agent()
+        state = {"execution_result": [{"x": 1}], "error": None, "refine_level": 0}
+        assert agent.route_after_execution(state) == "format_response"
+
+    def test_refine_sql_regenerates_and_clears_error(self):
+        agent = self._agent()
+        sql_agent = MagicMock()
+        sql_agent.regenerate.return_value = ["SELECT 1 LIMIT 1"]
+        sql_agent.rerank.return_value = "SELECT 1 LIMIT 1"
+        agent.sql_agent = sql_agent
+
+        state = {
+            "user_query": "q", "schema_context": "s", "best_sql": "SELECT bad",
+            "conversation_history": [], "error": "boom", "refine_level": 0,
+            "execution_result": None,
+        }
+        out = agent.refine_sql(state)
+        assert out["best_sql"] == "SELECT 1 LIMIT 1"
+        assert out["error"] is None
+        assert out["refine_level"] == 1
+
+    def test_refine_sql_gives_up_when_no_sql_produced(self):
+        agent = self._agent()
+        sql_agent = MagicMock()
+        sql_agent.regenerate.return_value = []
+        sql_agent.rerank.return_value = ""
+        agent.sql_agent = sql_agent
+
+        state = {
+            "user_query": "q", "schema_context": "s", "best_sql": "SELECT bad",
+            "conversation_history": [], "error": "boom", "refine_level": 0,
+            "execution_result": None,
+        }
+        out = agent.refine_sql(state)
+        # best_sql unchanged, refine_level still incremented so the loop terminates
+        assert out["best_sql"] == "SELECT bad"
+        assert out["refine_level"] == 1
+
+
 # ── SemanticCache is a true no-op without a DB ────────────────────────────────
 
 class TestSemanticCacheNoop:
