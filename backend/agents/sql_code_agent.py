@@ -91,19 +91,33 @@ class SQLCodeAgent:
         """Generate TOP_K SQL candidates."""
         prompt = self._build_prompt(query, schema_context, few_shots, history)
 
+        system_p = self._system_prompt()
         messages = [
-            SystemMessage(content=self._system_prompt()),
+            SystemMessage(content=system_p),
             HumanMessage(content=prompt),
         ]
 
+        print("\n  ┌─ LLM SYSTEM PROMPT (sql_code_agent) ─────────────────────")
+        for line in system_p.splitlines():
+            print(f"  │ {line}")
+        print("  ├─ GENERATION PROMPT ──────────────────────────────────────")
+        for line in prompt.splitlines():
+            print(f"  │ {line}")
+        print("  └───────────────────────────────────────────────────────────")
+
         raw = self.llm.invoke(messages).content
 
-        #print(raw)
+        print("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
+        for line in raw.splitlines():
+            print(f"  │ {line}")
+        print("  └───────────────────────────────────────────────────────────")
+
         sqls = self._extract_sqls(raw)
         sqls = [self.normalize_dialect(s) for s in sqls]
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
+            print("  ⚠️  No SQL code blocks found in LLM output!")
         return sqls[: self.TOP_K]
 
     def normalize_dialect(self, sql: str) -> str:
@@ -210,10 +224,16 @@ class SQLCodeAgent:
         ]
 
         try:
-            choice = self.llm.invoke(messages).content.strip()
-            idx = int(re.search(r"\d", choice).group()) - 1
-            return sqls[max(0, min(idx, len(sqls) - 1))]
+            raw_choice = self.llm.invoke(messages).content.strip()
+            print(f"\n  ┌─ RERANKER OUTPUT ──────────────────────────────────────────")
+            print(f"  │ {raw_choice}")
+            print(f"  └────────────────────────────────────────────────────────────")
+            idx = int(re.search(r"\d", raw_choice).group()) - 1
+            chosen = sqls[max(0, min(idx, len(sqls) - 1))]
+            print(f"  🏆 Reranker chose candidate {idx + 1}")
+            return chosen
         except Exception:
+            print("  ⚠️  Reranker failed to parse choice — defaulting to candidate 1")
             return sqls[0]
 
     # ── Helpers ─────────────────────────────────

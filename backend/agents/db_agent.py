@@ -118,6 +118,13 @@ class OrchestrationAgent:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
         history_str = self._format_history(state.get("conversation_history", [])[-6:])
 
+        print("\n" + "━" * 70)
+        print("🔍  PIPELINE START — classify_intent")
+        print("━" * 70)
+        print(f"  Query   : {state['user_query']}")
+        print(f"  Session : {state.get('session_id', 'n/a')}")
+        print(f"  History : {history_str[:200]}{'…' if len(history_str) > 200 else ''}")
+
         messages = [
             SystemMessage(content=self.INTENT_PROMPT),
             HumanMessage(content=(
@@ -136,16 +143,28 @@ class OrchestrationAgent:
         if any(kw in state["user_query"].upper() for kw in dml_keywords):
             result = "WRITE_BLOCKED"
 
+        print(f"  ✅ Intent: {result}")
         logger.info(f"[INTENT] {result} | query={state['user_query'][:60]}")
         return {**state, "intent": result}
 
     
     def retrieve_schema(self, state: AgentState) -> AgentState:
         """Agentic RAG: retrieve relevant schema chunks + few-shot SQL pairs."""
+        print("\n" + "─" * 70)
+        print("📚  NODE: retrieve_schema")
+        print("─" * 70)
+
         # Embed the query once and reuse it for both cache read (now) and cache
         # write (after execution) — avoids a redundant embedding call per turn.
         query_embedding = self.semantic_cache.embed(state["user_query"])
         few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
+
+        if few_shots:
+            print(f"  💡 Few-shot examples injected ({len(few_shots)}):")
+            for i, ex in enumerate(few_shots, 1):
+                print(f"     [{i}] {ex[:120]}{'…' if len(ex) > 120 else ''}")
+        else:
+            print("  💡 Few-shot examples: none")
 
         try:
             schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=5, store="pgvector")
@@ -155,6 +174,21 @@ class OrchestrationAgent:
 
             primary = [t["table_name"] for t in schema_chunks["tables"]]
             fk_extra = [c["table_name"] for c in schema_chunks.get("fk_tables", [])]
+            print(f"  📋 Primary tables  : {primary}")
+            if fk_extra:
+                print(f"  🔗 FK-expanded     : {fk_extra}")
+
+            # Print similarity distances for debugging retrieval quality
+            print("  📊 Retrieval distances (lower = more relevant):")
+            for t in schema_chunks["tables"]:
+                print(f"       {t['distance']:.4f}  {t['table_name']}")
+
+            print("\n  📄 Schema context sent to LLM:")
+            print("  " + "·" * 60)
+            for line in schema_context.splitlines():
+                print(f"  {line}")
+            print("  " + "·" * 60)
+
             logger.info(
                 f"[RAG] Retrieved {len(primary)} table(s): {primary}"
                 + (f" | FK-expanded: {fk_extra}" if fk_extra else "")
@@ -163,6 +197,7 @@ class OrchestrationAgent:
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
         except Exception as e:
+            print(f"  ❌ RAG retrieval failed: {e}")
             logger.warning(f"[RAG] retrieval failed: {e}")
             return {**state, "schema_context": "", "few_shot_examples": few_shots,
                     "query_embedding": query_embedding, "fallback_level": 1}
@@ -184,6 +219,10 @@ class OrchestrationAgent:
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
+        print("\n" + "─" * 70)
+        print(f"🧠  NODE: generate_sql  (fallback_level={state.get('fallback_level', 0)})")
+        print("─" * 70)
+
         sql_agent = self._get_sql_agent()
 
         few_shots = list(state["few_shot_examples"])
@@ -205,10 +244,20 @@ class OrchestrationAgent:
                 few_shots=few_shots,
                 history=state["conversation_history"][-4:],
             )
+            print(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
+            for i, sql in enumerate(sqls, 1):
+                print(f"\n  ── Candidate {i} ──")
+                for line in sql.splitlines():
+                    print(f"     {line}")
             logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
+
             best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
+            print(f"\n  🏆 Reranker selected:")
+            for line in best.splitlines():
+                print(f"     {line}")
             logger.info(f"[SQL_GEN] best={best[:80]}")
         except Exception as exc:
+            print(f"  ❌ SQL generation failed: {exc}")
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
             return {**state, "generated_sqls": [], "best_sql": ""}
 
@@ -216,17 +265,41 @@ class OrchestrationAgent:
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""
+        print("\n" + "─" * 70)
+        print("✔️   NODE: validate_sql")
+        print("─" * 70)
         result = self.validator.validate(state["best_sql"], state["schema_context"])
+        status = "✅ VALID" if result.get("valid") else "❌ INVALID"
+        print(f"  {status}")
+        print(f"    syntax_ok   : {result.get('syntax_ok')}")
+        print(f"    safety_ok   : {result.get('safety_ok')}")
+        print(f"    semantic_ok : {result.get('semantic_ok')}")
+        if result.get("error"):
+            print(f"    error       : {result['error']}")
         logger.info(f"[VALIDATE] {result}")
         return {**state, "validation": result}
 
     def execute_sql(self, state: AgentState) -> AgentState:
         """Execute validated SELECT-only query against PostgreSQL."""
+        print("\n" + "─" * 70)
+        print("⚡  NODE: execute_sql")
+        print("─" * 70)
         sql = enforce_limit(state["best_sql"])
+        print("  SQL to execute:")
+        for line in sql.splitlines():
+            print(f"    {line}")
         try:
             rows = execute_query(sql)
+            row_count = len(rows) if isinstance(rows, list) else "?"
+            print(f"  ✅ Returned {row_count} row(s)")
+            if isinstance(rows, list) and rows:
+                preview = rows[:3]
+                print(f"  Preview (first {len(preview)}):")
+                for r in preview:
+                    print(f"    {dict(r)}")
             return {**state, "best_sql": sql, "execution_result": rows, "error": None}
         except Exception as e:
+            print(f"  ❌ Execution error: {e}")
             logger.error(f"[EXECUTE] {e}")
             return {**state, "execution_result": None, "error": str(e)}
 
@@ -310,6 +383,9 @@ class OrchestrationAgent:
 
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
+        print("\n" + "─" * 70)
+        print("📝  NODE: format_response")
+        print("─" * 70)
         if state.get("error"):
             response = f"I encountered an error executing the query: {state['error']}"
             csv_path = None
@@ -336,7 +412,12 @@ class OrchestrationAgent:
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
+        print("\n" + "─" * 70)
         level = state.get("fallback_level", 0) + 1
+        print(f"⚠️   NODE: fallback_handler → level {level}")
+        if state.get("validation", {}).get("error"):
+            print(f"  Reason: {state['validation']['error']}")
+        print("─" * 70)
 
         if level == 1:
             # Broaden schema scan
@@ -524,6 +605,9 @@ class OrchestrationAgent:
                 _tls.sql_agent = self.sql_agent
                 _tls.optimizer = self.optimizer
         latency_ms = int((time.perf_counter() - t0) * 1000)
+        print("\n" + "━" * 70)
+        print(f"✅  PIPELINE DONE  |  latency={latency_ms}ms  |  intent={final.get('intent')}")
+        print("━" * 70 + "\n")
 
         rows = final.get("execution_result")
         row_count = len(rows) if isinstance(rows, list) else None

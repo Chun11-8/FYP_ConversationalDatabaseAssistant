@@ -244,6 +244,10 @@ def retrieve(
     # ── [FUTURE] KB results ────────────────────────────────────────────────
     # kb_results = raw.get("knowledge_base", [])
 
+    _logger.info(f"[RETRIEVE] {len(tables)} table(s) returned for query: {query[:60]}")
+    for t in tables:
+        _logger.info(f"[RETRIEVE]   dist={t['distance']:.4f}  table={t['table_name']}")
+
     # Build prompt context string
     context_parts = ["### Relevant Table Schemas\n"]
     for item in tables:
@@ -274,12 +278,16 @@ def execute_query(sql: str) -> list[dict]:
         pg_config: PostgreSQL connection config dict (host, port, user, password).
     Returns:
         List of dicts representing query results (column names as keys).
-    """ 
+    """
+    _logger.info(f"[EXECUTE_QUERY] Running SQL:\n{sql}")
     backend = _get_backend("pgvector")
     conn  = backend.get_store()
     try:
-        return backend.run_query(conn, sql)
+        rows = backend.run_query(conn, sql)
+        _logger.info(f"[EXECUTE_QUERY] Returned {len(rows)} row(s)")
+        return rows
     except Exception as e:
+        _logger.error(f"[EXECUTE_QUERY] Error: {e}")
         print(f"Error executing query: {e}")
         raise
 
