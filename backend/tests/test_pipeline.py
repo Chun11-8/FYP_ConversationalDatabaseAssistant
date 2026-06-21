@@ -52,7 +52,8 @@ class TestFormatBranchSelection:
         opt = _make_optimizer("Here are 3 players.")
         text, path = opt.format("show players", "SELECT name FROM p", _rows(3))
         assert path is None
-        assert "Nice summary." in text or "Player" in text or "record" in text
+        # response is LLM text only — no SQL block embedded (frontend handles that)
+        assert "Here are 3 players." in text
 
     def test_table_branch_for_medium_result(self):
         opt = _make_optimizer("Found many players.")
@@ -141,16 +142,39 @@ class TestTruncateGeneral:
         opt.llm.invoke.assert_called_once()
 
 
-# ── SQL block in output ───────────────────────────────────────────────────────
+# ── SQL NOT embedded in response (frontend SqlPanel handles it) ────────────────
 
 class TestSqlInOutput:
 
-    def test_sql_block_included_in_inline(self):
+    def test_sql_not_embedded_in_inline_response(self):
+        # The SQL block must NOT appear in the response string — it is sent
+        # as a separate `sql` field and rendered by the frontend SqlPanel.
         opt = _make_optimizer("Here are the results.")
         text, _ = opt.format("players", "SELECT name FROM players LIMIT 5", _rows(2))
-        assert "SELECT" in text or "sql" in text.lower()
+        assert "```sql" not in text
+        assert "SQL Used" not in text
 
-    def test_record_count_shown(self):
+    def test_record_count_not_embedded_in_response(self):
+        # Row count is sent as `row_count` field; the response string is LLM text only.
         opt = _make_optimizer("Summary.")
         text, _ = opt.format("query", "SELECT 1", _rows(5))
-        assert "5" in text or "record" in text.lower()
+        assert "record(s) returned" not in text
+
+    def test_inline_response_is_llm_text_only(self):
+        opt = _make_optimizer("Exactly this text.")
+        text, _ = opt.format("q", "SELECT 1", _rows(1))
+        assert text == "Exactly this text."
+
+    def test_table_response_contains_markdown_table_not_sql(self):
+        opt = _make_optimizer("Summary header.")
+        text, _ = opt.format("q", "SELECT id, name FROM p", _rows(20))
+        assert "|" in text          # markdown table present
+        assert "```sql" not in text  # SQL block NOT embedded
+
+    def test_file_response_is_plain_message_not_sql(self, tmp_path):
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(content="x")
+        opt = ResponseOptimizer(mock_llm, output_dir=str(tmp_path))
+        text, path = opt.format("q", "SELECT 1", _rows(TABLE_LIMIT + 1))
+        assert "```sql" not in text
+        assert path is not None

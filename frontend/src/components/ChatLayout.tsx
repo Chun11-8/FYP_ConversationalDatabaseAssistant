@@ -32,18 +32,21 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   apiKey,
   onApiKeyChange,
 }) => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // Desktop: sidebar starts open. Mobile (<768px): sidebar starts closed (overlay).
+  const isMobile = () => window.innerWidth < 768;
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile());
   const [showKey, setShowKey] = useState(false);
 
-  const toggleSidebar = () => setIsSidebarOpen((v) => !v);
+  const toggleSidebar = () => setSidebarOpen((v) => !v);
 
   return (
     <div className="app-layout">
-      {isSidebarOpen && (
-        <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)} />
+      {/* Mobile overlay — tap to close */}
+      {sidebarOpen && isMobile() && (
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside className={`sidebar ${isSidebarOpen ? 'sidebar-open' : ''}`}>
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
         <div className="sidebar-content">
           {/* Branding */}
           <div className="sidebar-brand">
@@ -53,7 +56,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
 
           <button
             className="new-chat-btn"
-            onClick={() => { onNewChat(); setIsSidebarOpen(false); }}
+            onClick={() => { onNewChat(); if (isMobile()) setSidebarOpen(false); }}
           >
             <Plus size={16} />
             New Chat
@@ -67,7 +70,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
                   <button
                     key={s.session_id}
                     className={`history-item ${s.session_id === activeSessionId ? 'history-item--active' : ''}`}
-                    onClick={() => { onSelectSession(s.session_id); setIsSidebarOpen(false); }}
+                    onClick={() => { onSelectSession(s.session_id); if (isMobile()) setSidebarOpen(false); }}
                     title={s.title ?? 'Untitled conversation'}
                   >
                     <span className="history-item-text">{s.title ?? 'Untitled conversation'}</span>
@@ -111,7 +114,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
       <main className="main-view">
         <header className="top-bar">
           <button className="icon-button" onClick={toggleSidebar} aria-label="Toggle sidebar">
-            {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
 
           {/* Tab navigation */}

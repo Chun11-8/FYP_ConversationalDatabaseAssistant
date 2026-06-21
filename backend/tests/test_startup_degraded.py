@@ -146,4 +146,4 @@ class TestOutputsDirRecreated:
 
         assert filename is not None
         assert (out_dir / filename).exists()
-        assert "record(s) returned" in text
+        assert "too large to display" in text or "CSV" in text

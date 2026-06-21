@@ -12,28 +12,20 @@ interface ChatMessageProps {
   onFeedback?: (messageId: string, rating: 'up' | 'down') => void;
 }
 
-const SQL_PREVIEW_LINES = 3;
-
 function SqlPanel({ sql }: { sql: string }) {
+  const [expanded, setExpanded] = useState(false);
   const lines = sql.trim().split('\n');
-  const isLong = lines.length > SQL_PREVIEW_LINES;
-  const [expanded, setExpanded] = useState(!isLong);
-  const preview = isLong ? lines.slice(0, SQL_PREVIEW_LINES).join('\n') + '\n…' : sql;
 
   return (
     <div className="sql-panel">
       <button className="sql-toggle" onClick={() => setExpanded((v) => !v)}>
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        <span>SQL used</span>
-        {isLong && !expanded && (
-          <span className="sql-line-count">{lines.length} lines</span>
-        )}
+        <span>SQL Used</span>
+        <span className="sql-line-count">{lines.length} line{lines.length !== 1 ? 's' : ''}</span>
       </button>
       <div className={`sql-body ${expanded ? 'sql-body--open' : ''}`}>
-        <ReactMarkdown
-          rehypePlugins={[rehypeHighlight]}
-        >
-          {`\`\`\`sql\n${expanded ? sql.trim() : preview}\n\`\`\``}
+        <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+          {`\`\`\`sql\n${sql.trim()}\n\`\`\``}
         </ReactMarkdown>
       </div>
     </div>
@@ -119,26 +111,25 @@ function AssistantMessage({
         </div>
 
         <div className="message-content w-full">
-          {/* Metadata row */}
+          {/* Metadata row: intent badge · row count · timestamp */}
           <div className="msg-meta">
             {message.intent && <IntentBadge intent={message.intent} />}
             {message.row_count != null && (
-              <span className="row-count-chip">{message.row_count} row{message.row_count !== 1 ? 's' : ''}</span>
+              <span className="row-count-chip">
+                {message.row_count} record{message.row_count !== 1 ? 's' : ''} returned
+              </span>
             )}
             <span className="msg-time">{formatTime(message.timestamp)}</span>
           </div>
 
-          {/* Markdown body */}
+          {/* 1. LLM response text (+ inline table for medium result sets) */}
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {message.content}
             </ReactMarkdown>
           </div>
 
-          {/* SQL collapsible panel */}
-          {message.sql && <SqlPanel sql={message.sql} />}
-
-          {/* CSV download */}
+          {/* 2. CSV download — only for large result sets (>500 rows) */}
           {message.csv_path && (
             <a
               className="download-btn"
@@ -146,9 +137,12 @@ function AssistantMessage({
               download={message.csv_path}
             >
               <Download size={14} />
-              Download CSV
+              Download CSV ({message.row_count?.toLocaleString()} records)
             </a>
           )}
+
+          {/* 3. SQL Used — collapsible toggle, always last before actions */}
+          {message.sql && <SqlPanel sql={message.sql} />}
 
           {/* Action bar */}
           <div className="msg-actions">
