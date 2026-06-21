@@ -154,32 +154,44 @@ class SQLCodeAgent:
             f"{m['role'].upper()}: {m['content']}" for m in history
         ) or "No prior context."
 
+        dialect = self.dialect.upper()
         return f"""
-        <schema_context>
-        {schema_context}
-        </schema_context>
+<schema_context>
+{schema_context}
+</schema_context>
 
-        <few_shot_examples>
-        {few_shot_block}
-        </few_shot_examples>
+<few_shot_examples>
+{few_shot_block}
+</few_shot_examples>
 
-        <conversation_history>
-        {history_block}
-        </conversation_history>
+<conversation_history>
+{history_block}
+</conversation_history>
 
-        <user_query>
-        {query}
-        </user_query>
+<user_question>
+{query}
+</user_question>
 
-        Generate {self.TOP_K} distinct SQL query candidates. Each must:
-        - Use only tables/columns present in <schema_context>
-        - Be read-only (SELECT only, no DML)
-        - Include LIMIT clause (max 500 rows)
-        - Handle NULL values with COALESCE where appropriate
-        - Use explicit column names, never SELECT *
+Target SQL dialect: {dialect}
 
-        Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
-        """.strip()
+Before writing SQL, silently deconstruct the question:
+- ANSWER COLUMNS: exactly what is asked for — for "who/which/what X" return only
+  X's identifying column; do NOT add the metric you sort by or any extra column.
+- FILTERS: turn EVERY term into a predicate. If the question names a value
+  (a code/label/category/name/year) that is not a table or column in the schema,
+  map it to the categorical column that holds it and filter on it — do not drop it.
+- EXTREMITY: least/most/lowest/highest/top → ORDER BY <metric> ASC|DESC + LIMIT 1
+  (or LIMIT N for "top N"), ordering by the aggregate.
+
+Generate {self.TOP_K} candidate queries. Each must:
+- Use only tables/columns in <schema_context>; JOIN on the shown FK columns.
+- Be read-only (SELECT only) with explicit columns — never SELECT *.
+- Return ONLY the answer columns identified above (fewer is safer than extra).
+- Use a LIMIT matching intent: LIMIT 1 for a single superlative answer,
+  LIMIT N for "top N", otherwise ≤ 500.
+
+Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
+""".strip()
 
     def _system_prompt(self) -> str:
         try:
