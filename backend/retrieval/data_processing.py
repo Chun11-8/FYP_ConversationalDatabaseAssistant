@@ -161,24 +161,36 @@ def extract_sample_rows_pg(conn, table_name: str, n: int = 3):
 def load_column_meanings(dataset_root: Path = None) -> dict:
     """
     Load column descriptions from CSV files in
-    dataset/minidev/MINIDEV/dev_databases/*/database_description/
+    dataset/dev_databases/*/database_description/
+
+    Each CSV is named after its table (file stem == table name) and has the
+    columns:
+        original_column_name, column_name, column_description,
+        data_format, value_description
+
+    IMPORTANT: ``original_column_name`` is the *real* SQL/Postgres column name
+    (e.g. ``account_id``). ``column_name`` is only a human-friendly label
+    (e.g. ``account id``) and is frequently blank. We therefore key meanings by
+    ``original_column_name`` so they actually match the columns that live in
+    Postgres — keying by ``column_name`` was why descriptions came back empty.
 
     Returns a dict keyed by the FULLY-QUALIFIED, lowercased "table.column":
-        { "customers.segment": (col_description, value_description), ... }
+        { "account.account_id": (col_description, value_description), ... }
 
-    Keying by table.column (the CSV file stem is the table name) prevents columns
-    that share a name across tables from clobbering each other. Use
-    :func:`resolve_column_meaning` to look up a description (it handles the
-    qualified key plus a safe unambiguous bare-name fallback).
+    Keying by table.column prevents columns that share a name across tables
+    from clobbering each other. Use :func:`resolve_column_meaning` to look up a
+    description (it handles the qualified key plus a safe unambiguous bare-name
+    fallback).
     """
     if dataset_root is None:
-        dataset_root = Path("dataset/minidev/MINIDEV/dev_databases")
+        dataset_root = Path("dataset/dev_databases")
 
     if not dataset_root.exists():
         print(f"  [WARN] Dataset root not found: {dataset_root}")
         return {}
 
     meanings = {}
+    loaded = 0
 
     # Iterate through each database folder
     for db_folder in dataset_root.iterdir():
@@ -194,20 +206,34 @@ def load_column_meanings(dataset_root: Path = None) -> dict:
             table_name = csv_file.stem  # filename without .csv extension == table name
 
             try:
-                with open(csv_file, "r", encoding="utf-8",errors="ignore") as f:
+                # utf-8-sig strips the BOM that prefixes these CSVs, otherwise
+                # the first header becomes "﻿original_column_name".
+                with open(csv_file, "r", encoding="utf-8-sig", errors="ignore") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if row and "column_name" in row and "column_description" in row:
-                            col_name = row["column_name"].replace(" ", "_").strip()  # normalize column name
-                            col_desc = row["column_description"].strip()
-                            val_desc = row.get("value_description", "").strip()  # optional value description
-                            #print(f"  [INFO] Loaded meaning for {table_name}.{col_name}: {col_desc}")
-                            if col_name and col_desc:
-                                key = f"{table_name}.{col_name}".lower()
-                                meanings[key] = (clean_text(col_desc), clean_text(val_desc))
+                        if not row:
+                            continue
+                        # Prefer the real SQL column name; fall back to the
+                        # friendly label only when original is missing.
+                        raw_col = (row.get("original_column_name")
+                                   or row.get("column_name") or "")
+                        # Match the real Postgres column verbatim — do NOT
+                        # collapse spaces to underscores: columns like
+                        # frpm."Academic Year" keep their spaces. Only trim
+                        # whitespace; resolve_column_meaning lowercases the key.
+                        col_name = raw_col.strip()
+                        col_desc = (row.get("column_description") or "").strip()
+                        val_desc = (row.get("value_description") or "").strip()
+
+                        if col_name and col_desc:
+                            key = f"{table_name}.{col_name}".lower()
+                            meanings[key] = (clean_text(col_desc), clean_text(val_desc))
+                            loaded += 1
             except Exception as e:
                 print(f"  [WARN] Error reading {csv_file}: {e}")
-    #print(meanings)
+
+    print(f"  [INFO] load_column_meanings: {loaded} column descriptions "
+          f"across {len(meanings)} unique table.column keys")
     return meanings
 
 
