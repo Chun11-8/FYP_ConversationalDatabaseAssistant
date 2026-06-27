@@ -15,6 +15,7 @@ from langgraph.graph import END, StateGraph
 
 from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
+from backend.agents.schema_linking_agent import SchemaLinkingAgent
 from backend.agents.safety import enforce_limit
 from backend.agents.utils import PromptHarness
 
@@ -54,6 +55,7 @@ class AgentState(TypedDict):
     conversation_history: List[Dict[str, str]]
     intent: str                      # READ | GENERAL | WRITE_BLOCKED | AMBIGUOUS
     schema_context: str
+    query_plan: Optional[Dict[str, Any]]   # structured plan from SchemaLinkingAgent (#17)
     few_shot_examples: List[str]
     query_embedding: Optional[List[float]]   # cached once per turn, reused for cache R/W
     generated_sqls: List[str]
@@ -94,6 +96,9 @@ class OrchestrationAgent:
         )
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
+        self.linker = SchemaLinkingAgent(config, self.llm)
+        # Schema linking is on by default; toggle via config `sql.schema_linking`.
+        self._schema_linking = bool(config.get("sql", {}).get("schema_linking", True))
         self.memory = SessionMemory(
             db_config=config.get("db"),
             summarizer=self._summarize_history,
@@ -112,6 +117,9 @@ class OrchestrationAgent:
 
     def _get_sql_agent(self) -> SQLCodeAgent:
         return getattr(_tls, "sql_agent", self.sql_agent)
+
+    def _get_linker(self) -> SchemaLinkingAgent:
+        return getattr(_tls, "linker", self.linker)
 
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
@@ -221,6 +229,44 @@ class OrchestrationAgent:
             logger.warning(f"[CACHE] few-shot retrieval failed: {e}")
             return []
 
+    def link_schema(self, state: AgentState) -> AgentState:
+        """
+        Schema-Linking & Question-Understanding (Issue #17). Produces a structured
+        query plan (entities→columns, FK join-path, filters, aggregation/exclusion)
+        that generate_sql follows. Degrades to query_plan=None on any failure.
+        """
+        print("\n" + "─" * 70)
+        print("🧩  NODE: link_schema")
+        print("─" * 70)
+
+        if not self._schema_linking:
+            print("  (schema linking disabled via config sql.schema_linking)")
+            return {**state, "query_plan": None}
+
+        try:
+            plan = self._get_linker().analyze(
+                query=state["user_query"],
+                schema_context=state["schema_context"],
+                history=state["conversation_history"][-4:],
+            )
+        except Exception as exc:  # pragma: no cover - defensive; analyze already guards
+            print(f"  ❌ schema linking failed: {exc}")
+            logger.warning(f"[LINK] schema linking failed: {exc}")
+            return {**state, "query_plan": None}
+
+        if not plan:
+            print("  ⚠️  no plan produced — generation proceeds without one")
+            return {**state, "query_plan": None}
+
+        print("  ✅ Query plan:")
+        for key in ("target", "tables", "join_path", "filters",
+                    "evidence_predicates", "aggregation", "group_by",
+                    "having", "order_by", "set_op"):
+            val = plan.get(key)
+            if val not in (None, "", [], {}, "null", "none"):
+                print(f"     {key}: {val}")
+        return {**state, "query_plan": plan}
+
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
         print("\n" + "─" * 70)
@@ -247,6 +293,7 @@ class OrchestrationAgent:
                 schema_context=state["schema_context"],
                 few_shots=few_shots,
                 history=state["conversation_history"][-4:],
+                query_plan=state.get("query_plan"),
             )
             print(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
             for i, sql in enumerate(sqls, 1):
@@ -547,6 +594,7 @@ class OrchestrationAgent:
 
         g.add_node("classify_intent", self.classify_intent)
         g.add_node("retrieve_schema", self.retrieve_schema)
+        g.add_node("link_schema", self.link_schema)
         g.add_node("generate_sql", self.generate_sql)
         g.add_node("validate_sql", self.validate_sql)
         g.add_node("execute_sql", self.execute_sql)
@@ -564,11 +612,13 @@ class OrchestrationAgent:
             "handle_write_blocked": "handle_write_blocked",
         })
 
+        # Happy path routes through schema-linking (#17) before generation.
         g.add_conditional_edges("retrieve_schema", self.route_after_retrieval, {
-            "generate_sql": "generate_sql",
+            "generate_sql": "link_schema",
             "fallback_handler": "fallback_handler",
         })
 
+        g.add_edge("link_schema", "generate_sql")
         g.add_edge("generate_sql", "validate_sql")
 
         g.add_conditional_edges("validate_sql", self.route_after_validation, {
@@ -647,6 +697,7 @@ class OrchestrationAgent:
         if use_custom_key:
             _tls.llm = ChatOpenAI(model=self._model, temperature=0, api_key=api_key)
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
+            _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)
             _tls.optimizer = ResponseOptimizer(_tls.llm)
 
         history = self.memory.get_history(session_id)
@@ -656,6 +707,7 @@ class OrchestrationAgent:
             "conversation_history": history,
             "intent": "",
             "schema_context": "",
+            "query_plan": None,
             "few_shot_examples": [],
             "query_embedding": None,
             "generated_sqls": [],
@@ -678,6 +730,7 @@ class OrchestrationAgent:
             if use_custom_key:
                 _tls.llm = self.llm
                 _tls.sql_agent = self.sql_agent
+                _tls.linker = self.linker
                 _tls.optimizer = self.optimizer
         latency_ms = int((time.perf_counter() - t0) * 1000)
         print("\n" + "━" * 70)

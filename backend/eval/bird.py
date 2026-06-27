@@ -277,6 +277,7 @@ def run_bird_eval(
     subset: Optional[int] = None,
     difficulty_filter: Optional[str] = None,
     timeout: float = 30.0,
+    linker: Any = None,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -289,6 +290,8 @@ def run_bird_eval(
     validator        : SQLValidatorAgent instance
     subset           : if set, evaluate only the first N questions
     difficulty_filter: if set, restrict to "simple", "moderate", or "challenging"
+    linker           : optional SchemaLinkingAgent — when provided, a structured
+                       query plan is produced and fed into generation (Issue #17)
     timeout          : per-query SQLite execution timeout in seconds
     """
     questions = load_dev_json(dev_json_path)
@@ -332,6 +335,15 @@ def run_bird_eval(
             if evidence.strip()
             else question
         )
+        # Schema-linking & question-understanding (Issue #17): produce a
+        # structured plan first so generation follows resolved tables/joins.
+        query_plan = None
+        if linker is not None:
+            try:
+                query_plan = linker.analyze(full_query, schema_context)
+            except Exception as exc:
+                logger.warning(f"[BIRD] schema linking failed qid={qid}: {exc}")
+
         t_gen = time.perf_counter()
         pred_sql = ""
         try:
@@ -340,6 +352,7 @@ def run_bird_eval(
                 schema_context=schema_context,
                 few_shots=[],
                 history=[],
+                query_plan=query_plan,
             )
             if sqls:
                 pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
@@ -476,11 +489,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--no-schema-linking", action="store_true",
+                        help="Disable the schema-linking stage (#17) for A/B comparison")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
     from backend.agents.sql_code_agent import SQLCodeAgent
     from backend.agents.sql_validator_agent import SQLValidatorAgent
+    from backend.agents.schema_linking_agent import SchemaLinkingAgent
     from langchain_openai import ChatOpenAI
 
     config = load_config()
@@ -495,6 +511,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
 
+    # Schema linking on by default; --no-schema-linking turns it off for A/B runs.
+    use_linking = not args.no_schema_linking and bool(
+        config.get("sql", {}).get("schema_linking", True)
+    )
+    linker = SchemaLinkingAgent(bird_config, llm) if use_linking else None
+    logger.info("[BIRD] schema linking: %s", "ON" if linker else "OFF")
+
     results = run_bird_eval(
         dev_json_path=args.dev_json,
         db_dir=args.db_dir,
@@ -503,6 +526,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         subset=args.subset,
         difficulty_filter=args.difficulty,
         timeout=args.timeout,
+        linker=linker,
     )
     metrics = compute_bird_metrics(results)
     write_results(results, metrics, args.output)
