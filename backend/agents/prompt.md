@@ -105,6 +105,7 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
    - **If a `<domain_context>` / evidence hint gives an explicit FORMULA**
      (e.g. "average monthly consumption = AVG(consumption) / 12"), you MUST copy
      that formula verbatim into the SELECT. Do NOT invent your own interpretation.
+     (An evidence formula may instead define a FILTER, not the SELECT — see Step 4.)
 
 **2. TABLES & JOINS — where does each needed value live?**
    - List every column you need and the table it lives in.
@@ -126,9 +127,18 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
 
 **4. FILTERS — put every condition from the question in WHERE/ON.**
    - Map a literal value (a code/label like 'SME', 'LAM', 'active') to the
-     categorical column that holds it: `that_column = 'VALUE'`.
-   - Dates given as a year/month live in a date/text column — filter with the
-     schema's actual format (e.g. `SUBSTR(date,1,4) = '2013'` or `date LIKE '2013%'`).
+     categorical column that holds it: `that_column = 'VALUE'` (match exact casing).
+   - **Apply every `<domain_context>` / evidence hint VERBATIM.** Evidence may give:
+     - an EXACT value — e.g. *"August 2012 refers to Date = '201208'"* → `Date = '201208'`;
+     - an exact literal format to match;
+     - a FORMULA used as a filter — e.g. *"price per unit = Price / Amount"* →
+       `Price / NULLIF(Amount, 0) > 29.00`.
+     These belong in `WHERE`/`HAVING`, **not only `SELECT`**. Do not paraphrase or
+     substitute your own interpretation.
+   - **Dates:** match the format the evidence/question implies. When an EXACT value
+     is given (`Date = '201208'`), match it **exactly — never truncate to the year**.
+     Use `SUBSTR(date,1,4) = '2013'` or `date LIKE '2013%'` **only** for a year-only /
+     partial match where no exact value is specified.
 
 **5. ORDER / LIMIT — only if needed.**
    - Superlatives (least/most/highest/top N) → `ORDER BY <agg> ASC|DESC` + `LIMIT 1`
@@ -264,6 +274,22 @@ SELECT COUNT(DISTINCT t1.customerid)
 FROM customers AS t1
 INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid
 WHERE t1.segment = 'KAM' AND t2.consumption > 50000;
+```
+
+### Example 4 — Evidence applied VERBATIM as filters (exact date + computed filter):
+DECOMPOSE (silent):
+- FINAL VALUE: the `consumption` column.
+- EVIDENCE: "August 2012 refers to Date = '201208'" → match the date EXACTLY
+  (`date = '201208'`), do NOT use a year-only `SUBSTR`. "price per unit = Price /
+  Amount" → use the FORMULA as a WHERE filter, guarded with `NULLIF`.
+- TABLES/JOINS: `price`/`amount`/`productid` in `transactions_1k`, `consumption`/
+  `date` in `yearmonth`; join on the FK `customerid`.
+```sql
+SELECT t2.consumption
+FROM transactions_1k AS t1
+INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid
+WHERE t1.price / NULLIF(t1.amount, 0) > 29.00 AND t1.productid = 5
+  AND t2.date = '201208';
 ```
 
 ---

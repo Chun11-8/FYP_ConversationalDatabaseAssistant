@@ -69,10 +69,12 @@ def _to_sqlite(sql: str) -> str:
 # ─────────────────────────────────────────────
 # The semantic cache supplies dynamic few-shots, but it is empty until enough
 # successful queries accumulate. Until then `few_shots` is []. These static
-# examples teach the two failure modes we keep hitting on JOIN questions:
+# examples teach the failure modes we keep hitting on JOIN questions:
 #   1. filter-in-one-table / metric-in-another → must JOIN before filtering;
 #   2. aggregate GRAIN → one AVG over joined rows, NOT AVG of per-group AVGs,
-#      and honor an evidence formula (e.g. /12) verbatim.
+#      and honor an evidence formula (e.g. /12) verbatim;
+#   3. evidence applied VERBATIM as filters → an EXACT date value (Date = '201208',
+#      not a year-only SUBSTR) and a FORMULA used in WHERE (Price / Amount > 29).
 # Kept in sync with prompt.md [SECTION: FEW_SHOT_TEMPLATE].
 
 DEFAULT_FEWSHOTS: List[str] = [
@@ -104,6 +106,23 @@ DEFAULT_FEWSHOTS: List[str] = [
         "FROM customers AS t1\n"
         "INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid\n"
         "WHERE SUBSTR(t2.date, 1, 4) = '2013' AND t1.segment = 'SME';\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: Give the consumption in August 2012 for people who paid more "
+        "than 29.00 per unit of product id 5. "
+        "(evidence: August of 2012 refers to Date = '201208'; price per unit = Price / Amount)\n"
+        "REASONING: apply the evidence VERBATIM — the date is an EXACT value "
+        "(date = '201208', NOT a year-only SUBSTR), and 'per unit' is the FORMULA "
+        "price / amount used as a WHERE filter (guard division with NULLIF). JOIN "
+        "transactions_1k↔yearmonth on customerid; return the consumption.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t2.consumption\n"
+        "FROM transactions_1k AS t1\n"
+        "INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid\n"
+        "WHERE t1.price / NULLIF(t1.amount, 0) > 29.00 AND t1.productid = 5 "
+        "AND t2.date = '201208';\n"
         "```"
     ),
 ]
@@ -239,6 +258,7 @@ Target SQL dialect: {dialect}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
+   (An evidence formula may instead define a FILTER — see Step 4.)
 2. TABLES & JOINS: locate each needed column's table. If a filter column lives in
    one table and the metric in another, JOIN them on the FK columns shown in the
    schema. You cannot filter on a column that is not in your FROM/JOIN.
@@ -246,8 +266,12 @@ Decompose the question silently before writing SQL:
    resulting rows. Do NOT pre-aggregate in a CTE/subquery and aggregate again —
    AVG(x) over joined rows is NOT the same number as AVG(per-group AVG(x)). Only
    nest aggregates when the question explicitly asks "average per X then overall".
-4. FILTERS: every term → a predicate. Map a literal value (e.g. 'SME') to its
-   categorical column. Dates: SUBSTR(date,1,4)='2013' or date LIKE '2013%'.
+4. FILTERS: every term → a predicate; map a literal value (e.g. 'SME') to its
+   categorical column (exact casing). Apply every <domain_context>/evidence hint
+   VERBATIM — exact values (date = '201208'), exact formats, and formulas used as
+   filters (price / NULLIF(amount,0) > 29) go in WHERE/HAVING, not only SELECT.
+   Dates: when an EXACT value is given, match it exactly; use SUBSTR(date,1,4)=...
+   or date LIKE '2013%' ONLY for a year-only / partial match.
 5. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
    ORDER BY <agg> + LIMIT 1 (or N).
 
