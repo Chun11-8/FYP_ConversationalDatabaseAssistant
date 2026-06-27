@@ -182,6 +182,103 @@ class TestRegenerate:
                                 error="e", history=[]) == []
 
 
+# ── Evidence-first handling + conditional date rule (Issue #18) ────────────────
+
+class TestEvidenceHandling:
+
+    def test_prompt_states_evidence_verbatim_for_filters(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        low = prompt.lower()
+        # Evidence must be applied verbatim, and to filters (WHERE/HAVING), not only SELECT.
+        assert "verbatim" in low
+        assert "where" in low and "having" in low
+        assert "not only" in low and "select" in low
+
+    def test_date_rule_is_conditional_not_always_substr(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        low = prompt.lower()
+        # SUBSTR/LIKE is now tied to a partial / year-only match, and exact values
+        # must be matched exactly (no month truncation).
+        assert "partial match" in low or "year-only" in low
+        assert "exactly" in low
+
+    def test_inline_build_prompt_has_evidence_and_conditional_date(self):
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s", few_shots=["x"], history=[])
+        sent = agent.llm.invoke.call_args[0][0][1].content.lower()
+        assert "verbatim" in sent
+        assert "201208" in sent              # exact-date example present
+        assert "partial match" in sent
+
+    def test_default_fewshot_has_exact_date_match_and_nullif(self):
+        from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
+        joined = "\n".join(DEFAULT_FEWSHOTS).lower()
+        assert "date = '201208'" in joined          # exact-value date match
+        assert "nullif(" in joined                  # computed filter guarded
+        assert "price / nullif" in joined
+
+    def test_regeneration_prompt_includes_evidence_from_question(self):
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        q = "<domain_context>Date = '201208'; per unit = Price / Amount</domain_context>\n\nGive consumption"
+        agent.regenerate(query=q, schema_context="s", original_sql="bad",
+                         error="0 rows", history=[])
+        sent = agent.llm.invoke.call_args[0][0][1].content
+        # The evidence embedded in the question reaches the regeneration prompt,
+        # and the template instructs applying it verbatim.
+        assert "Date = '201208'" in sent
+        assert "VERBATIM" in sent
+
+
+# ── Compositional coverage + value grounding note (Issues #20 / #19) ───────────
+
+class TestCompositionalCoverage:
+
+    def test_prompt_covers_having_vs_where(self):
+        low = PromptHarness.get("SQL_CODE_AGENT").lower()
+        assert "having" in low and "group by" in low
+        # per-group aggregate threshold → HAVING, not WHERE
+        assert "per-group" in low or "per group" in low
+
+    def test_prompt_covers_exclusion_setops(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        low = prompt.lower()
+        assert "except" in low
+        assert "not in" in low or "<>" in prompt
+        assert "exclusion" in low or "without" in low or "other than" in low
+
+    def test_prompt_covers_bridge_join(self):
+        low = PromptHarness.get("SQL_CODE_AGENT").lower()
+        assert "junction" in low or "bridge" in low
+        assert "link_to_event" in low  # the concrete example
+
+    def test_prompt_covers_computed_filter_and_nullif(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        assert "NULLIF" in prompt
+        assert "/ NULLIF" in prompt or "NULLIF(Amount" in prompt
+
+    def test_prompt_has_value_list_note(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        assert "values: {" in prompt           # references the schema values list
+        assert "Women''s Soccer" in prompt      # apostrophe-escaping example
+
+    def test_default_fewshots_include_having_except_and_bridge(self):
+        from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
+        joined = "\n".join(DEFAULT_FEWSHOTS)
+        assert "HAVING COUNT(" in joined
+        assert "EXCEPT" in joined
+        assert "t2.link_to_member = t3.member_id" in joined   # bridge join through junction
+        assert "'Women''s Soccer'" in joined                  # escaped value
+
+    def test_reranker_prompt_mentions_having_and_bridge(self):
+        prompt = PromptHarness.get_file("sql_reranker.md")
+        low = prompt.lower()
+        assert "having" in low
+        assert "junction" in low or "bridge" in low
+        assert "except" in low
+
+
 # ── Reranker prompt + JOIN criterion ──────────────────────────────────────────
 
 class TestReranker:

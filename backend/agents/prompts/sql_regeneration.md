@@ -28,6 +28,10 @@ still fully and exactly answering the user's question. Diagnose the cause first:
   empty), return it unchanged.
 
 ### Re-deconstruct before correcting:
+- EVIDENCE: if the question contains a `<domain_context>` / evidence hint, apply it
+  VERBATIM — exact values (`Date = '201208'`, matched exactly, not a year-only
+  `SUBSTR`), exact formats, and formulas used as filters (`Price / NULLIF(Amount,0)
+  > 29`). Do not paraphrase or drop a hint while fixing the query.
 - FINAL VALUE: return only what is asked; copy any evidence formula verbatim.
 - TABLES & JOINS: join the table holding the filter column to the one holding the
   metric, on the foreign-key columns shown in the schema.

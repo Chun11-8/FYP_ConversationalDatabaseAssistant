@@ -64,10 +64,57 @@ logger = logging.getLogger(__name__)
 
 # ── Schema extraction ──────────────────────────────────────────────────────────
 
+# Value-grounding limits (Issue #19): show the actual distinct values of a
+# low-cardinality TEXT column so the model maps phrases like "medium" to the exact
+# stored value 'Medium'. Columns with too many distinct values, or values that are
+# too long (free text), are skipped to keep the schema context tight.
+MAX_DISTINCT_VALUES = 20
+MAX_VALUE_LEN = 40
+
+
+def _is_text_type(col_type: str) -> bool:
+    """SQLite TEXT affinity heuristic: TEXT/CHAR/CLOB (or untyped) is text-like."""
+    t = (col_type or "").upper()
+    if not t:
+        return True
+    return any(tok in t for tok in ("CHAR", "TEXT", "CLOB"))
+
+
+def _distinct_values(cursor, table: str, col: str) -> Optional[List[str]]:
+    """
+    Return the distinct non-null values of a text column when it is low-cardinality
+    and the values are short; otherwise None (high-cardinality / free-text / error).
+    """
+    try:
+        cursor.execute(
+            f'SELECT DISTINCT "{col}" FROM "{table}" '
+            f'WHERE "{col}" IS NOT NULL LIMIT {MAX_DISTINCT_VALUES + 1}'
+        )
+        rows = [r[0] for r in cursor.fetchall()]
+    except Exception:
+        return None
+
+    if not rows or len(rows) > MAX_DISTINCT_VALUES:
+        return None
+
+    values: List[str] = []
+    for v in rows:
+        s = str(v).strip()
+        if s == "":
+            continue
+        if len(s) > MAX_VALUE_LEN:   # a long value → free text, not a category
+            return None
+        values.append(s)
+    return values or None
+
+
 def extract_sqlite_schema(db_path: str) -> str:
     """
     Introspect a SQLite database and return a plain-text schema context string
     suitable for passing to SQLCodeAgent and SQLValidatorAgent.
+
+    For low-cardinality TEXT columns the actual distinct values are appended
+    (Issue #19) so the model can map question phrases to exact stored values.
     """
     if not Path(db_path).exists():
         raise FileNotFoundError(f"SQLite database not found: {db_path}")
@@ -98,7 +145,13 @@ def extract_sqlite_schema(db_path: str) -> str:
                 if col[3]:
                     markers.append("NOT NULL")
                 suffix = f" [{', '.join(markers)}]" if markers else ""
-                col_strs.append(f"  - {col_name}: {col_type}{suffix}")
+                line = f"  - {col_name}: {col_type}{suffix}"
+                # Value grounding: append distinct values for low-card text cols.
+                if not col[5] and _is_text_type(col_type):  # skip PKs (ids)
+                    vals = _distinct_values(cursor, table, col_name)
+                    if vals:
+                        line += " | values: {" + ", ".join(vals) + "}"
+                col_strs.append(line)
             sections.append(f"Table: {table}\nColumns:\n" + "\n".join(col_strs))
 
             cursor.execute(f'PRAGMA foreign_key_list("{table}")')
@@ -277,6 +330,7 @@ def run_bird_eval(
     subset: Optional[int] = None,
     difficulty_filter: Optional[str] = None,
     timeout: float = 30.0,
+    linker: Any = None,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -289,6 +343,8 @@ def run_bird_eval(
     validator        : SQLValidatorAgent instance
     subset           : if set, evaluate only the first N questions
     difficulty_filter: if set, restrict to "simple", "moderate", or "challenging"
+    linker           : optional SchemaLinkingAgent — when provided, a structured
+                       query plan is produced and fed into generation (Issue #17)
     timeout          : per-query SQLite execution timeout in seconds
     """
     questions = load_dev_json(dev_json_path)
@@ -332,6 +388,15 @@ def run_bird_eval(
             if evidence.strip()
             else question
         )
+        # Schema-linking & question-understanding (Issue #17): produce a
+        # structured plan first so generation follows resolved tables/joins.
+        query_plan = None
+        if linker is not None:
+            try:
+                query_plan = linker.analyze(full_query, schema_context)
+            except Exception as exc:
+                logger.warning(f"[BIRD] schema linking failed qid={qid}: {exc}")
+
         t_gen = time.perf_counter()
         pred_sql = ""
         try:
@@ -340,6 +405,7 @@ def run_bird_eval(
                 schema_context=schema_context,
                 few_shots=[],
                 history=[],
+                query_plan=query_plan,
             )
             if sqls:
                 pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
@@ -476,11 +542,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--no-schema-linking", action="store_true",
+                        help="Disable the schema-linking stage (#17) for A/B comparison")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
     from backend.agents.sql_code_agent import SQLCodeAgent
     from backend.agents.sql_validator_agent import SQLValidatorAgent
+    from backend.agents.schema_linking_agent import SchemaLinkingAgent
     from langchain_openai import ChatOpenAI
 
     config = load_config()
@@ -495,6 +564,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
 
+    # Schema linking on by default; --no-schema-linking turns it off for A/B runs.
+    use_linking = not args.no_schema_linking and bool(
+        config.get("sql", {}).get("schema_linking", True)
+    )
+    linker = SchemaLinkingAgent(bird_config, llm) if use_linking else None
+    logger.info("[BIRD] schema linking: %s", "ON" if linker else "OFF")
+
     results = run_bird_eval(
         dev_json_path=args.dev_json,
         db_dir=args.db_dir,
@@ -503,6 +579,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         subset=args.subset,
         difficulty_filter=args.difficulty,
         timeout=args.timeout,
+        linker=linker,
     )
     metrics = compute_bird_metrics(results)
     write_results(results, metrics, args.output)

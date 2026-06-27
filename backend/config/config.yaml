@@ -11,6 +11,11 @@ db:
   name: FYP
   user: postgres
 
+sql:
+  # Schema-linking & question-understanding stage (Issue #17). When true, a
+  # structured query plan is produced before SQL generation. Set false to A/B.
+  schema_linking: true
+
 retrieval:
   vector_store: pgvector
   top_k_tables: 5

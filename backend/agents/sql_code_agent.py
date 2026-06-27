@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from backend.agents.utils import PromptHarness
+from backend.agents.schema_linking_agent import render_query_plan
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,12 @@ def _to_sqlite(sql: str) -> str:
 # ─────────────────────────────────────────────
 # The semantic cache supplies dynamic few-shots, but it is empty until enough
 # successful queries accumulate. Until then `few_shots` is []. These static
-# examples teach the two failure modes we keep hitting on JOIN questions:
+# examples teach the failure modes we keep hitting on JOIN questions:
 #   1. filter-in-one-table / metric-in-another → must JOIN before filtering;
 #   2. aggregate GRAIN → one AVG over joined rows, NOT AVG of per-group AVGs,
-#      and honor an evidence formula (e.g. /12) verbatim.
+#      and honor an evidence formula (e.g. /12) verbatim;
+#   3. evidence applied VERBATIM as filters → an EXACT date value (Date = '201208',
+#      not a year-only SUBSTR) and a FORMULA used in WHERE (Price / Amount > 29).
 # Kept in sync with prompt.md [SECTION: FEW_SHOT_TEMPLATE].
 
 DEFAULT_FEWSHOTS: List[str] = [
@@ -105,6 +108,58 @@ DEFAULT_FEWSHOTS: List[str] = [
         "WHERE SUBSTR(t2.date, 1, 4) = '2013' AND t1.segment = 'SME';\n"
         "```"
     ),
+    (
+        "USER_QUESTION: Give the consumption in August 2012 for people who paid more "
+        "than 29.00 per unit of product id 5. "
+        "(evidence: August of 2012 refers to Date = '201208'; price per unit = Price / Amount)\n"
+        "REASONING: apply the evidence VERBATIM — the date is an EXACT value "
+        "(date = '201208', NOT a year-only SUBSTR), and 'per unit' is the FORMULA "
+        "price / amount used as a WHERE filter (guard division with NULLIF). JOIN "
+        "transactions_1k↔yearmonth on customerid; return the consumption.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t2.consumption\n"
+        "FROM transactions_1k AS t1\n"
+        "INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid\n"
+        "WHERE t1.price / NULLIF(t1.amount, 0) > 29.00 AND t1.productid = 5 "
+        "AND t2.date = '201208';\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: List the names of events that had an attendance of over 20 "
+        "students but were not fundraisers.\n"
+        "REASONING: 'over 20 attendance' is a per-group COUNT threshold → GROUP BY "
+        "event + HAVING COUNT(...) > 20 (NOT WHERE). 'were not fundraisers' is an "
+        "exclusion of a set of rows → EXCEPT the events whose type = 'Fundraiser'.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t1.event_name\n"
+        "FROM event AS t1\n"
+        "INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event\n"
+        "GROUP BY t1.event_id\n"
+        "HAVING COUNT(t2.link_to_event) > 20\n"
+        "EXCEPT\n"
+        "SELECT event_name FROM event WHERE type = 'Fundraiser';\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: Among students who attended the event 'Women's Soccer', how "
+        "many want a medium-size t-shirt? "
+        "(evidence: t-shirt in medium size refers to t_shirt_size = 'Medium')\n"
+        "REASONING: event and member connect only through the junction table "
+        "attendance → join THROUGH it on its FK columns (link_to_event/link_to_member, "
+        "named differently from event_id/member_id). Copy exact values: event_name = "
+        "'Women''s Soccer' (double the apostrophe), t_shirt_size = 'Medium'. 'how many' "
+        "→ COUNT.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT COUNT(t3.member_id)\n"
+        "FROM event AS t1\n"
+        "INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event\n"
+        "INNER JOIN member AS t3 ON t2.link_to_member = t3.member_id\n"
+        "WHERE t1.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium';\n"
+        "```"
+    ),
 ]
 
 
@@ -132,13 +187,20 @@ class SQLCodeAgent:
         schema_context: str,
         few_shots: List[str],
         history: List[Dict[str, str]],
+        query_plan: Optional[dict] = None,
     ) -> List[str]:
-        """Generate TOP_K SQL candidates."""
+        """Generate TOP_K SQL candidates.
+
+        ``query_plan`` is the optional structured plan from SchemaLinkingAgent
+        (Issue #17). When present it is injected as a <query_plan> block so the
+        generator follows resolved tables/joins/filters instead of re-deriving
+        them. None → behaves exactly as before.
+        """
         # Fall back to the static decomposition examples when the semantic cache
         # has no dynamic few-shots yet — they teach the JOIN/grain patterns.
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
-        prompt = self._build_prompt(query, schema_context, few_shots, history)
+        prompt = self._build_prompt(query, schema_context, few_shots, history, query_plan)
 
         system_p = self._system_prompt()
         messages = [
@@ -197,11 +259,16 @@ class SQLCodeAgent:
         schema_context: str,
         few_shots: List[str],
         history: List[Dict],
+        query_plan: Optional[dict] = None,
     ) -> str:
         few_shot_block = "\n\n".join(few_shots) if few_shots else "No examples available."
         history_block = "\n".join(
             f"{m['role'].upper()}: {m['content']}" for m in history
         ) or "No prior context."
+
+        # Optional structured plan from SchemaLinkingAgent (Issue #17).
+        plan_block = render_query_plan(query_plan)
+        plan_section = f"\n{plan_block}\n" if plan_block else ""
 
         dialect = self.dialect.upper()
         return f"""
@@ -216,7 +283,7 @@ class SQLCodeAgent:
 <conversation_history>
 {history_block}
 </conversation_history>
-
+{plan_section}
 <user_question>
 {query}
 </user_question>
@@ -226,16 +293,27 @@ Target SQL dialect: {dialect}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
+   (An evidence formula may instead define a FILTER — see Step 4.)
 2. TABLES & JOINS: locate each needed column's table. If a filter column lives in
    one table and the metric in another, JOIN them on the FK columns shown in the
-   schema. You cannot filter on a column that is not in your FROM/JOIN.
+   schema. You cannot filter on a column that is not in your FROM/JOIN. If two
+   tables connect only through a junction/bridge table, join THROUGH it on its FK
+   columns (often named differently, e.g. attendance.link_to_event = event.event_id).
 3. GRAIN (most important): JOIN first → FILTER in WHERE → aggregate ONCE over the
    resulting rows. Do NOT pre-aggregate in a CTE/subquery and aggregate again —
    AVG(x) over joined rows is NOT the same number as AVG(per-group AVG(x)). Only
    nest aggregates when the question explicitly asks "average per X then overall".
-4. FILTERS: every term → a predicate. Map a literal value (e.g. 'SME') to its
-   categorical column. Dates: SUBSTR(date,1,4)='2013' or date LIKE '2013%'.
-5. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
+4. FILTERS: every term → a predicate; map a literal value (e.g. 'SME') to its
+   categorical column (exact casing — copy from the column's `values: {{...}}` list
+   when shown; escape apostrophes by doubling). Apply every <domain_context>/
+   evidence hint VERBATIM — exact values (date = '201208'), exact formats, and
+   formulas used as filters (price / NULLIF(amount,0) > 29) go in WHERE/HAVING, not
+   only SELECT. Dates: when an EXACT value is given, match it exactly; use
+   SUBSTR(date,1,4)=... or date LIKE '2013%' ONLY for a year-only / partial match.
+5. COMPOSE: a threshold on a per-group COUNT/SUM/AVG is HAVING after GROUP BY (not
+   WHERE). "not / without / except X" is an exclusion — EXCEPT <subquery> for a set
+   of rows, or NOT IN (...) / <> for a value.
+6. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
    ORDER BY <agg> + LIMIT 1 (or N).
 
 Prefer the simplest correct shape:

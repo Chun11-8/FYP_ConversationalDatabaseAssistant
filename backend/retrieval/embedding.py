@@ -76,11 +76,15 @@ def build_table_chunk(table: dict) -> dict:
         # Column description + value description loaded from CSV
         desc     = col.get("description", "").strip()
         val_desc = col.get("value_description", "").strip()
+        # Observed distinct values for low-cardinality text columns (Issue #19)
+        distinct = col.get("distinct_values")
 
         col_line = f"  {col['name']} ({col['type']}{pk_tag}{nn_tag})"
         if desc:
             col_line += f" — {desc}"
-        if val_desc:
+        if distinct:
+            col_line += " | values: {" + ", ".join(str(v) for v in distinct) + "}"
+        elif val_desc:
             col_line += f" | values: {val_desc}"
 
         lines.append(col_line)
