@@ -156,6 +156,49 @@ def extract_sample_rows_pg(conn, table_name: str, n: int = 3):
         return []
 
 
+# ── value grounding (Issue #19) ─────────────────────────────────────────────────
+
+# Show distinct values of low-cardinality text columns so the LLM maps phrases
+# like "medium" → the exact stored value 'Medium'. Skip high-cardinality / long
+# (free-text) columns to keep context tight.
+MAX_DISTINCT_VALUES = 20
+MAX_VALUE_LEN = 40
+
+_TEXT_PG_TYPES = ("character varying", "varchar", "text", "character", "char")
+
+
+def extract_distinct_values_pg(conn, table_name: str, col_name: str, col_type: str):
+    """
+    Return the distinct non-null values of a low-cardinality text column, or None
+    when the column is non-text, high-cardinality, free-text, or errors.
+    """
+    if not any(t in (col_type or "").lower() for t in _TEXT_PG_TYPES):
+        return None
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            f'SELECT DISTINCT "{col_name}" FROM "{table_name}" '
+            f'WHERE "{col_name}" IS NOT NULL LIMIT {MAX_DISTINCT_VALUES + 1}'
+        )
+        rows = [r[0] for r in cursor.fetchall()]
+    except Exception:
+        conn.rollback()  # the failed query aborts the txn; clear it
+        return None
+
+    if not rows or len(rows) > MAX_DISTINCT_VALUES:
+        return None
+
+    values = []
+    for v in rows:
+        s = str(v).strip()
+        if s == "":
+            continue
+        if len(s) > MAX_VALUE_LEN:
+            return None
+        values.append(s)
+    return values or None
+
+
 # ── column meanings ────────────────────────────────────────────────────────────
 
 def load_column_meanings(dataset_root: Path = None) -> dict:
@@ -297,6 +340,13 @@ def process_database(db_name: str) -> Optional[dict]:
             # bare column name only when it exists in exactly one table.
             col["description"], col["value_description"] = resolve_column_meaning(
                 column_meanings, table["table_name"], col["name"]
+            )
+            # Value grounding (#19): observed distinct values for low-card text cols.
+            col["distinct_values"] = (
+                None if col.get("primary_key")
+                else extract_distinct_values_pg(
+                    conn, table["table_name"], col["name"], col["type"]
+                )
             )
     
     

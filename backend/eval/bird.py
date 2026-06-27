@@ -64,10 +64,57 @@ logger = logging.getLogger(__name__)
 
 # ── Schema extraction ──────────────────────────────────────────────────────────
 
+# Value-grounding limits (Issue #19): show the actual distinct values of a
+# low-cardinality TEXT column so the model maps phrases like "medium" to the exact
+# stored value 'Medium'. Columns with too many distinct values, or values that are
+# too long (free text), are skipped to keep the schema context tight.
+MAX_DISTINCT_VALUES = 20
+MAX_VALUE_LEN = 40
+
+
+def _is_text_type(col_type: str) -> bool:
+    """SQLite TEXT affinity heuristic: TEXT/CHAR/CLOB (or untyped) is text-like."""
+    t = (col_type or "").upper()
+    if not t:
+        return True
+    return any(tok in t for tok in ("CHAR", "TEXT", "CLOB"))
+
+
+def _distinct_values(cursor, table: str, col: str) -> Optional[List[str]]:
+    """
+    Return the distinct non-null values of a text column when it is low-cardinality
+    and the values are short; otherwise None (high-cardinality / free-text / error).
+    """
+    try:
+        cursor.execute(
+            f'SELECT DISTINCT "{col}" FROM "{table}" '
+            f'WHERE "{col}" IS NOT NULL LIMIT {MAX_DISTINCT_VALUES + 1}'
+        )
+        rows = [r[0] for r in cursor.fetchall()]
+    except Exception:
+        return None
+
+    if not rows or len(rows) > MAX_DISTINCT_VALUES:
+        return None
+
+    values: List[str] = []
+    for v in rows:
+        s = str(v).strip()
+        if s == "":
+            continue
+        if len(s) > MAX_VALUE_LEN:   # a long value → free text, not a category
+            return None
+        values.append(s)
+    return values or None
+
+
 def extract_sqlite_schema(db_path: str) -> str:
     """
     Introspect a SQLite database and return a plain-text schema context string
     suitable for passing to SQLCodeAgent and SQLValidatorAgent.
+
+    For low-cardinality TEXT columns the actual distinct values are appended
+    (Issue #19) so the model can map question phrases to exact stored values.
     """
     if not Path(db_path).exists():
         raise FileNotFoundError(f"SQLite database not found: {db_path}")
@@ -98,7 +145,13 @@ def extract_sqlite_schema(db_path: str) -> str:
                 if col[3]:
                     markers.append("NOT NULL")
                 suffix = f" [{', '.join(markers)}]" if markers else ""
-                col_strs.append(f"  - {col_name}: {col_type}{suffix}")
+                line = f"  - {col_name}: {col_type}{suffix}"
+                # Value grounding: append distinct values for low-card text cols.
+                if not col[5] and _is_text_type(col_type):  # skip PKs (ids)
+                    vals = _distinct_values(cursor, table, col_name)
+                    if vals:
+                        line += " | values: {" + ", ".join(vals) + "}"
+                col_strs.append(line)
             sections.append(f"Table: {table}\nColumns:\n" + "\n".join(col_strs))
 
             cursor.execute(f'PRAGMA foreign_key_list("{table}")')

@@ -36,16 +36,24 @@ select the single candidate that most faithfully answers the question.
    (e.g. "= AVG(consumption) / 12"), the chosen candidate must reproduce it
    exactly. Reject candidates that drop or alter the formula.
 
-6. **Correctness of logic** — right aggregations, operators, and GROUP BY level;
+6. **Compositional structure** — prefer the candidate that:
+   - puts a per-group COUNT/SUM/AVG threshold in `HAVING` (after `GROUP BY`), not
+     in `WHERE`;
+   - handles "not / without / except X" with a correct exclusion (`EXCEPT` for a
+     set of rows, `NOT IN` / `<>` for a value) rather than dropping the condition;
+   - routes a multi-entity join through the junction/bridge table on its FK
+     columns (e.g. `attendance.link_to_event = event.event_id`).
+
+7. **Correctness of logic** — right aggregations, operators, and GROUP BY level;
    filters use the correct columns and values.
 
-7. **Schema & JOIN integrity** — only tables/columns from the schema; every JOIN
+8. **Schema & JOIN integrity** — only tables/columns from the schema; every JOIN
    condition uses a real foreign-key column shown in the schema's relationships
    section, not a column guessed from name similarity. Prefer the candidate whose
    join path matches the FK edges exactly; fewer FK-correct joins beat more joins
    on uncertain columns.
 
-8. **Safety & leanness** — SELECT only, no SELECT *, bounded by LIMIT; no
+9. **Safety & leanness** — SELECT only, no SELECT *, bounded by LIMIT; no
    redundant subqueries or needless COALESCE.
 
 ### Chain-of-thought (internal only, do not output):

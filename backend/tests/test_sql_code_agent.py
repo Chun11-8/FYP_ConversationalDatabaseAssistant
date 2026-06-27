@@ -231,6 +231,54 @@ class TestEvidenceHandling:
         assert "VERBATIM" in sent
 
 
+# ── Compositional coverage + value grounding note (Issues #20 / #19) ───────────
+
+class TestCompositionalCoverage:
+
+    def test_prompt_covers_having_vs_where(self):
+        low = PromptHarness.get("SQL_CODE_AGENT").lower()
+        assert "having" in low and "group by" in low
+        # per-group aggregate threshold → HAVING, not WHERE
+        assert "per-group" in low or "per group" in low
+
+    def test_prompt_covers_exclusion_setops(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        low = prompt.lower()
+        assert "except" in low
+        assert "not in" in low or "<>" in prompt
+        assert "exclusion" in low or "without" in low or "other than" in low
+
+    def test_prompt_covers_bridge_join(self):
+        low = PromptHarness.get("SQL_CODE_AGENT").lower()
+        assert "junction" in low or "bridge" in low
+        assert "link_to_event" in low  # the concrete example
+
+    def test_prompt_covers_computed_filter_and_nullif(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        assert "NULLIF" in prompt
+        assert "/ NULLIF" in prompt or "NULLIF(Amount" in prompt
+
+    def test_prompt_has_value_list_note(self):
+        prompt = PromptHarness.get("SQL_CODE_AGENT")
+        assert "values: {" in prompt           # references the schema values list
+        assert "Women''s Soccer" in prompt      # apostrophe-escaping example
+
+    def test_default_fewshots_include_having_except_and_bridge(self):
+        from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
+        joined = "\n".join(DEFAULT_FEWSHOTS)
+        assert "HAVING COUNT(" in joined
+        assert "EXCEPT" in joined
+        assert "t2.link_to_member = t3.member_id" in joined   # bridge join through junction
+        assert "'Women''s Soccer'" in joined                  # escaped value
+
+    def test_reranker_prompt_mentions_having_and_bridge(self):
+        prompt = PromptHarness.get_file("sql_reranker.md")
+        low = prompt.lower()
+        assert "having" in low
+        assert "junction" in low or "bridge" in low
+        assert "except" in low
+
+
 # ── Reranker prompt + JOIN criterion ──────────────────────────────────────────
 
 class TestReranker:

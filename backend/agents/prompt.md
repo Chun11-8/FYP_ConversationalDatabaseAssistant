@@ -114,6 +114,11 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      a column that is not in your FROM/JOIN.
    - Join ON the foreign-key columns shown in the schema's relationships section.
      Never guess a join key from name similarity.
+   - **Bridge/junction tables:** if two entity tables connect only through a
+     junction table (a table of foreign keys, e.g.
+     `attendance(link_to_event, link_to_member)`), join THROUGH it. Its FK columns
+     are often named differently from their targets
+     (`attendance.link_to_event = event.event_id`).
 
 **3. GRAIN — at what row level does the aggregate run? (THE #1 CAUSE OF WRONG ANSWERS)**
    - Default and usually correct order: **JOIN first → FILTER in WHERE → aggregate
@@ -128,6 +133,9 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
 **4. FILTERS — put every condition from the question in WHERE/ON.**
    - Map a literal value (a code/label like 'SME', 'LAM', 'active') to the
      categorical column that holds it: `that_column = 'VALUE'` (match exact casing).
+   - When the schema shows a column's `values: {...}` list, copy the value EXACTLY
+     from it (casing and spelling). Escape an embedded apostrophe by doubling it
+     (`Women's Soccer` → `'Women''s Soccer'`).
    - **Apply every `<domain_context>` / evidence hint VERBATIM.** Evidence may give:
      - an EXACT value — e.g. *"August 2012 refers to Date = '201208'"* → `Date = '201208'`;
      - an exact literal format to match;
@@ -140,7 +148,17 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      Use `SUBSTR(date,1,4) = '2013'` or `date LIKE '2013%'` **only** for a year-only /
      partial match where no exact value is specified.
 
-**5. ORDER / LIMIT — only if needed.**
+**5. COMPOSE — aggregate filters & exclusions.**
+   - A threshold on a **per-group** `COUNT/SUM/AVG` is a `HAVING` clause after
+     `GROUP BY` (e.g. "events with more than 20 attendees" →
+     `GROUP BY event HAVING COUNT(...) > 20`). A threshold on a **raw column**
+     stays in `WHERE`. Never put an aggregate in `WHERE`.
+   - "not / without / except / other than X" is an EXCLUSION. Use `EXCEPT <subquery>`
+     when excluding a set of rows produced by another query (e.g. "… but not
+     fundraisers" → `... EXCEPT SELECT name FROM event WHERE type = 'Fundraiser'`),
+     or `NOT IN (...)` / `<>` for a simple value exclusion.
+
+**6. ORDER / LIMIT — only if needed.**
    - Superlatives (least/most/highest/top N) → `ORDER BY <agg> ASC|DESC` + `LIMIT 1`
      (or `LIMIT N`). A scalar aggregate gets neither.
 
@@ -290,6 +308,38 @@ FROM transactions_1k AS t1
 INNER JOIN yearmonth AS t2 ON t1.customerid = t2.customerid
 WHERE t1.price / NULLIF(t1.amount, 0) > 29.00 AND t1.productid = 5
   AND t2.date = '201208';
+```
+
+### Example 5 — Per-group threshold (HAVING) + exclusion (EXCEPT):
+DECOMPOSE (silent):
+- FINAL VALUE: `event_name`.
+- COMPOSE: "attendance over 20" is a per-group COUNT threshold → `GROUP BY event`
+  + `HAVING COUNT(...) > 20` (NOT WHERE). "were not fundraisers" excludes a set of
+  rows → `EXCEPT` the events whose `type = 'Fundraiser'`.
+```sql
+SELECT t1.event_name
+FROM event AS t1
+INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event
+GROUP BY t1.event_id
+HAVING COUNT(t2.link_to_event) > 20
+EXCEPT
+SELECT event_name FROM event WHERE type = 'Fundraiser';
+```
+
+### Example 6 — Bridge/junction join + exact value from evidence:
+DECOMPOSE (silent):
+- FINAL VALUE: a `COUNT` of members.
+- TABLES/JOINS: `event` and `member` connect only through the junction table
+  `attendance` → join THROUGH it on its FK columns (`link_to_event`/`link_to_member`,
+  named differently from `event_id`/`member_id`).
+- FILTERS: exact values — `event_name = 'Women''s Soccer'` (double the apostrophe),
+  `t_shirt_size = 'Medium'`.
+```sql
+SELECT COUNT(t3.member_id)
+FROM event AS t1
+INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event
+INNER JOIN member AS t3 ON t2.link_to_member = t3.member_id
+WHERE t1.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium';
 ```
 
 ---

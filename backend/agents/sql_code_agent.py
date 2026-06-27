@@ -125,6 +125,41 @@ DEFAULT_FEWSHOTS: List[str] = [
         "AND t2.date = '201208';\n"
         "```"
     ),
+    (
+        "USER_QUESTION: List the names of events that had an attendance of over 20 "
+        "students but were not fundraisers.\n"
+        "REASONING: 'over 20 attendance' is a per-group COUNT threshold → GROUP BY "
+        "event + HAVING COUNT(...) > 20 (NOT WHERE). 'were not fundraisers' is an "
+        "exclusion of a set of rows → EXCEPT the events whose type = 'Fundraiser'.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t1.event_name\n"
+        "FROM event AS t1\n"
+        "INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event\n"
+        "GROUP BY t1.event_id\n"
+        "HAVING COUNT(t2.link_to_event) > 20\n"
+        "EXCEPT\n"
+        "SELECT event_name FROM event WHERE type = 'Fundraiser';\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: Among students who attended the event 'Women's Soccer', how "
+        "many want a medium-size t-shirt? "
+        "(evidence: t-shirt in medium size refers to t_shirt_size = 'Medium')\n"
+        "REASONING: event and member connect only through the junction table "
+        "attendance → join THROUGH it on its FK columns (link_to_event/link_to_member, "
+        "named differently from event_id/member_id). Copy exact values: event_name = "
+        "'Women''s Soccer' (double the apostrophe), t_shirt_size = 'Medium'. 'how many' "
+        "→ COUNT.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT COUNT(t3.member_id)\n"
+        "FROM event AS t1\n"
+        "INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event\n"
+        "INNER JOIN member AS t3 ON t2.link_to_member = t3.member_id\n"
+        "WHERE t1.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium';\n"
+        "```"
+    ),
 ]
 
 
@@ -261,18 +296,24 @@ Decompose the question silently before writing SQL:
    (An evidence formula may instead define a FILTER — see Step 4.)
 2. TABLES & JOINS: locate each needed column's table. If a filter column lives in
    one table and the metric in another, JOIN them on the FK columns shown in the
-   schema. You cannot filter on a column that is not in your FROM/JOIN.
+   schema. You cannot filter on a column that is not in your FROM/JOIN. If two
+   tables connect only through a junction/bridge table, join THROUGH it on its FK
+   columns (often named differently, e.g. attendance.link_to_event = event.event_id).
 3. GRAIN (most important): JOIN first → FILTER in WHERE → aggregate ONCE over the
    resulting rows. Do NOT pre-aggregate in a CTE/subquery and aggregate again —
    AVG(x) over joined rows is NOT the same number as AVG(per-group AVG(x)). Only
    nest aggregates when the question explicitly asks "average per X then overall".
 4. FILTERS: every term → a predicate; map a literal value (e.g. 'SME') to its
-   categorical column (exact casing). Apply every <domain_context>/evidence hint
-   VERBATIM — exact values (date = '201208'), exact formats, and formulas used as
-   filters (price / NULLIF(amount,0) > 29) go in WHERE/HAVING, not only SELECT.
-   Dates: when an EXACT value is given, match it exactly; use SUBSTR(date,1,4)=...
-   or date LIKE '2013%' ONLY for a year-only / partial match.
-5. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
+   categorical column (exact casing — copy from the column's `values: {{...}}` list
+   when shown; escape apostrophes by doubling). Apply every <domain_context>/
+   evidence hint VERBATIM — exact values (date = '201208'), exact formats, and
+   formulas used as filters (price / NULLIF(amount,0) > 29) go in WHERE/HAVING, not
+   only SELECT. Dates: when an EXACT value is given, match it exactly; use
+   SUBSTR(date,1,4)=... or date LIKE '2013%' ONLY for a year-only / partial match.
+5. COMPOSE: a threshold on a per-group COUNT/SUM/AVG is HAVING after GROUP BY (not
+   WHERE). "not / without / except X" is an exclusion — EXCEPT <subquery> for a set
+   of rows, or NOT IN (...) / <> for a value.
+6. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
    ORDER BY <agg> + LIMIT 1 (or N).
 
 Prefer the simplest correct shape:
