@@ -441,7 +441,10 @@ def run_bird_eval(
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
 
-        db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
+        # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
+        db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
+        if not Path(db_path).exists():
+            db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
 
         # ── Schema ───────────────────────────────────────────────────────────
         try:
