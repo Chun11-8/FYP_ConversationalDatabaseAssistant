@@ -99,6 +99,10 @@ class OrchestrationAgent:
         self.linker = SchemaLinkingAgent(config, self.llm)
         # Schema linking is on by default; toggle via config `sql.schema_linking`.
         self._schema_linking = bool(config.get("sql", {}).get("schema_linking", True))
+        # UI safety net: append LIMIT to executed queries. Disable when
+        # benchmarking (config `sql.enforce_limit: false`) so the recorded SQL
+        # matches what the model actually produced.
+        self._enforce_limit = bool(config.get("sql", {}).get("enforce_limit", True))
         self.memory = SessionMemory(
             db_config=config.get("db"),
             summarizer=self._summarize_history,
@@ -335,7 +339,13 @@ class OrchestrationAgent:
         print("\n" + "─" * 70)
         print("⚡  NODE: execute_sql")
         print("─" * 70)
-        sql = enforce_limit(state["best_sql"])
+        # Safety LIMIT is a UI guardrail; skip it when benchmarking so the
+        # recorded SQL is exactly what the model produced (config sql.enforce_limit).
+        sql = (
+            enforce_limit(state["best_sql"])
+            if getattr(self, "_enforce_limit", True)
+            else state["best_sql"]
+        )
         print("  SQL to execute:")
         for line in sql.splitlines():
             print(f"    {line}")

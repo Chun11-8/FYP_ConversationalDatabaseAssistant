@@ -320,6 +320,76 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
     }
 
 
+# ── Execution-guided candidate selection (Tier 3, item 8) ─────────────────────
+
+def select_by_execution(
+    candidates: List[str],
+    db_path: str,
+    validator: Any,
+    schema_context: str,
+    timeout: float = 30.0,
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    """
+    Pick the best SQL candidate by EXECUTING them and voting on the results.
+
+    Candidates that fail validation (safety/syntax — keeps execution SELECT-only)
+    or error at execution get no vote. The remaining candidates are grouped by an
+    order-insensitive fingerprint of their result set; the plurality group wins.
+    Tie-breaks: a non-empty result beats an empty one (wrong queries dispropor-
+    tionately return 0 rows); an unresolved tie returns None so the caller falls
+    back to the text reranker.
+
+    Returns (winning_sql | None, info) — info is a small diagnostics dict.
+    """
+    info: Dict[str, Any] = {
+        "candidates": len(candidates), "executed": 0,
+        "groups": 0, "winner_votes": 0, "fallback_reason": None,
+    }
+    if not candidates:
+        info["fallback_reason"] = "no candidates"
+        return None, info
+
+    # fingerprint → list of SQLs that produced that exact result set
+    groups: Dict[frozenset, List[str]] = {}
+    for sql in candidates:
+        try:
+            verdict = validator.validate(sql, schema_context)
+        except Exception:
+            continue
+        if not verdict.get("valid"):
+            continue  # never execute non-SELECT / unparseable candidates
+        rows, err, _ = execute_sqlite(sql, db_path, timeout)
+        if err:
+            continue
+        info["executed"] += 1
+        groups.setdefault(_rows_to_set(rows), []).append(sql)
+
+    info["groups"] = len(groups)
+    if not groups:
+        info["fallback_reason"] = "no candidate executed successfully"
+        return None, info
+
+    best_size = max(len(sqls) for sqls in groups.values())
+    tied = [(fp, sqls) for fp, sqls in groups.items() if len(sqls) == best_size]
+
+    # Unanimity among survivors, or a strict plurality → clear winner.
+    if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
+        fp, sqls = tied[0]
+        info["winner_votes"] = best_size
+        return sqls[0], info
+
+    # Tie-break: prefer the group with a non-empty result set.
+    non_empty = [(fp, sqls) for fp, sqls in tied if len(fp) > 0]
+    if len(non_empty) == 1:
+        fp, sqls = non_empty[0]
+        info["winner_votes"] = len(sqls)
+        info["fallback_reason"] = None
+        return sqls[0], info
+
+    info["fallback_reason"] = "tie between distinct result sets"
+    return None, info
+
+
 # ── Evaluation loop ────────────────────────────────────────────────────────────
 
 def run_bird_eval(
@@ -331,6 +401,7 @@ def run_bird_eval(
     difficulty_filter: Optional[str] = None,
     timeout: float = 30.0,
     linker: Any = None,
+    exec_voting: bool = True,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -345,6 +416,9 @@ def run_bird_eval(
     difficulty_filter: if set, restrict to "simple", "moderate", or "challenging"
     linker           : optional SchemaLinkingAgent — when provided, a structured
                        query plan is produced and fed into generation (Issue #17)
+    exec_voting      : when True, candidates are selected by executing them and
+                       plurality-voting on result fingerprints; the text reranker
+                       only breaks ties (Tier 3, item 8)
     timeout          : per-query SQLite execution timeout in seconds
     """
     questions = load_dev_json(dev_json_path)
@@ -399,6 +473,7 @@ def run_bird_eval(
 
         t_gen = time.perf_counter()
         pred_sql = ""
+        vote_info: Optional[Dict[str, Any]] = None
         try:
             sqls = sql_agent.generate(
                 query=full_query,
@@ -408,7 +483,26 @@ def run_bird_eval(
                 query_plan=query_plan,
             )
             if sqls:
-                pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
+                if exec_voting:
+                    # Execution-guided selection; reranker only breaks ties.
+                    winner, vote_info = select_by_execution(
+                        sqls, db_path, validator, schema_context, timeout
+                    )
+                    if winner:
+                        pred_sql = winner
+                        logger.info(
+                            f"[BIRD] qid={qid} exec-vote winner "
+                            f"({vote_info['winner_votes']}/{vote_info['executed']} votes, "
+                            f"{vote_info['groups']} distinct result sets)"
+                        )
+                    else:
+                        pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
+                        logger.info(
+                            f"[BIRD] qid={qid} exec-vote fallback → reranker "
+                            f"({vote_info['fallback_reason']})"
+                        )
+                else:
+                    pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
         except Exception as exc:
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
@@ -463,6 +557,7 @@ def run_bird_eval(
             "gen_ms":         gen_ms,
             "gold_elapsed_ms": int(gold_elapsed * 1000),
             "pred_elapsed_ms": int(pred_elapsed * 1000),
+            "exec_vote":      vote_info,
         }
         results.append(record)
 
@@ -544,6 +639,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="SQLite execution timeout per query in seconds (default: 30)")
     parser.add_argument("--no-schema-linking", action="store_true",
                         help="Disable the schema-linking stage (#17) for A/B comparison")
+    parser.add_argument("--no-exec-voting", action="store_true",
+                        help="Disable execution-guided candidate voting for A/B comparison")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
@@ -571,6 +668,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     linker = SchemaLinkingAgent(bird_config, llm) if use_linking else None
     logger.info("[BIRD] schema linking: %s", "ON" if linker else "OFF")
 
+    use_voting = not args.no_exec_voting and bool(
+        config.get("sql", {}).get("execution_voting", True)
+    )
+    logger.info("[BIRD] execution voting: %s (candidates per question: %s)",
+                "ON" if use_voting else "OFF", sql_agent.top_k)
+
     results = run_bird_eval(
         dev_json_path=args.dev_json,
         db_dir=args.db_dir,
@@ -580,6 +683,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         difficulty_filter=args.difficulty,
         timeout=args.timeout,
         linker=linker,
+        exec_voting=use_voting,
     )
     metrics = compute_bird_metrics(results)
     write_results(results, metrics, args.output)

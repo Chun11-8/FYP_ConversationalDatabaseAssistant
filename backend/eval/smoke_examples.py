@@ -29,7 +29,12 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from backend.eval.bird import extract_sqlite_schema, execute_sqlite, compute_ex
+from backend.eval.bird import (
+    extract_sqlite_schema,
+    execute_sqlite,
+    compute_ex,
+    select_by_execution,
+)
 
 
 # ── The three motivating questions (verbatim from the user) ───────────────────
@@ -219,7 +224,12 @@ def run(db_dir: Path) -> int:
             plan = linker.analyze(full_query, schema)
             sqls = sql_agent.generate(query=full_query, schema_context=schema,
                                       few_shots=[], history=[], query_plan=plan)
-            pred = sql_agent.rerank(sqls, full_query, schema) if sqls else ""
+            pred, vote_info = "", None
+            if sqls:
+                # Execution-guided selection, same as bird.py; reranker breaks ties.
+                pred, vote_info = select_by_execution(sqls, db_path, validator, schema)
+                if not pred:
+                    pred = sql_agent.rerank(sqls, full_query, schema)
         except Exception as exc:
             print(f"\n[LLM UNAVAILABLE] {type(exc).__name__}: {str(exc)[:160]}")
             print("Cannot generate predicted SQL in this environment "
@@ -227,6 +237,7 @@ def run(db_dir: Path) -> int:
             continue
 
         print(f"\nQuery plan: {plan}")
+        print(f"Exec vote : {vote_info}")
         print(f"Predicted : {pred}")
         validation = validator.validate(pred, schema) if pred else {"valid": False}
         pred_rows, pred_err, _ = execute_sqlite(pred, db_path) if pred else ([], "no SQL", 0)
