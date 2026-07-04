@@ -227,11 +227,16 @@ class SQLCodeAgent:
     then reranks using an LLM judge to select the best query.
     """
 
-    TOP_K = 3  # number of SQL candidates to generate
+    TOP_K = 3  # default number of SQL candidates (config `sql.n_candidates` overrides)
 
     def __init__(self, config: dict, llm: ChatOpenAI):
         self.llm = llm
         self.dialect = config.get("db", {}).get("dialect", "postgres")
+        # More candidates → better execution-guided voting (Tier 3, item 8).
+        try:
+            self.top_k = max(1, int(config.get("sql", {}).get("n_candidates", self.TOP_K)))
+        except (TypeError, ValueError):
+            self.top_k = self.TOP_K
 
     # ── Generation ──────────────────────────────
 
@@ -285,7 +290,7 @@ class SQLCodeAgent:
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
             print("  ⚠️  No SQL code blocks found in LLM output!")
-        return sqls[: self.TOP_K]
+        return sqls[: self.top_k]
 
     def normalize_dialect(self, sql: str) -> str:
         """
@@ -400,7 +405,7 @@ Prefer the simplest correct shape:
   SELECT <agg>(...) FROM a JOIN b ON a.k=b.k WHERE <filters>;
 Use a CTE only for genuine multi-step logic (e.g. rank-then-filter).
 
-Generate {self.TOP_K} candidate queries. Each must:
+Generate {self.top_k} candidate queries. Each must:
 - Use only tables/columns in <schema_context>; JOIN on the shown FK columns.
 - Be read-only (SELECT only) with explicit columns — never SELECT *.
 - Return ONLY the FINAL VALUE; honor any evidence formula exactly.
@@ -441,7 +446,7 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             template
             .replace("{validation_error}", error)
             .replace("{original_sql}", original_sql or "")
-            .replace("{top_k}", str(self.TOP_K))
+            .replace("{top_k}", str(self.top_k))
             .replace("{schema_context}", schema_context or "")
             .replace("{user_question}", query)
         )
@@ -457,7 +462,7 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
         ]
         if not sqls:
             logger.warning("[REFINE] No SQL extracted from regeneration output")
-        return sqls[: self.TOP_K]
+        return sqls[: self.top_k]
 
     def _system_prompt(self) -> str:
         try:

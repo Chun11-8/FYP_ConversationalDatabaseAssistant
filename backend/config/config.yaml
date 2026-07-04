@@ -15,6 +15,16 @@ sql:
   # Schema-linking & question-understanding stage (Issue #17). When true, a
   # structured query plan is produced before SQL generation. Set false to A/B.
   schema_linking: true
+  # Append a safety LIMIT to executed queries in the LIVE pipeline (UI safety
+  # net). Set false when benchmarking so a LIMIT is never bolted onto queries
+  # that gold answers don't have. The BIRD harness never applies it either way.
+  enforce_limit: true
+  # Number of SQL candidates to generate per question (one LLM call).
+  n_candidates: 5
+  # Execution-guided candidate selection in the BIRD harness (Tier 3, item 8):
+  # run every valid candidate, plurality-vote on result fingerprints; the text
+  # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
+  execution_voting: true
 
 retrieval:
   vector_store: pgvector
