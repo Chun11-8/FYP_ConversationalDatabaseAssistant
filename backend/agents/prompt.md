@@ -183,6 +183,9 @@ the exact formula from Step 1?" If the trace doesn't match the question, REWRITE
 5. **Schema-grounded** — only tables/columns in `<schema_context>`; join only on
    real FK columns.
 6. **No spurious clauses** — a scalar aggregate has no `GROUP BY`/`LIMIT`.
+7. **Escape apostrophes** — inside any string literal, an apostrophe MUST be
+   doubled or the SQL is invalid: `Women's Soccer` → `'Women''s Soccer'`,
+   `O'Brien` → `'O''Brien'`.
 
 ### Output Format:
 Return ONLY SQL blocks inside ```sql ... ``` fences. No explanations.

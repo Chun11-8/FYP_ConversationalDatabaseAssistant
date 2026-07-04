@@ -75,7 +75,10 @@ class SQLValidatorAgent:
         try:
             sqlglot.parse_one(sql, dialect=self.dialect)
             return True, None
-        except sqlglot.errors.ParseError as e:
+        except sqlglot.errors.SqlglotError as e:
+            # Base class covers ParseError AND TokenError (e.g. an unescaped
+            # apostrophe in a string literal). TokenError is NOT a ParseError
+            # subclass, so catching only ParseError would let it 500 upstream.
             return False, str(e)
 
     def _check_safety(self, sql: str):

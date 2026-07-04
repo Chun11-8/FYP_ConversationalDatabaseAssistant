@@ -65,6 +65,60 @@ def _to_sqlite(sql: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# String-literal apostrophe escaping (Issue #21)
+# ─────────────────────────────────────────────
+# Grounded values with apostrophes (e.g. Women's Soccer, O'Brien) are frequently
+# emitted as raw literals — `'Women's Soccer'` — which close the string early and
+# produce invalid SQL (sqlglot TokenError). In SQL an interior apostrophe must be
+# doubled: `'Women''s Soccer'`.
+
+def escape_sql_literal(value: str) -> str:
+    """Escape a raw string value for a single-quoted SQL literal (double the ')."""
+    return value.replace("'", "''")
+
+
+def _double_interior_apostrophes(sql: str) -> str:
+    """
+    Repair unescaped apostrophes inside single-quoted string literals.
+
+    Heuristic: while inside a literal, a `'` is the CLOSING quote unless the
+    character immediately after it is alphanumeric (glued to a word) — in which
+    case it is an interior apostrophe and gets doubled. Already-doubled `''` pairs
+    are preserved. This is intentionally only used as a parse-gated fallback
+    (see :meth:`SQLCodeAgent._repair_literals`) so it never touches valid SQL.
+    """
+    out: List[str] = []
+    i, n = 0, len(sql)
+    in_str = False
+    while i < n:
+        ch = sql[i]
+        if not in_str:
+            out.append(ch)
+            if ch == "'":
+                in_str = True
+            i += 1
+            continue
+        # inside a string literal
+        if ch == "'":
+            if i + 1 < n and sql[i + 1] == "'":   # already-escaped pair
+                out.append("''")
+                i += 2
+                continue
+            nxt = sql[i + 1] if i + 1 < n else ""
+            if nxt.isalnum():                     # interior apostrophe → double
+                out.append("''")
+                i += 1
+            else:                                 # closing quote
+                out.append("'")
+                in_str = False
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+# ─────────────────────────────────────────────
 # Default few-shot examples (decomposition + correct aggregation grain)
 # ─────────────────────────────────────────────
 # The semantic cache supplies dynamic few-shots, but it is empty until enough
@@ -224,7 +278,9 @@ class SQLCodeAgent:
         print("  └───────────────────────────────────────────────────────────")
 
         sqls = self._extract_sqls(raw)
-        sqls = [self.normalize_dialect(s) for s in sqls]
+        # Repair unescaped apostrophes BEFORE dialect normalization so the sqlite
+        # transpile step receives parseable SQL (Issue #21).
+        sqls = [self.normalize_dialect(self._repair_literals(s)) for s in sqls]
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
@@ -252,6 +308,30 @@ class SQLCodeAgent:
             logger.debug(f"[DIALECT] sqlglot transpile failed: {exc}")
 
         return _to_sqlite(out)
+
+    # ── Apostrophe repair (Issue #21) ───────────
+
+    def _parses(self, sql: str) -> bool:
+        try:
+            sqlglot.parse_one(sql, dialect=self.dialect)
+            return True
+        except Exception:
+            return False
+
+    def _repair_literals(self, sql: str) -> str:
+        """
+        Parse-gated repair of unescaped apostrophes in string literals. No-op when
+        the SQL already parses, so valid SQL is never altered. Only keeps the
+        repaired form if it actually parses.
+        """
+        if not sql or self._parses(sql):
+            return sql
+        repaired = _double_interior_apostrophes(sql)
+        if repaired != sql and self._parses(repaired):
+            logger.info("[SQL_GEN] Repaired unescaped apostrophe(s) in a string literal")
+            print("  🔧 Repaired an unescaped apostrophe in a string literal")
+            return repaired
+        return sql
 
     def _build_prompt(
         self,
@@ -371,7 +451,10 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             HumanMessage(content=prompt),
         ]
         raw = self.llm.invoke(messages).content
-        sqls = [self.normalize_dialect(s) for s in self._extract_sqls(raw)]
+        sqls = [
+            self.normalize_dialect(self._repair_literals(s))
+            for s in self._extract_sqls(raw)
+        ]
         if not sqls:
             logger.warning("[REFINE] No SQL extracted from regeneration output")
         return sqls[: self.TOP_K]

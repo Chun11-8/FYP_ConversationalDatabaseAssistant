@@ -225,3 +225,6 @@ outputs/
 # Secrets / local agent settings
 backend/config/secrets.env
 .claude/settings.local.json
+
+# Reconstructed mini-DBs from smoke_examples.py
+backend/eval/_smoke_dbs/
