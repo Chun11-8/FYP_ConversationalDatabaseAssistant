@@ -39,6 +39,10 @@ select the single candidate that most faithfully answers the question.
 6. **Compositional structure** — prefer the candidate that:
    - puts a per-group COUNT/SUM/AVG threshold in `HAVING` (after `GROUP BY`), not
      in `WHERE`;
+   - groups by the entity's PRIMARY KEY and projects the name
+     (`GROUP BY t.event_id … SELECT t.event_name`) rather than grouping by a name
+     column — names recur, and grouping by name merges distinct entities into one
+     wrong count;
    - handles "not / without / except X" with a correct exclusion (`EXCEPT` for a
      set of rows, `NOT IN` / `<>` for a value) rather than dropping the condition;
    - routes a multi-entity join through the junction/bridge table on its FK

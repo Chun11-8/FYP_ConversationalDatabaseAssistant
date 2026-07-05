@@ -402,6 +402,7 @@ def run_bird_eval(
     timeout: float = 30.0,
     linker: Any = None,
     exec_voting: bool = True,
+    refine: bool = True,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -419,6 +420,9 @@ def run_bird_eval(
     exec_voting      : when True, candidates are selected by executing them and
                        plurality-voting on result fingerprints; the text reranker
                        only breaks ties (Tier 3, item 8)
+    refine           : when True, one ReAct refine round runs on an observable
+                       failure (invalid SQL, execution error, or 0 rows); the
+                       refined SQL is kept only when it is strictly better
     timeout          : per-query SQLite execution timeout in seconds
     """
     questions = load_dev_json(dev_json_path)
@@ -441,7 +445,10 @@ def run_bird_eval(
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
 
-        db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
+        # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
+        db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
+        if not Path(db_path).exists():
+            db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
 
         # ── Schema ───────────────────────────────────────────────────────────
         try:
@@ -471,6 +478,19 @@ def run_bird_eval(
             except Exception as exc:
                 logger.warning(f"[BIRD] schema linking failed qid={qid}: {exc}")
 
+        def _select(candidates: List[str]) -> Tuple[str, Optional[Dict[str, Any]]]:
+            """Execution-vote (or plain rerank) over a candidate list."""
+            if not candidates:
+                return "", None
+            if exec_voting:
+                winner, v_info = select_by_execution(
+                    candidates, db_path, validator, schema_context, timeout
+                )
+                if winner:
+                    return winner, v_info
+                return sql_agent.rerank(candidates, full_query, schema_context), v_info
+            return sql_agent.rerank(candidates, full_query, schema_context), None
+
         t_gen = time.perf_counter()
         pred_sql = ""
         vote_info: Optional[Dict[str, Any]] = None
@@ -482,47 +502,77 @@ def run_bird_eval(
                 history=[],
                 query_plan=query_plan,
             )
-            if sqls:
-                if exec_voting:
-                    # Execution-guided selection; reranker only breaks ties.
-                    winner, vote_info = select_by_execution(
-                        sqls, db_path, validator, schema_context, timeout
-                    )
-                    if winner:
-                        pred_sql = winner
-                        logger.info(
-                            f"[BIRD] qid={qid} exec-vote winner "
-                            f"({vote_info['winner_votes']}/{vote_info['executed']} votes, "
-                            f"{vote_info['groups']} distinct result sets)"
-                        )
-                    else:
-                        pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
-                        logger.info(
-                            f"[BIRD] qid={qid} exec-vote fallback → reranker "
-                            f"({vote_info['fallback_reason']})"
-                        )
-                else:
-                    pred_sql = sql_agent.rerank(sqls, full_query, schema_context)
+            pred_sql, vote_info = _select(sqls)
         except Exception as exc:
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
 
-        # ── Validation ───────────────────────────────────────────────────────
-        validation: Dict[str, Any] = (
-            validator.validate(pred_sql, schema_context)
-            if pred_sql
-            else {"valid": False, "error": "no SQL generated"}
-        )
-
         # ── Execute gold ─────────────────────────────────────────────────────
         gold_rows, gold_error, gold_elapsed = execute_sqlite(gold_sql, db_path, timeout)
 
-        # ── Execute predicted (only if valid and gold succeeded) ─────────────
-        pred_rows: List[tuple] = []
-        pred_error: Optional[str] = None
-        pred_elapsed: float = 0.0
-        if pred_sql and validation.get("valid") and not gold_error:
-            pred_rows, pred_error, pred_elapsed = execute_sqlite(pred_sql, db_path, timeout)
+        def _attempt(sql: str) -> Tuple[Dict[str, Any], List[tuple], Optional[str], float]:
+            """Validate a candidate and (if valid) execute it."""
+            v: Dict[str, Any] = (
+                validator.validate(sql, schema_context)
+                if sql
+                else {"valid": False, "error": "no SQL generated"}
+            )
+            rows: List[tuple] = []
+            err: Optional[str] = None
+            elapsed: float = 0.0
+            if sql and v.get("valid") and not gold_error:
+                rows, err, elapsed = execute_sqlite(sql, db_path, timeout)
+            return v, rows, err, elapsed
+
+        validation, pred_rows, pred_error, pred_elapsed = _attempt(pred_sql)
+
+        # ── ReAct refine (one round): react to an observable failure ─────────
+        # Triggers on outcomes visible WITHOUT looking at gold: no/invalid SQL,
+        # an execution error, or a valid query that returned 0 rows.
+        refined = False
+        if refine and not gold_error:
+            zero_rows = bool(
+                pred_sql and validation.get("valid") and not pred_error and not pred_rows
+            )
+            if not pred_sql or not validation.get("valid") or pred_error or zero_rows:
+                if pred_error:
+                    observation = f"The query raised an execution error: {pred_error}"
+                elif zero_rows:
+                    observation = (
+                        "The query is valid and executed successfully but returned 0 rows. "
+                        "If a filter, JOIN, or value/format looks too strict or wrong, fix it; "
+                        "if the query already looks correct, return it unchanged."
+                    )
+                else:
+                    observation = (
+                        f"The query failed validation: {validation.get('error', 'no SQL generated')}"
+                    )
+                try:
+                    re_sqls = sql_agent.regenerate(
+                        query=full_query,
+                        schema_context=schema_context,
+                        original_sql=pred_sql or "",
+                        error=observation,
+                        history=[],
+                    )
+                except Exception as exc:
+                    logger.warning(f"[BIRD] refine failed qid={qid}: {exc}")
+                    re_sqls = []
+                new_sql, _ = _select(re_sqls)
+                if new_sql:
+                    v2, rows2, err2, t2 = _attempt(new_sql)
+                    orig_ok = bool(pred_sql and validation.get("valid") and not pred_error)
+                    accept = (
+                        v2.get("valid") and not err2
+                        and (not orig_ok or (zero_rows and rows2))
+                    )
+                    if accept:
+                        reason = ("0 rows → " + str(len(rows2)) + " rows"
+                                  if orig_ok else "was invalid/errored")
+                        pred_sql, validation = new_sql, v2
+                        pred_rows, pred_error, pred_elapsed = rows2, err2, t2
+                        refined = True
+                        logger.info(f"[BIRD] qid={qid} refine accepted ({reason})")
 
         # ── Compute metrics ──────────────────────────────────────────────────
         can_score = (
@@ -558,6 +608,7 @@ def run_bird_eval(
             "gold_elapsed_ms": int(gold_elapsed * 1000),
             "pred_elapsed_ms": int(pred_elapsed * 1000),
             "exec_vote":      vote_info,
+            "refined":        refined,
         }
         results.append(record)
 
@@ -641,6 +692,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Disable the schema-linking stage (#17) for A/B comparison")
     parser.add_argument("--no-exec-voting", action="store_true",
                         help="Disable execution-guided candidate voting for A/B comparison")
+    parser.add_argument("--no-refine", action="store_true",
+                        help="Disable the one-round ReAct refine on failure for A/B comparison")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
@@ -671,8 +724,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     use_voting = not args.no_exec_voting and bool(
         config.get("sql", {}).get("execution_voting", True)
     )
-    logger.info("[BIRD] execution voting: %s (candidates per question: %s)",
-                "ON" if use_voting else "OFF", sql_agent.top_k)
+    use_refine = not args.no_refine
+    logger.info("[BIRD] execution voting: %s | refine: %s (candidates per question: %s)",
+                "ON" if use_voting else "OFF", "ON" if use_refine else "OFF",
+                sql_agent.top_k)
 
     results = run_bird_eval(
         dev_json_path=args.dev_json,
@@ -684,6 +739,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         timeout=args.timeout,
         linker=linker,
         exec_voting=use_voting,
+        refine=use_refine,
     )
     metrics = compute_bird_metrics(results)
     write_results(results, metrics, args.output)

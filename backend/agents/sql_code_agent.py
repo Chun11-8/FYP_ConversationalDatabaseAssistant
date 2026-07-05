@@ -183,8 +183,10 @@ DEFAULT_FEWSHOTS: List[str] = [
         "USER_QUESTION: List the names of events that had an attendance of over 20 "
         "students but were not fundraisers.\n"
         "REASONING: 'over 20 attendance' is a per-group COUNT threshold → GROUP BY "
-        "event + HAVING COUNT(...) > 20 (NOT WHERE). 'were not fundraisers' is an "
-        "exclusion of a set of rows → EXCEPT the events whose type = 'Fundraiser'.\n"
+        "the PK event_id (NOT event_name — names recur across weekly events, grouping "
+        "by name merges distinct events) + HAVING COUNT(...) > 20 (NOT WHERE). "
+        "'were not fundraisers' is an exclusion of a set of rows → EXCEPT the events "
+        "whose type = 'Fundraiser'.\n"
         "SQL:\n"
         "```sql\n"
         "SELECT t1.event_name\n"
@@ -286,6 +288,8 @@ class SQLCodeAgent:
         # Repair unescaped apostrophes BEFORE dialect normalization so the sqlite
         # transpile step receives parseable SQL (Issue #21).
         sqls = [self.normalize_dialect(self._repair_literals(s)) for s in sqls]
+        # Demote wrong-grain (GROUP BY name-only) and plan-deviating candidates.
+        sqls = self._order_candidates(sqls, schema_context, query_plan)
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
@@ -313,6 +317,124 @@ class SQLCodeAgent:
             logger.debug(f"[DIALECT] sqlglot transpile failed: {exc}")
 
         return _to_sqlite(out)
+
+    # ── GROUP BY grain demotion ─────────────────
+    # Entity names recur (weekly events, duplicate person names): GROUP BY a
+    # name column merges DISTINCT entities and corrupts per-entity counts
+    # (BIRD q1323: GROUP BY event_name summed attendance across recurring
+    # events). When the schema shows a PK, candidates that group ONLY by
+    # name-like columns are demoted to the back of the candidate list so the
+    # vote-winner / reranker default favours PK-grained candidates.
+
+    _PK_PATTERNS = (
+        re.compile(r"-\s*(\w+):[^\n]*\[PK", re.IGNORECASE),   # bird.py schema format
+        re.compile(r"(\w+)\s*\([^)\n]*\[PK", re.IGNORECASE),  # embedding chunk format
+    )
+
+    def _grain_penalty(self, sql: str, schema_context: str) -> int:
+        """1 when the query groups ONLY by name-like columns although the schema
+        exposes primary keys (wrong grain risk); 0 otherwise / on parse failure."""
+        if not sql or not schema_context:
+            return 0
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+            group = ast.args.get("group")
+            if group is None:
+                return 0
+            group_cols = {c.name.lower() for c in group.find_all(sqlglot.exp.Column) if c.name}
+            if not group_cols:
+                return 0
+            pks = {
+                m.lower()
+                for pat in self._PK_PATTERNS
+                for m in pat.findall(schema_context)
+            }
+            if not pks or group_cols & pks:
+                return 0  # no PK info, or already grouping by a PK — fine
+            if all("name" in c for c in group_cols):
+                return 1
+        except Exception:
+            return 0
+        return 0
+
+    def _order_by_grain(self, sqls: List[str], schema_context: str) -> List[str]:
+        """Stable-sort candidates so wrong-grain (GROUP BY name-only) ones go last."""
+        if len(sqls) < 2:
+            return sqls
+        return sorted(sqls, key=lambda s: self._grain_penalty(s, schema_context))
+
+    # ── Plan-conformance demotion (closes the #17 loop) ──────────────────────
+    # The SchemaLinkingAgent resolves tables + the FK join path, but nothing
+    # verified the generated SQL actually followed it. Candidates that use a
+    # different table set, or miss a join condition the plan resolved, are
+    # demoted so plan-conforming candidates win vote-ties and reranker defaults.
+
+    _JOIN_COND_RE = re.compile(r"(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)")
+
+    def _plan_penalty(self, sql: str, query_plan: Optional[dict]) -> int:
+        """0 = conforms; +1 for a table-set mismatch; +1 for a missing plan join."""
+        if not sql or not query_plan or not isinstance(query_plan, dict):
+            return 0
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+        except Exception:
+            return 0
+        penalty = 0
+
+        # Alias → real table map so t1.customerid resolves to its table.
+        alias_map: Dict[str, str] = {}
+        sql_tables: set = set()
+        for t in ast.find_all(sqlglot.exp.Table):
+            if not t.name:
+                continue
+            real = t.name.lower()
+            sql_tables.add(real)
+            alias_map[(t.alias or t.name).lower()] = real
+            alias_map[real] = real
+
+        plan_tables = {
+            str(t).strip().lower() for t in (query_plan.get("tables") or []) if t
+        }
+        if plan_tables and sql_tables and sql_tables != plan_tables:
+            penalty += 1
+
+        # Every join condition the plan resolved should appear in the SQL
+        # (compared as unordered {(table, column), (table, column)} pairs,
+        # with SQL-side aliases resolved to real table names).
+        plan_joins = []
+        for cond in (query_plan.get("join_path") or []):
+            m = self._JOIN_COND_RE.search(str(cond))
+            if m:
+                a_t, a_c, b_t, b_c = (s.lower() for s in m.groups())
+                plan_joins.append(frozenset({(a_t, a_c), (b_t, b_c)}))
+        if plan_joins:
+            sql_joins = set()
+            for eq in ast.find_all(sqlglot.exp.EQ):
+                left, right = eq.left, eq.right
+                if isinstance(left, sqlglot.exp.Column) and isinstance(right, sqlglot.exp.Column):
+                    lt = alias_map.get((left.table or "").lower(), (left.table or "").lower())
+                    rt = alias_map.get((right.table or "").lower(), (right.table or "").lower())
+                    sql_joins.add(frozenset({(lt, left.name.lower()), (rt, right.name.lower())}))
+            if any(pj not in sql_joins for pj in plan_joins):
+                penalty += 1
+        return penalty
+
+    def _order_candidates(
+        self,
+        sqls: List[str],
+        schema_context: str,
+        query_plan: Optional[dict] = None,
+    ) -> List[str]:
+        """Stable-sort: plan-conforming, correctly-grained candidates first."""
+        if len(sqls) < 2:
+            return sqls
+        return sorted(
+            sqls,
+            key=lambda s: (
+                self._grain_penalty(s, schema_context)
+                + self._plan_penalty(s, query_plan)
+            ),
+        )
 
     # ── Apostrophe repair (Issue #21) ───────────
 
@@ -397,7 +519,10 @@ Decompose the question silently before writing SQL:
    SUBSTR(date,1,4)=... or date LIKE '2013%' ONLY for a year-only / partial match.
 5. COMPOSE: a threshold on a per-group COUNT/SUM/AVG is HAVING after GROUP BY (not
    WHERE). "not / without / except X" is an exclusion — EXCEPT <subquery> for a set
-   of rows, or NOT IN (...) / <> for a value.
+   of rows, or NOT IN (...) / <> for a value. When aggregating per entity, GROUP BY
+   the entity's PRIMARY KEY and project the name (GROUP BY t.event_id ... SELECT
+   t.event_name) — never GROUP BY a name column when a PK exists: names recur and
+   grouping by name merges distinct entities.
 6. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
    ORDER BY <agg> + LIMIT 1 (or N).
 
@@ -460,6 +585,7 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             self.normalize_dialect(self._repair_literals(s))
             for s in self._extract_sqls(raw)
         ]
+        sqls = self._order_by_grain(sqls, schema_context)
         if not sqls:
             logger.warning("[REFINE] No SQL extracted from regeneration output")
         return sqls[: self.top_k]

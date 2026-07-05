@@ -30,6 +30,11 @@ class SQLValidatorAgent:
 
     def __init__(self, config: dict):
         self.dialect = config.get("db", {}).get("dialect", "postgres")
+        # Strict mode (GH #19): a query referencing tables/columns absent from
+        # the schema context is BLOCKED (triggers regeneration) instead of
+        # executing and silently returning wrong rows. CTE names and aliases
+        # defined inside the query itself are always tolerated.
+        self.strict_semantic = bool(config.get("sql", {}).get("strict_semantic", True))
 
     def validate(self, sql: str, schema_context: str) -> Dict[str, Any]:
         result = {
@@ -63,10 +68,11 @@ class SQLValidatorAgent:
         result["semantic_ok"] = sem_ok
         if not sem_ok:
             result["error"] = f"Semantic: {sem_err}"
-            # Don't hard-block on semantic — let it through with warning
             logger.warning(f"[SEMANTIC_CHECK] {sem_err}")
 
-        result["valid"] = syntax_ok and safety_ok  # semantic is advisory
+        # Strict mode blocks on unknown tables/columns (so the regeneration
+        # fallback fires with the missing name); advisory mode only warns.
+        result["valid"] = syntax_ok and safety_ok and (sem_ok or not self.strict_semantic)
         return result
 
     # ── Stage Implementations ────────────────────
@@ -107,12 +113,36 @@ class SQLValidatorAgent:
             ast = sqlglot.parse_one(sql, dialect=self.dialect)
             schema_lower = schema_context.lower()
 
+            # ── Names DEFINED inside the query are always legitimate ─────────
+            # CTE names act as tables; SELECT/CTE aliases act as columns.
+            cte_names = {
+                c.alias_or_name.lower()
+                for c in ast.find_all(sqlglot.exp.CTE)
+                if c.alias_or_name
+            }
+            defined_aliases = {
+                a.alias.lower()
+                for a in ast.find_all(sqlglot.exp.Alias)
+                if isinstance(a.alias, str) and a.alias
+            }
+            # Table aliases (e.g. `players p`) may be referenced as qualifiers,
+            # and subquery aliases behave like tables too.
+            table_aliases = {
+                t.alias.lower()
+                for t in ast.find_all(sqlglot.exp.Table)
+                if t.alias
+            } | {
+                s.alias.lower()
+                for s in ast.find_all(sqlglot.exp.Subquery)
+                if s.alias
+            }
+
             # ── Table check (word-boundary to avoid substring false-positives) ──
             tables_in_sql = {
                 t.name.lower()
                 for t in ast.find_all(sqlglot.exp.Table)
                 if t.name
-            }
+            } - cte_names
             missing_tables = [
                 t for t in tables_in_sql
                 if not _re.search(rf"\b{_re.escape(t)}\b", schema_lower)
@@ -120,12 +150,12 @@ class SQLValidatorAgent:
             if missing_tables:
                 return False, f"Tables not found in schema: {missing_tables}"
 
-            # ── Column check (word-boundary, advisory) ───────────────────────
+            # ── Column check (word-boundary; alias/CTE-derived names skipped) ──
             columns_in_sql = {
                 c.name.lower()
                 for c in ast.find_all(sqlglot.exp.Column)
                 if c.name
-            }
+            } - defined_aliases - table_aliases - cte_names
             missing_cols = [
                 c for c in columns_in_sql
                 if not _re.search(rf"\b{_re.escape(c)}\b", schema_lower)

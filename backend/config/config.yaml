@@ -21,15 +21,25 @@ sql:
   enforce_limit: true
   # Number of SQL candidates to generate per question (one LLM call).
   n_candidates: 5
-  # Execution-guided candidate selection in the BIRD harness (Tier 3, item 8):
+  # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
   execution_voting: true
+  # Strict schema-grounded validation (GH #19): a query referencing unknown
+  # tables/columns is BLOCKED (triggers regeneration) instead of executing and
+  # returning wrong rows. CTE names / aliases defined in the query are tolerated.
+  strict_semantic: true
 
 retrieval:
   vector_store: pgvector
   top_k_tables: 5
   top_k_kb: 3
+  # FK-aware context expansion: hop depth (2 reaches through bridge tables),
+  # cap on FK-added tables, and an approximate token budget for the schema
+  # context (FK tables are dropped farthest-hop-first; primaries never dropped).
+  fk_max_hops: 2
+  fk_max_expansion: 5
+  max_schema_tokens: 4000
 
 response:
   inline_row_limit: 10
