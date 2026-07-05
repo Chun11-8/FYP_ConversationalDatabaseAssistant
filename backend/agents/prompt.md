@@ -153,6 +153,11 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      `GROUP BY` (e.g. "events with more than 20 attendees" →
      `GROUP BY event HAVING COUNT(...) > 20`). A threshold on a **raw column**
      stays in `WHERE`. Never put an aggregate in `WHERE`.
+   - **GROUP BY the PRIMARY KEY, project the name.** When aggregating per entity,
+     group by the entity's PK and select its display name
+     (`GROUP BY t.event_id … SELECT t.event_name`) — never `GROUP BY` a name
+     column when the table has a PK: names RECUR (weekly events, duplicate person
+     names), and grouping by name merges distinct entities into one wrong count.
    - "not / without / except / other than X" is an EXCLUSION. Use `EXCEPT <subquery>`
      when excluding a set of rows produced by another query (e.g. "… but not
      fundraisers" → `... EXCEPT SELECT name FROM event WHERE type = 'Fundraiser'`),
@@ -316,9 +321,11 @@ WHERE t1.price / NULLIF(t1.amount, 0) > 29.00 AND t1.productid = 5
 ### Example 5 — Per-group threshold (HAVING) + exclusion (EXCEPT):
 DECOMPOSE (silent):
 - FINAL VALUE: `event_name`.
-- COMPOSE: "attendance over 20" is a per-group COUNT threshold → `GROUP BY event`
-  + `HAVING COUNT(...) > 20` (NOT WHERE). "were not fundraisers" excludes a set of
-  rows → `EXCEPT` the events whose `type = 'Fundraiser'`.
+- COMPOSE: "attendance over 20" is a per-group COUNT threshold → `GROUP BY` the PK
+  `event_id` (NOT `event_name` — names recur across weekly events; grouping by name
+  merges distinct events) + `HAVING COUNT(...) > 20` (NOT WHERE). "were not
+  fundraisers" excludes a set of rows → `EXCEPT` the events whose
+  `type = 'Fundraiser'`.
 ```sql
 SELECT t1.event_name
 FROM event AS t1
