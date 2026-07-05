@@ -220,7 +220,6 @@ __marimo__/
 
 # Datasets / large benchmark data (regenerable, exceeds GitHub size limits)
 dataset/
-outputs/
 
 # Secrets / local agent settings
 backend/config/secrets.env
