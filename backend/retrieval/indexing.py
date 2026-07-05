@@ -296,8 +296,10 @@ def execute_query(sql: str) -> list[dict]:
 def expand_fk_tables(
     retrieve_result: dict,
     db_name: str,
-    max_hops: int = 1,
+    max_hops: int = 2,
     store_conn=None,
+    max_expansion: int = 5,
+    max_schema_tokens: int = 4000,
 ) -> dict:
     """
     Expand a retrieve() result with FK-linked tables.
@@ -313,10 +315,16 @@ def expand_fk_tables(
            ### Foreign Key Relationships
 
     Args:
-        retrieve_result: Output from retrieve() — must contain "tables" list.
-        db_name:         Database name used to filter schema_embeddings lookups.
-        max_hops:        FK traversal depth (default 1 = direct FK neighbours only).
-        store_conn:      Reuse an existing pgvector connection (None = create one).
+        retrieve_result:   Output from retrieve() — must contain "tables" list.
+        db_name:           Database name used to filter schema_embeddings lookups.
+        max_hops:          FK traversal depth (default 2 so a middle "bridge"
+                           table pulls in its far side, e.g. players→stats→teams).
+        store_conn:        Reuse an existing pgvector connection (None = create one).
+        max_expansion:     Cap on FK-added tables (closest hops win) to prevent
+                           context explosion on star schemas.
+        max_schema_tokens: Approximate token budget for the final prompt_context.
+                           When exceeded, FK-expansion tables are dropped from the
+                           END (farthest hop first); primary tables are never dropped.
 
     Returns:
         A copy of retrieve_result with keys added/updated:
@@ -341,68 +349,86 @@ def expand_fk_tables(
         logger.warning(f"[FK_EXPAND] FK graph query failed: {exc}; skipping expansion.")
         return {**retrieve_result, "fk_tables": [], "fk_edges": []}
 
-    # BFS from primary tables
+    # BFS from primary tables — hop-ordered so, under the expansion cap, the
+    # closest (most join-relevant) tables survive.
     visited: set[str] = set(primary_table_names)
     frontier: set[str] = set(primary_table_names)
+    expansion_ordered: list[str] = []
     for _ in range(max_hops):
         next_frontier: set[str] = set()
-        for tbl in frontier:
-            for neighbour in fk_graph.get(tbl, set()):
+        for tbl in sorted(frontier):            # deterministic order
+            for neighbour in sorted(fk_graph.get(tbl, set())):
                 if neighbour not in visited:
-                    next_frontier.add(neighbour)
                     visited.add(neighbour)
+                    next_frontier.add(neighbour)
+                    if len(expansion_ordered) < max_expansion:
+                        expansion_ordered.append(neighbour)
+        if len(expansion_ordered) >= max_expansion:
+            logger.info(f"[FK_EXPAND] expansion cap ({max_expansion}) reached")
+            break
         frontier = next_frontier
 
-    expansion_names = visited - primary_table_names
+    expansion_names = set(expansion_ordered)
 
     if expansion_names:
-        logger.info(f"[FK_EXPAND] Adding {len(expansion_names)} FK-linked table(s): {sorted(expansion_names)}")
+        logger.info(f"[FK_EXPAND] Adding {len(expansion_names)} FK-linked table(s): {expansion_ordered}")
 
-    # Fetch schema chunks for expansion tables
+    # Fetch schema chunks for expansion tables, keeping hop order
     fk_chunks: list[dict] = []
     if expansion_names:
         try:
-            fk_chunks = pgstore.get_chunks_by_tables(conn, list(expansion_names), db_name)
+            fk_chunks = pgstore.get_chunks_by_tables(conn, expansion_ordered, db_name)
+            hop_rank = {t: i for i, t in enumerate(expansion_ordered)}
+            fk_chunks.sort(key=lambda c: hop_rank.get(c.get("table_name"), len(hop_rank)))
         except Exception as exc:
             logger.warning(f"[FK_EXPAND] chunk fetch failed: {exc}")
 
-    # Filter FK edges to those connecting the expanded table set
-    all_names = primary_table_names | expansion_names
-    relevant_edges = [
-        e for e in fk_edges
-        if e["from_table"] in all_names and e["to_table"] in all_names
-    ]
+    from backend.agents.utils import estimate_tokens
 
-    # Build enriched prompt_context
-    parts: list[str] = []
-
-    parts.append("### Relevant Table Schemas (Retrieved by Query)\n")
-    for item in retrieve_result.get("tables", []):
-        parts.append(item["text"])
-        parts.append("")
-
-    if fk_chunks:
-        parts.append("### FK-Related Tables (Included via join relationships)\n")
-        for chunk in fk_chunks:
-            parts.append(chunk["content"])
+    def _assemble(kept_chunks: list[dict]) -> tuple[str, list[dict]]:
+        """Build the prompt_context for primary tables + the given FK chunks."""
+        kept_names = primary_table_names | {c["table_name"] for c in kept_chunks}
+        edges = [
+            e for e in fk_edges
+            if e["from_table"] in kept_names and e["to_table"] in kept_names
+        ]
+        parts: list[str] = []
+        parts.append("### Relevant Table Schemas (Retrieved by Query)\n")
+        for item in retrieve_result.get("tables", []):
+            parts.append(item["text"])
             parts.append("")
+        if kept_chunks:
+            parts.append("### FK-Related Tables (Included via join relationships)\n")
+            for chunk in kept_chunks:
+                parts.append(chunk["content"])
+                parts.append("")
+        if edges:
+            parts.append("### Foreign Key Relationships\n")
+            seen_edges: set[tuple] = set()
+            for e in edges:
+                key = (e["from_table"], e["from_col"], e["to_table"], e["to_col"])
+                if key not in seen_edges:
+                    parts.append(
+                        f"  {e['from_table']}.{e['from_col']} → {e['to_table']}.{e['to_col']}"
+                    )
+                    seen_edges.add(key)
+        return "\n".join(parts).strip(), edges
 
-    if relevant_edges:
-        parts.append("### Foreign Key Relationships\n")
-        seen_edges: set[tuple] = set()
-        for e in relevant_edges:
-            key = (e["from_table"], e["from_col"], e["to_table"], e["to_col"])
-            if key not in seen_edges:
-                parts.append(
-                    f"  {e['from_table']}.{e['from_col']} → {e['to_table']}.{e['to_col']}"
-                )
-                seen_edges.add(key)
-
-    prompt_context = "\n".join(parts).strip()
+    # Token budget: drop FK-expansion chunks from the END (farthest hop first)
+    # until the context fits. Primary tables are never dropped.
+    kept = list(fk_chunks)
+    prompt_context, relevant_edges = _assemble(kept)
+    while kept and estimate_tokens(prompt_context) > max_schema_tokens:
+        dropped = kept.pop()
+        logger.info(
+            f"[FK_EXPAND] token budget ({max_schema_tokens}) exceeded; "
+            f"dropping FK table '{dropped.get('table_name')}'"
+        )
+        prompt_context, relevant_edges = _assemble(kept)
 
     return {
         **retrieve_result,
-        "fk_tables":      fk_chunks,
+        "fk_tables":      kept,
         "fk_edges":       relevant_edges,
         "prompt_context": prompt_context,
     }

@@ -103,6 +103,15 @@ class OrchestrationAgent:
         # benchmarking (config `sql.enforce_limit: false`) so the recorded SQL
         # matches what the model actually produced.
         self._enforce_limit = bool(config.get("sql", {}).get("enforce_limit", True))
+        # Execution-guided candidate selection in the LIVE pipeline: run valid
+        # candidates against the DB and plurality-vote on result fingerprints;
+        # the text reranker only breaks ties (config `sql.execution_voting`).
+        self._exec_voting = bool(config.get("sql", {}).get("execution_voting", True))
+        # FK-expansion / context-budget knobs (config `retrieval.*`).
+        _r = config.get("retrieval", {}) or {}
+        self._fk_max_hops = int(_r.get("fk_max_hops", 2))
+        self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
+        self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
         self.memory = SessionMemory(
             db_config=config.get("db"),
             summarizer=self._summarize_history,
@@ -185,7 +194,12 @@ class OrchestrationAgent:
         try:
             schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=5, store="pgvector")
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
-            schema_chunks = expand_fk_tables(schema_chunks, "FYP")
+            schema_chunks = expand_fk_tables(
+                schema_chunks, "FYP",
+                max_hops=self._fk_max_hops,
+                max_expansion=self._fk_max_expansion,
+                max_schema_tokens=self._max_schema_tokens,
+            )
             schema_context = schema_chunks["prompt_context"]
 
             primary = [t["table_name"] for t in schema_chunks["tables"]]
@@ -306,8 +320,16 @@ class OrchestrationAgent:
                     print(f"     {line}")
             logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
 
-            best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
-            print(f"\n  🏆 Reranker selected:")
+            # Execution-guided selection first (plurality over result sets);
+            # the text reranker only decides when voting is inconclusive.
+            best = ""
+            if getattr(self, "_exec_voting", True) and len(sqls) > 1:
+                best = self._vote_candidates(sqls, state["schema_context"])
+            if not best:
+                best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
+                print(f"\n  🏆 Reranker selected:")
+            else:
+                print(f"\n  🗳️  Execution vote selected:")
             for line in best.splitlines():
                 print(f"     {line}")
             logger.info(f"[SQL_GEN] best={best[:80]}")
@@ -317,6 +339,54 @@ class OrchestrationAgent:
             return {**state, "generated_sqls": [], "best_sql": ""}
 
         return {**state, "generated_sqls": sqls, "best_sql": best}
+
+    def _vote_candidates(self, sqls: List[str], schema_context: str) -> str:
+        """
+        Execution-guided selection for the live pipeline: validate each
+        candidate (SELECT-only safety — invalid/DML candidates are never run),
+        execute the survivors with the safety LIMIT applied, and plurality-vote
+        on an order-insensitive fingerprint of their result sets.
+
+        Returns "" when voting is inconclusive (caller falls back to reranker).
+        Never raises.
+        """
+        groups: Dict[frozenset, List[str]] = {}
+        executed = 0
+        for sql in sqls:
+            try:
+                if not self.validator.validate(sql, schema_context).get("valid"):
+                    continue
+                run_sql = enforce_limit(sql) if getattr(self, "_enforce_limit", True) else sql
+                rows = execute_query(run_sql)
+                if not isinstance(rows, list):
+                    continue
+                fp = frozenset(
+                    tuple("" if v is None else str(v) for v in r.values())
+                    for r in rows
+                )
+                executed += 1
+                groups.setdefault(fp, []).append(sql)
+            except Exception as exc:
+                logger.debug(f"[VOTE] candidate failed: {exc}")
+                continue
+
+        if not groups:
+            print("  🗳️  Execution vote: no candidate executed — falling back to reranker")
+            return ""
+
+        best_size = max(len(s) for s in groups.values())
+        tied = [(fp, s) for fp, s in groups.items() if len(s) == best_size]
+        if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
+            print(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
+                  f"({len(groups)} distinct result sets)")
+            return tied[0][1][0]
+        non_empty = [(fp, s) for fp, s in tied if len(fp) > 0]
+        if len(non_empty) == 1:
+            print(f"  🗳️  Execution vote: tie broken toward non-empty result "
+                  f"({len(non_empty[0][1])}/{executed})")
+            return non_empty[0][1][0]
+        print("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
+        return ""
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""

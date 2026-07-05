@@ -288,8 +288,8 @@ class SQLCodeAgent:
         # Repair unescaped apostrophes BEFORE dialect normalization so the sqlite
         # transpile step receives parseable SQL (Issue #21).
         sqls = [self.normalize_dialect(self._repair_literals(s)) for s in sqls]
-        # Demote wrong-grain candidates (GROUP BY name-only when a PK exists).
-        sqls = self._order_by_grain(sqls, schema_context)
+        # Demote wrong-grain (GROUP BY name-only) and plan-deviating candidates.
+        sqls = self._order_candidates(sqls, schema_context, query_plan)
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
@@ -362,6 +362,79 @@ class SQLCodeAgent:
         if len(sqls) < 2:
             return sqls
         return sorted(sqls, key=lambda s: self._grain_penalty(s, schema_context))
+
+    # ── Plan-conformance demotion (closes the #17 loop) ──────────────────────
+    # The SchemaLinkingAgent resolves tables + the FK join path, but nothing
+    # verified the generated SQL actually followed it. Candidates that use a
+    # different table set, or miss a join condition the plan resolved, are
+    # demoted so plan-conforming candidates win vote-ties and reranker defaults.
+
+    _JOIN_COND_RE = re.compile(r"(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)")
+
+    def _plan_penalty(self, sql: str, query_plan: Optional[dict]) -> int:
+        """0 = conforms; +1 for a table-set mismatch; +1 for a missing plan join."""
+        if not sql or not query_plan or not isinstance(query_plan, dict):
+            return 0
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+        except Exception:
+            return 0
+        penalty = 0
+
+        # Alias → real table map so t1.customerid resolves to its table.
+        alias_map: Dict[str, str] = {}
+        sql_tables: set = set()
+        for t in ast.find_all(sqlglot.exp.Table):
+            if not t.name:
+                continue
+            real = t.name.lower()
+            sql_tables.add(real)
+            alias_map[(t.alias or t.name).lower()] = real
+            alias_map[real] = real
+
+        plan_tables = {
+            str(t).strip().lower() for t in (query_plan.get("tables") or []) if t
+        }
+        if plan_tables and sql_tables and sql_tables != plan_tables:
+            penalty += 1
+
+        # Every join condition the plan resolved should appear in the SQL
+        # (compared as unordered {(table, column), (table, column)} pairs,
+        # with SQL-side aliases resolved to real table names).
+        plan_joins = []
+        for cond in (query_plan.get("join_path") or []):
+            m = self._JOIN_COND_RE.search(str(cond))
+            if m:
+                a_t, a_c, b_t, b_c = (s.lower() for s in m.groups())
+                plan_joins.append(frozenset({(a_t, a_c), (b_t, b_c)}))
+        if plan_joins:
+            sql_joins = set()
+            for eq in ast.find_all(sqlglot.exp.EQ):
+                left, right = eq.left, eq.right
+                if isinstance(left, sqlglot.exp.Column) and isinstance(right, sqlglot.exp.Column):
+                    lt = alias_map.get((left.table or "").lower(), (left.table or "").lower())
+                    rt = alias_map.get((right.table or "").lower(), (right.table or "").lower())
+                    sql_joins.add(frozenset({(lt, left.name.lower()), (rt, right.name.lower())}))
+            if any(pj not in sql_joins for pj in plan_joins):
+                penalty += 1
+        return penalty
+
+    def _order_candidates(
+        self,
+        sqls: List[str],
+        schema_context: str,
+        query_plan: Optional[dict] = None,
+    ) -> List[str]:
+        """Stable-sort: plan-conforming, correctly-grained candidates first."""
+        if len(sqls) < 2:
+            return sqls
+        return sorted(
+            sqls,
+            key=lambda s: (
+                self._grain_penalty(s, schema_context)
+                + self._plan_penalty(s, query_plan)
+            ),
+        )
 
     # ── Apostrophe repair (Issue #21) ───────────
 

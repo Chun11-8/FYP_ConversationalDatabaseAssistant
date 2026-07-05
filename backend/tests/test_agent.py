@@ -62,14 +62,24 @@ class TestSQLValidatorSafety:
         result = validator.validate("SELECT FROM", schema_context="t(id)")
         assert result["syntax_ok"] is False
 
-    def test_semantic_advisory_only(self, validator):
-        # Unknown table name → semantic warning but still valid (advisory)
+    def test_semantic_blocks_unknown_table_in_strict_mode(self, validator):
+        # Strict mode (default, GH #19): unknown table → INVALID so the
+        # regeneration fallback fires instead of executing a wrong query.
         sql = "SELECT id FROM nonexistent_table LIMIT 5"
         result = validator.validate(sql, schema_context="players(id, name)")
         assert result["syntax_ok"] is True
         assert result["safety_ok"] is True
-        # semantic_ok is False but valid should still be True (advisory)
-        assert result["valid"] is True
+        assert result["semantic_ok"] is False
+        assert result["valid"] is False
+
+    def test_semantic_advisory_when_strict_disabled(self):
+        from backend.agents.sql_validator_agent import SQLValidatorAgent
+        v = SQLValidatorAgent({"db": {"dialect": "postgres"},
+                               "sql": {"strict_semantic": False}})
+        result = v.validate("SELECT id FROM nonexistent_table LIMIT 5",
+                            schema_context="players(id, name)")
+        assert result["semantic_ok"] is False
+        assert result["valid"] is True  # advisory mode preserved behind config
 
 
 # ── enforce_limit integration ─────────────────────────────────────────────────
