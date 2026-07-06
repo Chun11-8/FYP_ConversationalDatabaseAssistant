@@ -53,11 +53,14 @@ import concurrent.futures
 import json
 import logging
 import math
+import re
 import sqlite3
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import sqlglot
 
 logger = logging.getLogger(__name__)
 
@@ -311,13 +314,50 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
                 ),
             }
 
+    # Honesty metrics: a question whose GOLD errors on SQLite is unwinnable —
+    # count them and report EX over the winnable subset too.
+    gold_errors = sum(1 for r in results if r.get("gold_error"))
+    winnable = [r for r in results if not r.get("gold_error")]
+    ex_winnable = (
+        round(sum(r["ex"] for r in winnable) / len(winnable) * 100, 2)
+        if winnable else 0.0
+    )
+
     return {
         "total": n,
         "EX":  round(ex_score, 2),
         "F1":  round(f1_score, 2),
         "VES": round(ves_score, 2),
+        "gold_errors": gold_errors,
+        "EX_winnable": ex_winnable,
         "by_difficulty": by_difficulty,
     }
+
+
+# ── Gold-dialect repair ────────────────────────────────────────────────────────
+# Some mini-dev question files carry MySQL-flavoured gold SQL (DATE_FORMAT,
+# YEAR(), CURRENT_TIMESTAMP()) that errors on SQLite — making those questions
+# UNWINNABLE regardless of the system (observed: 8/50 on a moderate slice).
+# When gold errors, we retry a mysql→sqlite transpile. One trap: SQLite's
+# CAST(x AS DATETIME) coerces an ISO date string to a bare number, silently
+# corrupting STRFTIME results — so those casts are stripped, not transpiled.
+
+_CAST_DATETIME_RE = re.compile(r"CAST\(\s*([^()]+?)\s+AS\s+DATETIME\s*\)", re.IGNORECASE)
+
+
+def gold_to_sqlite(gold_sql: str) -> Optional[str]:
+    """Best-effort rewrite of a non-SQLite gold query. None when transpile fails."""
+    try:
+        out = sqlglot.transpile(gold_sql, read="mysql", write="sqlite")[0]
+    except Exception:
+        return None
+    # STRFTIME('%Y', CAST(d AS DATETIME)) → STRFTIME('%Y', d): the cast breaks
+    # date strings in SQLite (numeric coercion), it never helps.
+    prev = None
+    while prev != out:
+        prev = out
+        out = _CAST_DATETIME_RE.sub(r"\1", out)
+    return out
 
 
 # ── Execution-guided candidate selection (Tier 3, item 8) ─────────────────────
@@ -507,8 +547,20 @@ def run_bird_eval(
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
 
-        # ── Execute gold ─────────────────────────────────────────────────────
+        # ── Execute gold (with dialect repair when the gold isn't SQLite) ────
         gold_rows, gold_error, gold_elapsed = execute_sqlite(gold_sql, db_path, timeout)
+        gold_transpiled = False
+        if gold_error:
+            fixed = gold_to_sqlite(gold_sql)
+            if fixed and fixed != gold_sql:
+                rows_f, err_f, el_f = execute_sqlite(fixed, db_path, timeout)
+                if not err_f:
+                    logger.warning(
+                        f"[BIRD] qid={qid} gold errored on SQLite "
+                        f"({gold_error[:60]}) — using mysql→sqlite transpiled gold"
+                    )
+                    gold_sql, gold_rows, gold_error, gold_elapsed = fixed, rows_f, None, el_f
+                    gold_transpiled = True
 
         def _attempt(sql: str) -> Tuple[Dict[str, Any], List[tuple], Optional[str], float]:
             """Validate a candidate and (if valid) execute it."""
@@ -609,6 +661,7 @@ def run_bird_eval(
             "pred_elapsed_ms": int(pred_elapsed * 1000),
             "exec_vote":      vote_info,
             "refined":        refined,
+            "gold_transpiled": gold_transpiled,
         }
         results.append(record)
 
@@ -750,6 +803,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  Execution Accuracy  (EX)  :  {metrics.get('EX',  0):.2f}")
     print(f"  Soft F1-Score       (F1)  :  {metrics.get('F1',  0):.2f}")
     print(f"  Valid Efficiency    (VES) :  {metrics.get('VES', 0):.2f}")
+    if metrics.get("gold_errors"):
+        print(f"  ⚠️  UNWINNABLE (gold errored on SQLite): {metrics['gold_errors']} "
+              f"question(s) — EX over winnable subset: {metrics.get('EX_winnable', 0):.2f}")
     if metrics.get("by_difficulty"):
         print()
         for diff, stats in metrics["by_difficulty"].items():

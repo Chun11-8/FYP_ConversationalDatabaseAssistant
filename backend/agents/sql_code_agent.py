@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlglot
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -62,6 +62,124 @@ def _to_sqlite(sql: str) -> str:
     out = re.sub(r"\bFALSE\b", "0", out, flags=re.IGNORECASE)
 
     return out
+
+
+# ─────────────────────────────────────────────
+# Evidence pseudo-function translation
+# ─────────────────────────────────────────────
+# BIRD evidence writes formulas in pseudo-code — SUBTRACT(a,b), DIVIDE(a,b),
+# ADD(a,b), MULTIPLY(a,b), Total(x) — and the evidence-verbatim rule makes the
+# model copy them literally into SQL, where they are not functions (observed:
+# `SELECT SUBTRACT(YEAR(...), YEAR(...))` → "no such function"). These rewrites
+# translate them deterministically to real operators. Balanced-paren scanning
+# handles nesting (DIVIDE(SUM(SUBTRACT(...)), COUNT(...))).
+
+_PSEUDO_OPS = {"SUBTRACT": "-", "DIVIDE": "/", "ADD": "+", "MULTIPLY": "*"}
+
+
+def _split_two_args(body: str) -> Optional[Tuple[str, str]]:
+    """Split 'a, b' at the top-level comma; None when there isn't exactly one."""
+    depth = 0
+    for i, ch in enumerate(body):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return body[:i], body[i + 1:]
+    return None
+
+
+def translate_pseudo_functions(sql: str) -> str:
+    """Rewrite evidence pseudo-functions into real SQL operators (idempotent)."""
+    out = sql
+    for _ in range(20):  # bounded — each pass rewrites one call
+        changed = False
+        for name, op in _PSEUDO_OPS.items():
+            m = re.search(rf"\b{name}\s*\(", out, re.IGNORECASE)
+            if not m:
+                continue
+            i, depth = m.end(), 1
+            while i < len(out) and depth:
+                if out[i] == "(":
+                    depth += 1
+                elif out[i] == ")":
+                    depth -= 1
+                i += 1
+            if depth:            # unbalanced parens — leave untouched
+                continue
+            args = _split_two_args(out[m.end(): i - 1])
+            if not args:
+                continue
+            a, b = args[0].strip(), args[1].strip()
+            out = out[: m.start()] + f"({a} {op} {b})" + out[i:]
+            changed = True
+        if not changed:
+            break
+    # Total(x) → SUM(x): evidence shorthand, not a portable SQL function.
+    out = re.sub(r"\bTotal\s*\(", "SUM(", out, flags=re.IGNORECASE)
+    return out
+
+
+# ─────────────────────────────────────────────
+# Identifier reconciliation (space/hyphen column names)
+# ─────────────────────────────────────────────
+# Real BIRD columns include spaces and hyphens (`Examination Date`, `aCL IgM`,
+# `T-CHO`). The model mangles them — `Examination_Date`, `aCL_IgM`, `T - CHO`
+# (which even parses as subtraction!) — and the query dies. The schema context
+# knows the real names, so mangled references are deterministically rewritten
+# back to the exact, double-quoted identifier. String literals are never touched.
+
+_BIRD_COL_RE = re.compile(r"^\s*-\s*([^:\n]+?):", re.MULTILINE)       # "  - aCL IgM: REAL"
+_CHUNK_COL_RE = re.compile(r"^\s{2}([A-Za-z][^(\n]*?)\s*\(", re.MULTILINE)  # "  aCL IgM (REAL"
+
+_STRING_LITERAL_SPLIT = re.compile(r"('(?:[^']|'')*')")
+
+
+def _special_schema_columns(schema_context: str) -> List[str]:
+    """Schema column names containing non-word chars (spaces, hyphens, dots)."""
+    names = set()
+    for pat in (_BIRD_COL_RE, _CHUNK_COL_RE):
+        for m in pat.findall(schema_context or ""):
+            name = m.strip()
+            if name and re.search(r"[^\w]", name):
+                names.add(name)
+    return sorted(names, key=len, reverse=True)   # longest first — no partial shadowing
+
+
+def reconcile_identifiers(sql: str, schema_context: str) -> str:
+    """
+    Rewrite mangled references to schema columns whose real names contain
+    spaces/hyphens into the exact double-quoted identifier:
+        Examination_Date  →  "Examination Date"
+        T - CHO / T_CHO   →  "T-CHO"
+    Only applied OUTSIDE string literals; already-quoted identifiers are left alone.
+    """
+    if not sql or not schema_context:
+        return sql
+    specials = _special_schema_columns(schema_context)
+    if not specials:
+        return sql
+
+    patterns = []
+    for real in specials:
+        parts = [p for p in re.split(r"[^\w]+", real) if p]
+        if len(parts) < 2:
+            continue
+        # Match the parts joined by any single run of separator chars — covers
+        # the real name itself, the underscore variant, and spaced hyphens.
+        # Guards: not preceded/followed by word chars or an opening quote.
+        body = r"[ \t]*[-_. ][ \t]*".join(re.escape(p) for p in parts)
+        patterns.append((re.compile(rf"(?<![\w\"`\[]){body}(?![\w])"), f'"{real}"'))
+
+    # Never rewrite inside single-quoted string literals.
+    segments = _STRING_LITERAL_SPLIT.split(sql)
+    for idx in range(0, len(segments), 2):
+        seg = segments[idx]
+        for pat, repl in patterns:
+            seg = pat.sub(repl, seg)
+        segments[idx] = seg
+    return "".join(segments)
 
 
 # ─────────────────────────────────────────────
@@ -216,6 +334,39 @@ DEFAULT_FEWSHOTS: List[str] = [
         "WHERE t1.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium';\n"
         "```"
     ),
+    (
+        "USER_QUESTION: List the names of students who attended more than 7 events. "
+        "(evidence: full name refers to first_name, last_name; attended more than 7 "
+        "events refers to COUNT(link_to_event) > 7)\n"
+        "REASONING: 'full name refers to first_name, last_name' → select the TWO "
+        "columns SEPARATELY (never first_name || ' ' || last_name — concatenation "
+        "changes the result shape and fails). Per-member count → GROUP BY the PK "
+        "member_id, threshold in HAVING.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT t2.first_name, t2.last_name\n"
+        "FROM attendance AS t1\n"
+        "INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id\n"
+        "GROUP BY t2.member_id\n"
+        "HAVING COUNT(t1.link_to_event) > 7;\n"
+        "```"
+    ),
+    (
+        "USER_QUESTION: Based on the total cost of all events, what is the percentage "
+        "of cost for the Yearly Kickoff event?\n"
+        "REASONING: percentage OF A TOTAL → the condition goes INSIDE the aggregate "
+        "(CASE WHEN), NEVER in WHERE — filtering rows to the event makes the ratio "
+        "100%. Denominator = the SAME unfiltered rows. One scalar → no GROUP BY, no "
+        "LIMIT.\n"
+        "SQL:\n"
+        "```sql\n"
+        "SELECT CAST(SUM(CASE WHEN t3.event_name = 'Yearly Kickoff' THEN t1.cost "
+        "ELSE 0 END) AS REAL) * 100 / SUM(t1.cost)\n"
+        "FROM expense AS t1\n"
+        "INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id\n"
+        "INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id;\n"
+        "```"
+    ),
 ]
 
 
@@ -285,9 +436,15 @@ class SQLCodeAgent:
         print("  └───────────────────────────────────────────────────────────")
 
         sqls = self._extract_sqls(raw)
-        # Repair unescaped apostrophes BEFORE dialect normalization so the sqlite
-        # transpile step receives parseable SQL (Issue #21).
-        sqls = [self.normalize_dialect(self._repair_literals(s)) for s in sqls]
+        # Deterministic repairs BEFORE dialect normalization: fix unescaped
+        # apostrophes (Issue #21) and mangled space/hyphen column names, so the
+        # sqlite transpile step receives parseable, schema-true SQL.
+        sqls = [
+            self.normalize_dialect(
+                reconcile_identifiers(self._repair_literals(s), schema_context)
+            )
+            for s in sqls
+        ]
         # Demote wrong-grain (GROUP BY name-only) and plan-deviating candidates.
         sqls = self._order_candidates(sqls, schema_context, query_plan)
 
@@ -305,10 +462,15 @@ class SQLCodeAgent:
         pass (:func:`_to_sqlite`) that guarantees the named PostgreSQL-only
         constructs are rewritten even when sqlglot leaves them untouched or fails.
         """
-        if not sql or self.dialect != "sqlite":
+        if not sql:
             return sql
 
-        out = sql
+        # Evidence pseudo-functions (SUBTRACT/DIVIDE/Total…) are not SQL in ANY
+        # dialect — translate them first, for the live pipeline too.
+        out = translate_pseudo_functions(sql)
+        if self.dialect != "sqlite":
+            return out
+
         try:
             transpiled = sqlglot.transpile(out, read="postgres", write="sqlite")
             if transpiled and transpiled[0].strip():
@@ -501,6 +663,10 @@ Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
    (An evidence formula may instead define a FILTER — see Step 4.)
+   Output shape: "full name refers to first_name, last_name" → TWO separate
+   columns, never concatenated. Yes/no question → CASE WHEN ... THEN 1 ELSE 0
+   (never 'Yes'/'No' strings). "List X and Y" → exactly those columns, DISTINCT
+   when entities repeat. "each X" → per-row values, not a count.
 2. TABLES & JOINS: locate each needed column's table. If a filter column lives in
    one table and the metric in another, JOIN them on the FK columns shown in the
    schema. You cannot filter on a column that is not in your FROM/JOIN. If two
@@ -517,12 +683,20 @@ Decompose the question silently before writing SQL:
    formulas used as filters (price / NULLIF(amount,0) > 29) go in WHERE/HAVING, not
    only SELECT. Dates: when an EXACT value is given, match it exactly; use
    SUBSTR(date,1,4)=... or date LIKE '2013%' ONLY for a year-only / partial match.
+   Evidence formulas are PSEUDO-CODE: SUBTRACT(a,b)=a-b, DIVIDE(a,b)=a/b,
+   Total(x)=SUM(x) — never emit them as function calls. Columns with spaces or
+   hyphens must be double-quoted exactly as the schema shows ("Examination Date",
+   "T-CHO") — never underscored, never left unquoted.
 5. COMPOSE: a threshold on a per-group COUNT/SUM/AVG is HAVING after GROUP BY (not
    WHERE). "not / without / except X" is an exclusion — EXCEPT <subquery> for a set
    of rows, or NOT IN (...) / <> for a value. When aggregating per entity, GROUP BY
    the entity's PRIMARY KEY and project the name (GROUP BY t.event_id ... SELECT
    t.event_name) — never GROUP BY a name column when a PK exists: names recur and
-   grouping by name merges distinct entities.
+   grouping by name merges distinct entities. Percentage OF A TOTAL → condition
+   INSIDE the aggregate: CAST(SUM(CASE WHEN cond THEN 1 ELSE 0 END) AS REAL)*100 /
+   COUNT(*) — never WHERE-filter the numerator condition (ratio becomes 100%).
+   Difference between two periods → two CASE sums in ONE query. Multi-part
+   question → one row, multiple columns (extra parts via CASE WHEN).
 6. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
    ORDER BY <agg> + LIMIT 1 (or N).
 
@@ -582,7 +756,9 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
         ]
         raw = self.llm.invoke(messages).content
         sqls = [
-            self.normalize_dialect(self._repair_literals(s))
+            self.normalize_dialect(
+                reconcile_identifiers(self._repair_literals(s), schema_context)
+            )
             for s in self._extract_sqls(raw)
         ]
         sqls = self._order_by_grain(sqls, schema_context)

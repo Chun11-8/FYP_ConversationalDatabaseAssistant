@@ -17,6 +17,11 @@ select the single candidate that most faithfully answers the question.
    - "who/which/what X" → only X's identifying column. Penalize candidates that
      add the sorted metric, counts, or other extra columns.
    - "how many" → a single COUNT. Extra columns or rows = wrong.
+   - Evidence "full name refers to first_name, last_name" → the TWO columns
+     separately; reject candidates that concatenate them into one column.
+   - Yes/no question → boolean 1/0 via CASE WHEN; reject 'Yes'/'No' strings.
+   - Listing entities that repeat across joined rows → require DISTINCT.
+   - "Was EACH x …?" → per-row values; reject a COUNT/summary.
 
 3. **Extremity handling — superlatives use ORDER BY + LIMIT.**
    - For least/most/lowest/highest/top, prefer the candidate that uses
@@ -46,7 +51,11 @@ select the single candidate that most faithfully answers the question.
    - handles "not / without / except X" with a correct exclusion (`EXCEPT` for a
      set of rows, `NOT IN` / `<>` for a value) rather than dropping the condition;
    - routes a multi-entity join through the junction/bridge table on its FK
-     columns (e.g. `attendance.link_to_event = event.event_id`).
+     columns (e.g. `attendance.link_to_event = event.event_id`);
+   - computes a percentage/proportion OF A TOTAL with the condition INSIDE the
+     aggregate (`SUM(CASE WHEN cond THEN … END) / total`) — reject candidates
+     that WHERE-filter the numerator condition (the ratio degenerates to 100%);
+   - computes a two-period difference with two conditional sums in ONE query.
 
 7. **Correctness of logic** — right aggregations, operators, and GROUP BY level;
    filters use the correct columns and values.

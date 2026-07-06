@@ -106,6 +106,15 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      (e.g. "average monthly consumption = AVG(consumption) / 12"), you MUST copy
      that formula verbatim into the SELECT. Do NOT invent your own interpretation.
      (An evidence formula may instead define a FILTER, not the SELECT — see Step 4.)
+   - **Output conventions (exact result shape matters):**
+     - Evidence *"full name refers to first_name, last_name"* → SELECT the TWO
+       columns separately. NEVER concatenate (`first || ' ' || last` is wrong).
+     - A yes/no question ("Did/Was/Is/Are …?") → return a boolean via
+       `CASE WHEN … THEN 1 ELSE 0 END` — never the strings 'Yes'/'No'.
+     - "List X and Y" → select exactly X and Y; add `DISTINCT` when listing
+       entities that repeat across joined rows.
+     - "Was EACH x …?" / "state the … of every x" → return the per-row values,
+       NOT a count or summary.
 
 **2. TABLES & JOINS — where does each needed value live?**
    - List every column you need and the table it lives in.
@@ -143,6 +152,14 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
        `Price / NULLIF(Amount, 0) > 29.00`.
      These belong in `WHERE`/`HAVING`, **not only `SELECT`**. Do not paraphrase or
      substitute your own interpretation.
+   - **Evidence formulas are PSEUDO-CODE, not SQL.** `SUBTRACT(a,b)` → `a - b`,
+     `DIVIDE(a,b)` → `a / b`, `ADD` → `+`, `MULTIPLY` → `*`, `Total(x)` → `SUM(x)`.
+     NEVER emit `SUBTRACT`/`DIVIDE`/`ADD`/`MULTIPLY` as function calls — they do
+     not exist in SQL.
+   - **Column names containing spaces or hyphens must be double-quoted EXACTLY**
+     as shown in the schema: `"Examination Date"`, `"aCL IgM"`, `"T-CHO"`. Never
+     replace with underscores (`Examination_Date`) and never leave a hyphenated
+     name unquoted (`T-CHO` unquoted parses as `T minus CHO`).
    - **Dates:** match the format the evidence/question implies. When an EXACT value
      is given (`Date = '201208'`), match it **exactly — never truncate to the year**.
      Use `SUBSTR(date,1,4) = '2013'` or `date LIKE '2013%'` **only** for a year-only /
@@ -158,6 +175,18 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      (`GROUP BY t.event_id … SELECT t.event_name`) — never `GROUP BY` a name
      column when the table has a PK: names RECUR (weekly events, duplicate person
      names), and grouping by name merges distinct entities into one wrong count.
+   - **Percentage / proportion OF A TOTAL → condition INSIDE the aggregate.**
+     `CAST(SUM(CASE WHEN <cond> THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(*)`
+     (or `THEN x ELSE 0` over a value column). NEVER move the numerator's
+     condition into `WHERE` — filtering the rows makes the ratio 100%. The
+     denominator must run over the SAME unfiltered rows. Multiply by 100 only
+     when the question says percentage; a plain ratio is just the division.
+   - **Difference / comparison between two periods or groups → ONE query with
+     two conditional sums:** `SUM(CASE WHEN <A> THEN v ELSE 0 END) -
+     SUM(CASE WHEN <B> THEN v ELSE 0 END)`. Do not compute only one side.
+   - **Multi-part questions ("What is X? And how much is Y?") → one row with
+     multiple output columns**, the conditional part via `CASE WHEN`
+     (e.g. `SELECT SUM(price), SUM(CASE WHEN date='201201' THEN price ELSE 0 END)`).
    - "not / without / except / other than X" is an EXCLUSION. Use `EXCEPT <subquery>`
      when excluding a set of rows produced by another query (e.g. "… but not
      fundraisers" → `... EXCEPT SELECT name FROM event WHERE type = 'Fundraiser'`),
