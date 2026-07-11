@@ -425,11 +425,48 @@ def get_chunks_by_tables(
 
 
 # ── inspection helpers ─────────────────────────────────────────────────────────
-def run_query(conn: psycopg2.extensions.connection, sql: str) -> list[dict]:
-    """Run a raw SQL query and return results as list of dicts."""
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql)
-        return [dict(row) for row in cur.fetchall()]
+def run_query(
+    conn: psycopg2.extensions.connection,
+    sql: str,
+    timeout_ms: int | None = None,
+) -> list[dict]:
+    """
+    Run a raw SQL query and return results as list of dicts.
+
+    ``timeout_ms`` sets a transaction-scoped `SET LOCAL statement_timeout`
+    (Issue #25/GH#41) so a pathological query (e.g. an accidental cartesian
+    join) cannot hang the request. The transaction is rolled back after the
+    fetch — SELECT-only, so nothing is lost and the timeout never leaks.
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if timeout_ms:
+                cur.execute("SET LOCAL statement_timeout = %s", (int(timeout_ms),))
+            cur.execute(sql)
+            return [dict(row) for row in cur.fetchall()]
+    finally:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
+def get_query_conn() -> psycopg2.extensions.connection:
+    """
+    Connection for executing USER queries (Issue #25/GH#41 defense-in-depth).
+    When PG_APP_USER/PG_APP_PASSWORD are set, connects with that (read-only)
+    role so a write cannot succeed even if every validation layer were
+    bypassed. Falls back to the standard DB_CONFIG user otherwise. Never
+    initialises store tables.
+    """
+    cfg = dict(DB_CONFIG)
+    app_user = os.getenv("PG_APP_USER")
+    app_pw = os.getenv("PG_APP_PASSWORD")
+    if app_user and app_pw:
+        cfg["user"], cfg["password"] = app_user, app_pw
+    conn = psycopg2.connect(**cfg)
+    conn.autocommit = False
+    return conn
     
 def list_databases(conn: psycopg2.extensions.connection) -> list[str]:
     """Return all unique db_names stored in schema_embeddings."""

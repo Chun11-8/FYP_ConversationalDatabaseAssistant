@@ -21,6 +21,8 @@ export interface TextMessage extends BaseMessage {
   csv_path?: string | null;
   /** DB id of the assistant turn — used to submit feedback */
   turn_id?: number | null;
+  /** Answered from the semantic cache (no generation) */
+  cache_hit?: boolean;
   /** Feedback the user submitted for this message ('up' | 'down' | null) */
   feedback?: 'up' | 'down' | null;
 }

@@ -109,7 +109,7 @@ class TestLiveVoting:
     def _run(self, agent, module, sqls, results_by_sql):
         original = module.execute_query
 
-        def fake_execute(sql):
+        def fake_execute(sql, **kw):
             for key, rows in results_by_sql.items():
                 if key in sql:
                     return rows
@@ -117,7 +117,8 @@ class TestLiveVoting:
 
         module.execute_query = fake_execute
         try:
-            return agent._vote_candidates(sqls, self.SCHEMA)
+            winner, _rows, _rsql = agent._vote_candidates(sqls, self.SCHEMA)
+            return winner
         finally:
             module.execute_query = original
 
@@ -149,9 +150,9 @@ class TestLiveVoting:
         agent._enforce_limit = False
         agent.validator = SQLValidatorAgent({"db": {"dialect": "postgres"}})
         original = m.execute_query
-        m.execute_query = lambda sql: executed.append(sql) or [{"name": "X"}]
+        m.execute_query = lambda sql, **kw: executed.append(sql) or [{"name": "X"}]
         try:
-            winner = agent._vote_candidates(
+            winner, _r, _s = agent._vote_candidates(
                 ["DELETE FROM t", "SELECT name FROM t"], self.SCHEMA
             )
         finally:
@@ -167,7 +168,7 @@ class TestLiveVoting:
         agent._enforce_limit = True
         agent.validator = SQLValidatorAgent({"db": {"dialect": "postgres"}})
         original = m.execute_query
-        m.execute_query = lambda sql: executed.append(sql) or [{"name": "X"}]
+        m.execute_query = lambda sql, **kw: executed.append(sql) or [{"name": "X"}]
         try:
             agent._vote_candidates(["SELECT name FROM t"], self.SCHEMA)
         finally:

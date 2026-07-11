@@ -26,6 +26,7 @@ class ChatResponse(BaseModel):
     rows: Optional[List[Dict[str, Any]]] = None   # actual DB rows sent to frontend
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
+    cache_hit: bool = False   # answered from the semantic cache (no generation)
 
 
 class FeedbackRequest(BaseModel):

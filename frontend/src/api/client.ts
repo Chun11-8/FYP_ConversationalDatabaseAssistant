@@ -11,6 +11,7 @@ export interface ChatApiResponse {
   rows: Record<string, unknown>[] | null;
   csv_path: string | null;
   turn_id: number | null;
+  cache_hit?: boolean;
 }
 
 export interface Turn {

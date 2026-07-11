@@ -3,9 +3,15 @@
 
 llm:
   model: gpt-4o-mini
+  # GH#38 model routing (optional): cheaper models for one-token intent
+  # classification and response formatting. Absent → main model reused.
+  # intent_model: gpt-4o-mini
+  # format_model: gpt-4o-mini
 
 db:
   dialect: postgres
+  # GH#41: transaction-scoped statement timeout for USER queries (ms).
+  statement_timeout_ms: 15000
   host: "127.0.0.1"
   port: 5432
   name: FYP
@@ -21,10 +27,25 @@ sql:
   enforce_limit: true
   # Number of SQL candidates to generate per question (one LLM call).
   n_candidates: 5
+  # Difficulty-adaptive prompting (Issue #27): strategy block + per-tier
+  # candidate counts. BIRD passes the real difficulty; live infers from the plan.
+  adaptive_prompting: true
+  candidates_by_tier:
+    simple: 2
+    moderate: 5
+    challenging: 7
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
   execution_voting: true
+  # GH#41: cap on candidates executed during voting + early plurality stop.
+  vote_max_candidates: 5
+  # GH#38: semantic-cache hit shortcut — a near-identical past question skips
+  # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
+  cache_shortcut: true
+  cache_hit_threshold: 0.03
+  # GH#45 step 4: inject DISTINCT on "list" questions over joins (deterministic).
+  distinct_postpass: true
   # Strict schema-grounded validation (GH #19): a query referencing unknown
   # tables/columns is BLOCKED (triggers regeneration) instead of executing and
   # returning wrong rows. CTE names / aliases defined in the query are tolerated.
