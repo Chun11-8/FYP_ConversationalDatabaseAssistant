@@ -306,12 +306,16 @@ class OrchestrationAgent:
         # the graceful fallback path instead of bubbling up a 500. An empty
         # best_sql is treated as invalid by validate_sql → fallback_handler.
         try:
+            tier = self._infer_tier(state.get("query_plan"))
+            if tier:
+                print(f"  🎚️  Inferred difficulty tier: {tier}")
             sqls = sql_agent.generate(
                 query=state["user_query"],
                 schema_context=state["schema_context"],
                 few_shots=few_shots,
                 history=state["conversation_history"][-4:],
                 query_plan=state.get("query_plan"),
+                tier=tier,
             )
             print(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
             for i, sql in enumerate(sqls, 1):
@@ -339,6 +343,26 @@ class OrchestrationAgent:
             return {**state, "generated_sqls": [], "best_sql": ""}
 
         return {**state, "generated_sqls": sqls, "best_sql": best}
+
+    @staticmethod
+    def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
+        """
+        Conservative difficulty tier from the linker plan (Issue #27). The BIRD
+        harness passes the real label; live queries get this heuristic. None
+        (no plan / unclear) → the generator's default (moderate) path.
+        """
+        if not plan or not isinstance(plan, dict):
+            return None
+
+        def _set(v: Any) -> bool:
+            return v is not None and str(v).strip().lower() not in ("", "null", "none")
+
+        tables = [t for t in (plan.get("tables") or []) if t]
+        if _set(plan.get("set_op")) or (_set(plan.get("having")) and len(tables) >= 3):
+            return "challenging"
+        if len(tables) <= 1 and not _set(plan.get("group_by")) and not _set(plan.get("having")):
+            return "simple"
+        return "moderate"
 
     def _vote_candidates(self, sqls: List[str], schema_context: str) -> str:
         """

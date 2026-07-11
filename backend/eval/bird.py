@@ -62,6 +62,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import sqlglot
 
+from backend.eval.error_analysis import categorize, summarize
+
 logger = logging.getLogger(__name__)
 
 
@@ -330,6 +332,7 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         "VES": round(ves_score, 2),
         "gold_errors": gold_errors,
         "EX_winnable": ex_winnable,
+        "error_categories": summarize(results),
         "by_difficulty": by_difficulty,
     }
 
@@ -418,11 +421,39 @@ def select_by_execution(
         info["winner_votes"] = best_size
         return sqls[0], info
 
-    # Tie-break: prefer the group with a non-empty result set.
+    # Tie-break 1: prefer the group with a non-empty result set.
     non_empty = [(fp, sqls) for fp, sqls in tied if len(fp) > 0]
     if len(non_empty) == 1:
         fp, sqls = non_empty[0]
         info["winner_votes"] = len(sqls)
+        info["fallback_reason"] = None
+        return sqls[0], info
+
+    # Tie-break 2 (Issue #27): soft-F1 consensus. A tied group whose rows overlap
+    # the OTHER executed candidates most is likelier partially-correct than a
+    # disjoint outlier. Vote-weighted; requires a STRICT max — fully disjoint
+    # ties (all overlaps 0) still fall through to the text reranker.
+    def _soft_f1(a: frozenset, b: frozenset) -> float:
+        if not a and not b:
+            return 1.0
+        if not a or not b:
+            return 0.0
+        tp = len(a & b)
+        p, r = tp / len(a), tp / len(b)
+        return 2 * p * r / (p + r) if (p + r) else 0.0
+
+    pool = tied if len(tied) > 1 else list(groups.items())
+    scores = {
+        fp: sum(len(o_sqls) * _soft_f1(fp, o_fp)
+                for o_fp, o_sqls in groups.items() if o_fp is not fp)
+        for fp, _ in pool
+    }
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    if len(ranked) >= 2 and ranked[0][1] > ranked[1][1] and ranked[0][1] > 0:
+        winner_fp = ranked[0][0]
+        sqls = dict(pool)[winner_fp]
+        info["winner_votes"] = len(sqls)
+        info["tie_break"] = "overlap"
         info["fallback_reason"] = None
         return sqls[0], info
 
@@ -541,6 +572,7 @@ def run_bird_eval(
                 few_shots=[],
                 history=[],
                 query_plan=query_plan,
+                tier=difficulty,   # BIRD provides the real tier; agent gates via config
             )
             pred_sql, vote_info = _select(sqls)
         except Exception as exc:
@@ -662,6 +694,11 @@ def run_bird_eval(
             "exec_vote":      vote_info,
             "refined":        refined,
             "gold_transpiled": gold_transpiled,
+            "query_plan":     query_plan,
+            "error_category": categorize(
+                ex, gold_error, pred_sql, bool(validation.get("valid")),
+                pred_error, pred_rows, gold_rows,
+            ),
         }
         results.append(record)
 
@@ -707,14 +744,28 @@ def _error_record(
 
 # ── JSON output ────────────────────────────────────────────────────────────────
 
-def write_results(results: List[Dict], metrics: Dict, output_path: str) -> None:
-    """Write per-question results and aggregate metrics to a JSON file."""
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    payload = {"metrics": metrics, "questions": results}
-    Path(output_path).write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    logger.info(f"[BIRD] Results written to {output_path}")
+def write_results(
+    results: List[Dict],
+    metrics: Dict,
+    output_path: str,
+    run_config: Optional[Dict[str, Any]] = None,
+) -> None:
+    """
+    Write per-question results + aggregate metrics to `output_path` (stable name,
+    overwritten each run) AND to a versioned sibling
+    `bird_<UTCstamp>_EX<score>.json` so A/B history is never lost (Issue #27).
+    `run_config` embeds the knobs that produced the run for reproducibility.
+    """
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"run_config": run_config or {}, "metrics": metrics, "questions": results}
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    out.write_text(text, encoding="utf-8")
+
+    stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    versioned = out.parent / f"bird_{stamp}_EX{metrics.get('EX', 0):.1f}.json"
+    versioned.write_text(text, encoding="utf-8")
+    logger.info(f"[BIRD] Results written to {output_path} (versioned: {versioned.name})")
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
@@ -795,7 +846,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         refine=use_refine,
     )
     metrics = compute_bird_metrics(results)
-    write_results(results, metrics, args.output)
+    run_config = {
+        "model": config["llm"]["model"],
+        "dialect": "sqlite",
+        "schema_linking": bool(linker),
+        "exec_voting": use_voting,
+        "refine": use_refine,
+        "n_candidates": sql_agent.top_k,
+        "adaptive_prompting": getattr(sql_agent, "_adaptive", None),
+        "subset": args.subset,
+        "difficulty": args.difficulty,
+    }
+    write_results(results, metrics, args.output, run_config=run_config)
 
     # ── Summary table ─────────────────────────────────────────────────────────
     print("\n── BIRD Evaluation Summary ───────────────────────────────────────────────")

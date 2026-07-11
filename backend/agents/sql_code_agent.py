@@ -371,6 +371,34 @@ DEFAULT_FEWSHOTS: List[str] = [
 
 
 # ─────────────────────────────────────────────
+# Difficulty-adaptive strategy blocks (Issue #27/GH#44)
+# ─────────────────────────────────────────────
+# One prompt for all difficulties wastes effort on simple questions and gives
+# challenging ones no decomposition scaffold. The BIRD path passes the real
+# difficulty label; the live pipeline infers a tier from the linker plan.
+# Moderate (and tier=None) keeps today's default prompt exactly.
+
+TIER_STRATEGIES: Dict[str, str] = {
+    "simple": (
+        "STRATEGY (SIMPLE tier): this question needs at most one join and no "
+        "composed aggregates. Write the query DIRECTLY from the schema — minimal "
+        "clauses, no CTEs, no elaborate planning. Correctness checks still apply."
+    ),
+    "challenging": (
+        "STRATEGY (CHALLENGING tier): decompose BEFORE writing the final query:\n"
+        "  1. Write each required sub-result as its own named SELECT.\n"
+        "  2. State how the sub-results combine (join / EXCEPT / CASE-sum / "
+        "scalar comparison).\n"
+        "  3. Compose the final query — CTEs ARE permitted here (this is the "
+        "genuine multi-step exception to the simplest-shape rule).\n"
+        "  4. Re-trace the GRAIN of every sub-query before composing: do NOT "
+        "pre-aggregate and aggregate again unless the question explicitly asks "
+        "for a per-group-then-overall value."
+    ),
+}
+
+
+# ─────────────────────────────────────────────
 # SQL Code Agent
 # ─────────────────────────────────────────────
 
@@ -390,6 +418,14 @@ class SQLCodeAgent:
             self.top_k = max(1, int(config.get("sql", {}).get("n_candidates", self.TOP_K)))
         except (TypeError, ValueError):
             self.top_k = self.TOP_K
+        # Difficulty-adaptive prompting (Issue #27): per-tier candidate counts.
+        self._adaptive = bool(config.get("sql", {}).get("adaptive_prompting", True))
+        tiers = config.get("sql", {}).get("candidates_by_tier") or {}
+        self._tier_candidates = {
+            "simple": int(tiers.get("simple", 2)),
+            "moderate": int(tiers.get("moderate", self.top_k)),
+            "challenging": int(tiers.get("challenging", 7)),
+        }
 
     # ── Generation ──────────────────────────────
 
@@ -400,19 +436,26 @@ class SQLCodeAgent:
         few_shots: List[str],
         history: List[Dict[str, str]],
         query_plan: Optional[dict] = None,
+        tier: Optional[str] = None,
     ) -> List[str]:
-        """Generate TOP_K SQL candidates.
+        """Generate top-k SQL candidates.
 
         ``query_plan`` is the optional structured plan from SchemaLinkingAgent
-        (Issue #17). When present it is injected as a <query_plan> block so the
-        generator follows resolved tables/joins/filters instead of re-deriving
-        them. None → behaves exactly as before.
+        (Issue #17). ``tier`` ("simple"/"moderate"/"challenging", Issue #27)
+        selects a strategy block and per-tier candidate count; None or adaptive
+        prompting disabled → today's default behavior exactly.
         """
+        tier = (tier or "").strip().lower() or None
+        if not self._adaptive or tier not in self._tier_candidates:
+            tier = None
+        n = self._tier_candidates[tier] if tier else self.top_k
+
         # Fall back to the static decomposition examples when the semantic cache
         # has no dynamic few-shots yet — they teach the JOIN/grain patterns.
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
-        prompt = self._build_prompt(query, schema_context, few_shots, history, query_plan)
+        prompt = self._build_prompt(query, schema_context, few_shots, history,
+                                    query_plan, tier=tier, n_candidates=n)
 
         system_p = self._system_prompt()
         messages = [
@@ -451,7 +494,7 @@ class SQLCodeAgent:
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
             print("  ⚠️  No SQL code blocks found in LLM output!")
-        return sqls[: self.top_k]
+        return sqls[: n]
 
     def normalize_dialect(self, sql: str) -> str:
         """
@@ -629,15 +672,21 @@ class SQLCodeAgent:
         few_shots: List[str],
         history: List[Dict],
         query_plan: Optional[dict] = None,
+        tier: Optional[str] = None,
+        n_candidates: Optional[int] = None,
     ) -> str:
         few_shot_block = "\n\n".join(few_shots) if few_shots else "No examples available."
         history_block = "\n".join(
             f"{m['role'].upper()}: {m['content']}" for m in history
         ) or "No prior context."
+        n = n_candidates or self.top_k
 
         # Optional structured plan from SchemaLinkingAgent (Issue #17).
         plan_block = render_query_plan(query_plan)
         plan_section = f"\n{plan_block}\n" if plan_block else ""
+        # Difficulty-adaptive strategy block (Issue #27); moderate/None → none.
+        strategy = TIER_STRATEGIES.get(tier or "")
+        strategy_section = f"\n{strategy}\n" if strategy else ""
 
         dialect = self.dialect.upper()
         return f"""
@@ -658,7 +707,7 @@ class SQLCodeAgent:
 </user_question>
 
 Target SQL dialect: {dialect}
-
+{strategy_section}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
@@ -704,7 +753,7 @@ Prefer the simplest correct shape:
   SELECT <agg>(...) FROM a JOIN b ON a.k=b.k WHERE <filters>;
 Use a CTE only for genuine multi-step logic (e.g. rank-then-filter).
 
-Generate {self.top_k} candidate queries. Each must:
+Generate {n} candidate queries. Each must:
 - Use only tables/columns in <schema_context>; JOIN on the shown FK columns.
 - Be read-only (SELECT only) with explicit columns — never SELECT *.
 - Return ONLY the FINAL VALUE; honor any evidence formula exactly.

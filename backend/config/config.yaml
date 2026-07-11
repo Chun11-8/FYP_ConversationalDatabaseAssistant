@@ -21,6 +21,13 @@ sql:
   enforce_limit: true
   # Number of SQL candidates to generate per question (one LLM call).
   n_candidates: 5
+  # Difficulty-adaptive prompting (Issue #27): strategy block + per-tier
+  # candidate counts. BIRD passes the real difficulty; live infers from the plan.
+  adaptive_prompting: true
+  candidates_by_tier:
+    simple: 2
+    moderate: 5
+    challenging: 7
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
