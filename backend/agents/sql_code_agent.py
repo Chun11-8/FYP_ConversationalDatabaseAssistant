@@ -61,6 +61,39 @@ def _to_sqlite(sql: str) -> str:
     out = re.sub(r"\bTRUE\b", "1", out, flags=re.IGNORECASE)
     out = re.sub(r"\bFALSE\b", "0", out, flags=re.IGNORECASE)
 
+    # YEAR(x)/MONTH(x)/DAY(x) — evidence pseudo-code and MySQL-isms that SQLite
+    # lacks (observed: `year(Description) = '1997'` emitted literally). Rewrite
+    # to STRFTIME with balanced-paren scanning (handles YEAR(CURRENT_TIMESTAMP)).
+    out = _rewrite_date_funcs(out)
+
+    return out
+
+
+_DATE_FUNCS = {"YEAR": "%Y", "MONTH": "%m", "DAY": "%d"}
+
+
+def _rewrite_date_funcs(sql: str) -> str:
+    out = sql
+    for _ in range(10):
+        changed = False
+        for name, fmt in _DATE_FUNCS.items():
+            m = re.search(rf"\b{name}\s*\(", out, re.IGNORECASE)
+            if not m:
+                continue
+            i, depth = m.end(), 1
+            while i < len(out) and depth:
+                if out[i] == "(":
+                    depth += 1
+                elif out[i] == ")":
+                    depth -= 1
+                i += 1
+            if depth:
+                continue
+            arg = out[m.end(): i - 1].strip()
+            out = out[: m.start()] + f"STRFTIME('{fmt}', {arg})" + out[i:]
+            changed = True
+        if not changed:
+            break
     return out
 
 
@@ -744,10 +777,13 @@ Decompose the question silently before writing SQL:
    grouping by name merges distinct entities. Percentage OF A TOTAL → condition
    INSIDE the aggregate: CAST(SUM(CASE WHEN cond THEN 1 ELSE 0 END) AS REAL)*100 /
    COUNT(*) — never WHERE-filter the numerator condition (ratio becomes 100%).
-   Difference between two periods → two CASE sums in ONE query. Multi-part
-   question → one row, multiple columns (extra parts via CASE WHEN).
+   CAST the numerator AS REAL in EVERY division of aggregates (integer division
+   truncates). Difference between two periods → two CASE sums in ONE query.
+   Multi-part question → one row, multiple columns (extra parts via CASE WHEN).
 6. SHAPE: a single scalar aggregate has NO GROUP BY and NO LIMIT. Superlatives →
-   ORDER BY <agg> + LIMIT 1 (or N).
+   ORDER BY <agg> + LIMIT 1 (or N). Grouped superlative ("peak month") → SELECT
+   the GROUP KEY grouped+ordered by the aggregate, NOT the aggregate value.
+   "Who is older, X or Y?" → the entity name via ORDER BY, never a sentence.
 
 Prefer the simplest correct shape:
   SELECT <agg>(...) FROM a JOIN b ON a.k=b.k WHERE <filters>;

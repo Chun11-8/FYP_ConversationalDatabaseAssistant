@@ -115,6 +115,9 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
        entities that repeat across joined rows.
      - "Was EACH x …?" / "state the … of every x" → return the per-row values,
        NOT a count or summary.
+     - "Who is older/newer/bigger, X or Y?" → return the ENTITY (its name via
+       `ORDER BY … LIMIT 1`), never a constructed sentence like
+       `'X is older'` — prose answers score zero.
 
 **2. TABLES & JOINS — where does each needed value live?**
    - List every column you need and the table it lives in.
@@ -181,6 +184,10 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
      condition into `WHERE` — filtering the rows makes the ratio 100%. The
      denominator must run over the SAME unfiltered rows. Multiply by 100 only
      when the question says percentage; a plain ratio is just the division.
+   - **Cast EVERY division of aggregates:** any ratio/percentage/average built
+     from SUM/COUNT must wrap the numerator in `CAST(... AS REAL)` — integer
+     division silently truncates (`SUM(x)/COUNT(y)` on integers drops the
+     decimals and the answer scores wrong).
    - **Difference / comparison between two periods or groups → ONE query with
      two conditional sums:** `SUM(CASE WHEN <A> THEN v ELSE 0 END) -
      SUM(CASE WHEN <B> THEN v ELSE 0 END)`. Do not compute only one side.
@@ -195,6 +202,10 @@ Answer these sub-questions in order. Most wrong answers come from skipping Step 
 **6. ORDER / LIMIT — only if needed.**
    - Superlatives (least/most/highest/top N) → `ORDER BY <agg> ASC|DESC` + `LIMIT 1`
      (or `LIMIT N`). A scalar aggregate gets neither.
+   - **Grouped superlative → return the GROUP KEY, not the aggregate value.**
+     "peak month" / "which year had the most X" asks WHICH month/year:
+     `SELECT SUBSTR(date,5,2) … GROUP BY SUBSTR(date,5,2) ORDER BY SUM(x) DESC
+     LIMIT 1` — never `SELECT MAX(x)` (that returns the value, not the month).
 
 ### ReAct self-check before finalizing (silent)
 Mentally trace your query: "After the JOIN and WHERE, what does one row represent?

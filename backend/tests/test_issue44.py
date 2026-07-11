@@ -216,3 +216,47 @@ class TestInferTier:
 
     def test_null_strings_treated_unset(self):
         assert self._tier({"tables": ["t"], "group_by": "null", "having": "None"}) == "simple"
+
+
+# ── round-2 quick wins (from the 3-tier run analysis) ─────────────────────────
+
+class TestDateFuncRewrite:
+
+    def _norm(self, sql):
+        a = SQLCodeAgent({"db": {"dialect": "sqlite"}}, MagicMock())
+        return a.normalize_dialect(sql)
+
+    def test_year_comparison_rewritten(self):
+        out = self._norm("SELECT COUNT(*) FROM p WHERE YEAR(Description) = '1997'")
+        assert "STRFTIME('%Y', Description)" in out and "YEAR(" not in out.upper().replace("STRFTIME", "")
+
+    def test_nested_year_subtraction(self):
+        out = self._norm("SELECT YEAR(CURRENT_TIMESTAMP) - YEAR(Birthday) FROM p")
+        assert out.count("STRFTIME('%Y'") == 2
+
+    def test_month_rewritten(self):
+        assert "STRFTIME('%m', d)" in self._norm("SELECT MONTH(d) FROM t")
+
+    def test_postgres_dialect_untouched(self):
+        a = SQLCodeAgent({"db": {"dialect": "postgres"}}, MagicMock())
+        sql = "SELECT YEAR(d) FROM t"
+        assert "STRFTIME" not in a.normalize_dialect(sql)
+
+
+class TestRound2PromptRules:
+
+    def test_ratio_cast_rule(self):
+        from backend.agents.utils import PromptHarness
+        p = PromptHarness.get("SQL_CODE_AGENT")
+        assert "EVERY division of aggregates" in p
+        assert "integer division" in " ".join(p.lower().split())
+
+    def test_grouped_superlative_rule(self):
+        from backend.agents.utils import PromptHarness
+        p = PromptHarness.get("SQL_CODE_AGENT")
+        assert "GROUP KEY" in p and "peak month" in p.lower()
+
+    def test_entity_not_prose_rule(self):
+        from backend.agents.utils import PromptHarness
+        p = PromptHarness.get("SQL_CODE_AGENT")
+        assert "never a constructed sentence" in p
