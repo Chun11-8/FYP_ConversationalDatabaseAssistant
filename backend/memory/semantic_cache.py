@@ -406,6 +406,22 @@ class SemanticCache:
             for r in rows
         ]
 
+    def best_match(
+        self,
+        embedding: Optional[List[float]],
+        group_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        Top-1 ACTIVE cached pair for the cache-hit shortcut (Issue #22/GH#38):
+        {"user_query", "sql", "confidence", "distance"}. Down-voted pairs never
+        surface (retrieve_pairs filters status='active'). None when the cache
+        is disabled, the embedding is missing, or the cache is empty.
+        """
+        if not self._enabled or embedding is None:
+            return None
+        pairs = self.retrieve_pairs("", top_k=1, group_id=group_id, embedding=embedding)
+        return pairs[0] if pairs else None
+
     def retrieve_few_shots(
         self,
         query: str,

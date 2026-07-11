@@ -59,6 +59,7 @@ class TestClassifyIntentHistoryInjection:
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="READ")
         agent.llm = mock_llm
+        agent.intent_llm = mock_llm  # classify_intent routes via _get_intent_llm (GH#38)
         dbmod._tls.__dict__.clear()  # force _get_llm() → agent.llm
 
         state = {
@@ -84,6 +85,7 @@ class TestClassifyIntentHistoryInjection:
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="READ")
         agent.llm = mock_llm
+        agent.intent_llm = mock_llm
         dbmod._tls.__dict__.clear()
 
         agent.classify_intent({"user_query": "list teams", "conversation_history": []})
@@ -96,6 +98,7 @@ class TestClassifyIntentHistoryInjection:
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="READ")
         agent.llm = mock_llm
+        agent.intent_llm = mock_llm
         dbmod._tls.__dict__.clear()
 
         result = agent.classify_intent(

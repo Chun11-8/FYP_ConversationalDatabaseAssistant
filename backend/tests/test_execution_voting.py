@@ -159,7 +159,7 @@ class TestEnforceLimitGate:
     def _run_execute(self, agent, captured):
         import backend.agents.db_agent as m
         original = m.execute_query
-        m.execute_query = lambda sql: captured.append(sql) or [{"x": 1}]
+        m.execute_query = lambda sql, **kw: captured.append(sql) or [{"x": 1}]
         try:
             state = {"best_sql": "SELECT event_name FROM event"}
             return agent.execute_sql(state)

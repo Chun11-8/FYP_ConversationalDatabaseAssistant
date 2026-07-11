@@ -99,6 +99,7 @@ function App() {
         rows: result.rows,
         csv_path: result.csv_path,
         turn_id: result.turn_id,
+        cache_hit: result.cache_hit,
         feedback: null,
       };
       setMessages((prev) => [...prev, botMsg]);

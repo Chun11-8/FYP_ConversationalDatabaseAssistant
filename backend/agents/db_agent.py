@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 # Thread-local storage for per-request LLM/agent overrides (api_key support)
 _tls: threading.local = threading.local()
+
+# Small pool for prefetching the query embedding concurrently with the intent
+# LLM call (GH#38): both are I/O-bound and independent.
+from concurrent.futures import ThreadPoolExecutor
+_PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
 
 # ─────────────────────────────────────────────
 # State Definition
@@ -65,6 +70,9 @@ class AgentState(TypedDict):
     response: str
     turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
+    cache_hit: bool                  # answered via semantic-cache shortcut (GH#38)
+    vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
+    vote_rows_sql: Optional[str]                # the exact SQL those rows came from
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
     error: Optional[str]
@@ -112,12 +120,32 @@ class OrchestrationAgent:
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        # GH#38 latency + GH#41 hardening knobs.
+        _sql = config.get("sql", {}) or {}
+        self._db_name = config.get("db", {}).get("name", "FYP")
+        self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
+        self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
+        self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
+        self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
+        # Model routing: intent classification is a one-token decision — allow a
+        # cheaper/faster model; same for the response formatter. Absent → the
+        # main LLM object is REUSED (identical behavior, no extra client).
+        intent_model = config["llm"].get("intent_model")
+        self.intent_llm = (
+            ChatOpenAI(model=intent_model, temperature=0, api_key=self._default_api_key)
+            if intent_model and intent_model != self._model else self.llm
+        )
+        format_model = config["llm"].get("format_model")
+        self._format_llm = (
+            ChatOpenAI(model=format_model, temperature=0, api_key=self._default_api_key)
+            if format_model and format_model != self._model else self.llm
+        )
+        self.optimizer = ResponseOptimizer(self._format_llm)
         self.memory = SessionMemory(
             db_config=config.get("db"),
             summarizer=self._summarize_history,
         )
         self.semantic_cache = SemanticCache(db_config=config.get("db"))
-        self.optimizer = ResponseOptimizer(self.llm)
         self.tool_registry = ToolRegistry()
         self.tool_registry.register(WebSearchTool())
         self.graph = self._build_graph()
@@ -133,6 +161,9 @@ class OrchestrationAgent:
 
     def _get_linker(self) -> SchemaLinkingAgent:
         return getattr(_tls, "linker", self.linker)
+
+    def _get_intent_llm(self) -> ChatOpenAI:
+        return getattr(_tls, "intent_llm", getattr(self, "intent_llm", self.llm))
 
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
@@ -158,7 +189,7 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            result = self._get_llm().invoke(messages).content.strip().upper()
+            result = self._get_intent_llm().invoke(messages).content.strip().upper()
         except Exception as e:
             logger.warning(f"[INTENT] LLM call failed, defaulting to AMBIGUOUS: {e}")
             result = "AMBIGUOUS"
@@ -180,8 +211,17 @@ class OrchestrationAgent:
         print("─" * 70)
 
         # Embed the query once and reuse it for both cache read (now) and cache
-        # write (after execution) — avoids a redundant embedding call per turn.
-        query_embedding = self.semantic_cache.embed(state["user_query"])
+        # write (after execution). run() prefetches this concurrently with the
+        # intent LLM call (GH#38) — consume the future when present.
+        future = getattr(_tls, "embed_future", None)
+        if future is not None:
+            _tls.embed_future = None
+            try:
+                query_embedding = future.result(timeout=10)
+            except Exception:
+                query_embedding = self.semantic_cache.embed(state["user_query"])
+        else:
+            query_embedding = self.semantic_cache.embed(state["user_query"])
         few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
 
         if few_shots:
@@ -192,10 +232,11 @@ class OrchestrationAgent:
             print("  💡 Few-shot examples: none")
 
         try:
-            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=5, store="pgvector")
+            db_name = getattr(self, "_db_name", "FYP")
+            schema_chunks = retrieve(state["user_query"], db_name, top_k_tables=5, store="pgvector")
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
             schema_chunks = expand_fk_tables(
-                schema_chunks, "FYP",
+                schema_chunks, db_name,
                 max_hops=self._fk_max_hops,
                 max_expansion=self._fk_max_expansion,
                 max_schema_tokens=self._max_schema_tokens,
@@ -223,6 +264,22 @@ class OrchestrationAgent:
                 f"[RAG] Retrieved {len(primary)} table(s): {primary}"
                 + (f" | FK-expanded: {fk_extra}" if fk_extra else "")
             )
+
+            # Cache-hit shortcut (GH#38): a near-identical past question with a
+            # validated SQL skips linking + generation entirely. The cached SQL
+            # still re-validates against the CURRENT schema (drift-safe), and a
+            # validation failure falls back to normal generation.
+            if getattr(self, "_cache_shortcut", False) and query_embedding is not None:
+                hit = self.semantic_cache.best_match(query_embedding)
+                threshold = getattr(self, "_cache_hit_threshold", 0.03)
+                if hit and hit.get("distance") is not None and hit["distance"] <= threshold:
+                    print(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
+                          f"skipping linking + generation")
+                    logger.info(f"[CACHE] shortcut hit d={hit['distance']:.4f}")
+                    return {**state, "schema_context": schema_context,
+                            "few_shot_examples": few_shots,
+                            "query_embedding": query_embedding,
+                            "best_sql": hit["sql"], "cache_hit": True}
 
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
@@ -256,6 +313,11 @@ class OrchestrationAgent:
         print("\n" + "─" * 70)
         print("🧩  NODE: link_schema")
         print("─" * 70)
+
+        # Reaching this node means no shortcut applies (or a stale cache hit
+        # fell back here) — clear the flag so the response isn't mislabeled.
+        if state.get("cache_hit"):
+            state = {**state, "cache_hit": False, "best_sql": ""}
 
         if not self._schema_linking:
             print("  (schema linking disabled via config sql.schema_linking)")
@@ -326,9 +388,10 @@ class OrchestrationAgent:
 
             # Execution-guided selection first (plurality over result sets);
             # the text reranker only decides when voting is inconclusive.
-            best = ""
+            best, vote_rows, vote_rows_sql = "", None, None
             if getattr(self, "_exec_voting", True) and len(sqls) > 1:
-                best = self._vote_candidates(sqls, state["schema_context"])
+                best, vote_rows, vote_rows_sql = self._vote_candidates(
+                    sqls, state["schema_context"])
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
                 print(f"\n  🏆 Reranker selected:")
@@ -364,24 +427,30 @@ class OrchestrationAgent:
             return "simple"
         return "moderate"
 
-    def _vote_candidates(self, sqls: List[str], schema_context: str) -> str:
+    def _vote_candidates(
+        self, sqls: List[str], schema_context: str
+    ) -> Tuple[str, Optional[list], Optional[str]]:
         """
         Execution-guided selection for the live pipeline: validate each
         candidate (SELECT-only safety — invalid/DML candidates are never run),
         execute the survivors with the safety LIMIT applied, and plurality-vote
         on an order-insensitive fingerprint of their result sets.
 
-        Returns "" when voting is inconclusive (caller falls back to reranker).
-        Never raises.
+        Returns (winner_sql, winner_rows, executed_sql) — winner rows are reused by
+        execute_sql so the winner runs ONCE per turn (GH#38). ("", None, None)
+        when inconclusive (caller falls back to the reranker). Never raises.
         """
         groups: Dict[frozenset, List[str]] = {}
+        group_rows: Dict[frozenset, list] = {}   # first (rows, run_sql) per fingerprint
+        group_run: Dict[frozenset, str] = {}
         executed = 0
-        for sql in sqls:
+        timeout_ms = getattr(self, "_stmt_timeout_ms", 15000)
+        for sql in sqls[: getattr(self, "_vote_max", 5)]:
             try:
                 if not self.validator.validate(sql, schema_context).get("valid"):
                     continue
                 run_sql = enforce_limit(sql) if getattr(self, "_enforce_limit", True) else sql
-                rows = execute_query(run_sql)
+                rows = execute_query(run_sql, timeout_ms=timeout_ms)
                 if not isinstance(rows, list):
                     continue
                 fp = frozenset(
@@ -390,27 +459,38 @@ class OrchestrationAgent:
                 )
                 executed += 1
                 groups.setdefault(fp, []).append(sql)
+                if fp not in group_rows:
+                    group_rows[fp], group_run[fp] = rows, run_sql
+                # Early plurality (GH#41 cost bound): two candidates already
+                # agree — later candidates cannot overturn a 2-vote lead among
+                # ≤5 total without at best tying, and ties defer to consensus.
+                if len(groups[fp]) >= 2:
+                    print("  🗳️  Execution vote: early plurality — remaining candidates skipped")
+                    break
             except Exception as exc:
                 logger.debug(f"[VOTE] candidate failed: {exc}")
                 continue
 
+        def _win(fp) -> Tuple[str, Optional[list], Optional[str]]:
+            return groups[fp][0], group_rows.get(fp), group_run.get(fp)
+
         if not groups:
             print("  🗳️  Execution vote: no candidate executed — falling back to reranker")
-            return ""
+            return "", None, None
 
         best_size = max(len(s) for s in groups.values())
-        tied = [(fp, s) for fp, s in groups.items() if len(s) == best_size]
+        tied = [fp for fp, s in groups.items() if len(s) == best_size]
         if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
             print(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
                   f"({len(groups)} distinct result sets)")
-            return tied[0][1][0]
-        non_empty = [(fp, s) for fp, s in tied if len(fp) > 0]
+            return _win(tied[0])
+        non_empty = [fp for fp in tied if len(fp) > 0]
         if len(non_empty) == 1:
             print(f"  🗳️  Execution vote: tie broken toward non-empty result "
-                  f"({len(non_empty[0][1])}/{executed})")
-            return non_empty[0][1][0]
+                  f"({len(groups[non_empty[0]])}/{executed})")
+            return _win(non_empty[0])
         print("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
-        return ""
+        return "", None, None
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""
@@ -444,7 +524,12 @@ class OrchestrationAgent:
         for line in sql.splitlines():
             print(f"    {line}")
         try:
-            rows = execute_query(sql)
+            if state.get("vote_rows") is not None and state.get("vote_rows_sql") == sql:
+                print("  ♻️  Reusing execution-vote result (winner already ran once)")
+                rows = state["vote_rows"]
+            else:
+                rows = execute_query(
+                    sql, timeout_ms=getattr(self, "_stmt_timeout_ms", 15000))
             row_count = len(rows) if isinstance(rows, list) else "?"
             print(f"  ✅ Returned {row_count} row(s)")
             if isinstance(rows, list) and rows:
@@ -627,7 +712,8 @@ class OrchestrationAgent:
 
         if level == 1:
             # Broaden schema scan
-            schema_chunks = retrieve(state["user_query"], "FYP", top_k_tables=10, store="pgvector")
+            schema_chunks = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
+                                     top_k_tables=10, store="pgvector")
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
@@ -671,11 +757,15 @@ class OrchestrationAgent:
         v = state.get("validation", {})
         if v.get("valid"):
             return "execute_sql"
+        if state.get("cache_hit"):
+            return "link_schema"      # stale cached SQL → normal generation
         if state.get("fallback_level", 0) < 2:
             return "fallback_handler"
         return "format_response"  # give up gracefully
 
     def route_after_retrieval(self, state: AgentState) -> str:
+        if state.get("cache_hit") and state.get("best_sql"):
+            return "validate_sql"     # GH#38 shortcut: skip linking + generation
         if not state.get("schema_context") and state.get("fallback_level", 0) == 0:
             return "fallback_handler"
         return "generate_sql"
@@ -716,10 +806,12 @@ class OrchestrationAgent:
             "handle_write_blocked": "handle_write_blocked",
         })
 
-        # Happy path routes through schema-linking (#17) before generation.
+        # Happy path routes through schema-linking (#17) before generation;
+        # a cache hit (GH#38) jumps straight to validation.
         g.add_conditional_edges("retrieve_schema", self.route_after_retrieval, {
             "generate_sql": "link_schema",
             "fallback_handler": "fallback_handler",
+            "validate_sql": "validate_sql",
         })
 
         g.add_edge("link_schema", "generate_sql")
@@ -729,6 +821,7 @@ class OrchestrationAgent:
             "execute_sql": "execute_sql",
             "fallback_handler": "fallback_handler",
             "format_response": "format_response",
+            "link_schema": "link_schema",   # stale cache hit → regenerate
         })
 
         # ReAct: after execution, refine once on error/empty result, else format.
@@ -800,9 +893,17 @@ class OrchestrationAgent:
         use_custom_key = bool(api_key and api_key.strip())
         if use_custom_key:
             _tls.llm = ChatOpenAI(model=self._model, temperature=0, api_key=api_key)
+            _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
             _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)
             _tls.optimizer = ResponseOptimizer(_tls.llm)
+
+        # Prefetch the query embedding concurrently with the intent LLM call.
+        try:
+            _tls.embed_future = _PREFETCH_POOL.submit(
+                self.semantic_cache.embed, user_query)
+        except Exception:
+            _tls.embed_future = None
 
         history = self.memory.get_history(session_id)
         initial_state: AgentState = {
@@ -821,6 +922,9 @@ class OrchestrationAgent:
             "response": "",
             "turn_id": None,
             "csv_path": None,
+            "cache_hit": False,
+            "vote_rows": None,
+            "vote_rows_sql": None,
             "fallback_level": 0,
             "refine_level": 0,
             "error": None,
@@ -833,6 +937,7 @@ class OrchestrationAgent:
             # Only needed when we set them.
             if use_custom_key:
                 _tls.llm = self.llm
+                _tls.intent_llm = self.intent_llm
                 _tls.sql_agent = self.sql_agent
                 _tls.linker = self.linker
                 _tls.optimizer = self.optimizer
@@ -859,6 +964,7 @@ class OrchestrationAgent:
             "rows":       serialised_rows,
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
+            "cache_hit":  bool(final.get("cache_hit")),
         }
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).
@@ -881,6 +987,7 @@ class OrchestrationAgent:
             and not final.get("error")
             and bool(best_sql)
             and isinstance(final.get("execution_result"), list)
+            and not final.get("cache_hit")   # a reused pair is already stored
         )
         try:
             if success:

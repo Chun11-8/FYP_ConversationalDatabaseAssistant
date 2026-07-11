@@ -269,27 +269,30 @@ def retrieve(
         "prompt_context": prompt_context,
     }
 
-def execute_query(sql: str) -> list[dict]:
+def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
     """
-    Execute a SQL query against the PostgreSQL database and return results.
+    Execute a USER SQL query against PostgreSQL and return results.
 
-    Args:
-        sql:       The SQL query string to execute.
-        pg_config: PostgreSQL connection config dict (host, port, user, password).
-    Returns:
-        List of dicts representing query results (column names as keys).
+    Issue #25/GH#41 hardening: runs on the read-only app connection when
+    PG_APP_USER is configured, and under a statement timeout (default 15 s)
+    so a pathological query cannot hang the request thread.
     """
-    _logger.info(f"[EXECUTE_QUERY] Running SQL:\n{sql}")
+    _logger.info(f"[EXECUTE_QUERY] Running SQL (timeout={timeout_ms}ms):\n{sql}")
     backend = _get_backend("pgvector")
-    conn  = backend.get_store()
+    conn = backend.get_query_conn()
     try:
-        rows = backend.run_query(conn, sql)
+        rows = backend.run_query(conn, sql, timeout_ms=timeout_ms)
         _logger.info(f"[EXECUTE_QUERY] Returned {len(rows)} row(s)")
         return rows
     except Exception as e:
         _logger.error(f"[EXECUTE_QUERY] Error: {e}")
         print(f"Error executing query: {e}")
         raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 # ── FK-aware retrieval expansion ──────────────────────────────────────────────
 

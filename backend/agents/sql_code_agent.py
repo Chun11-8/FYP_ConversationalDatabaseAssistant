@@ -451,6 +451,8 @@ class SQLCodeAgent:
             self.top_k = max(1, int(config.get("sql", {}).get("n_candidates", self.TOP_K)))
         except (TypeError, ValueError):
             self.top_k = self.TOP_K
+        self._distinct_postpass = bool(
+            config.get("sql", {}).get("distinct_postpass", True))
         # Difficulty-adaptive prompting (Issue #27): per-tier candidate counts.
         self._adaptive = bool(config.get("sql", {}).get("adaptive_prompting", True))
         tiers = config.get("sql", {}).get("candidates_by_tier") or {}
@@ -521,6 +523,8 @@ class SQLCodeAgent:
             )
             for s in sqls
         ]
+        if self._distinct_postpass:
+            sqls = [self._inject_distinct(s, query) for s in sqls]
         # Demote wrong-grain (GROUP BY name-only) and plan-deviating candidates.
         sqls = self._order_candidates(sqls, schema_context, query_plan)
 
@@ -673,6 +677,32 @@ class SQLCodeAgent:
                 + self._plan_penalty(s, query_plan)
             ),
         )
+
+    # ── DISTINCT post-pass (Issue #28/GH#45 step 4) ──────────────────────────
+    # "List …" questions over joins keep leaking duplicate rows (q1239 failed
+    # at F1 0.80 missing ONLY a DISTINCT). Deterministic, conservative injection:
+    # only for "list" questions, only when the query joins, has no GROUP BY, no
+    # aggregates, and no DISTINCT already.
+
+    def _inject_distinct(self, sql: str, question: str) -> str:
+        if not sql or not question or not re.search(r"\blist\b", question, re.IGNORECASE):
+            return sql
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+            if not isinstance(ast, sqlglot.exp.Select):
+                return sql
+            if ast.args.get("distinct") or ast.args.get("group"):
+                return sql
+            if not any(True for _ in ast.find_all(sqlglot.exp.Join)):
+                return sql
+            if any(e.find(sqlglot.exp.AggFunc) for e in ast.expressions):
+                return sql
+            ast.set("distinct", sqlglot.exp.Distinct())
+            out = ast.sql(dialect=self.dialect)
+            logger.info("[SQL_GEN] DISTINCT injected for a 'list' question over joins")
+            return out
+        except Exception:
+            return sql
 
     # ── Apostrophe repair (Issue #21) ───────────
 
