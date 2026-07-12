@@ -50,7 +50,8 @@ class TestStageEvents:
     def test_wrapper_silent_without_callback(self):
         dbm._tls.stage_cb = None
         node = _staged("validate_sql", lambda s: {"ok": True})
-        assert node({}) == {"ok": True}   # no exception, no emission
+        out = node({})
+        assert out["ok"] is True and "validate_sql" in out["timings"]   # no exception
 
     def test_callback_errors_never_break_pipeline(self):
         def boom(t, p):
@@ -60,7 +61,7 @@ class TestStageEvents:
             out = _staged("execute_sql", lambda s: {"r": 1})({})
         finally:
             dbm._tls.stage_cb = None
-        assert out == {"r": 1}
+        assert out["r"] == 1   # pipeline unbroken; timings added is fine
 
     def test_run_accepts_stage_callback(self):
         assert "stage_callback" in inspect.signature(OrchestrationAgent.run).parameters

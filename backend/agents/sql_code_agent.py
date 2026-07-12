@@ -8,6 +8,7 @@ import sqlglot
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from backend.agents.trace import trace
 from backend.agents.utils import PromptHarness
 from backend.agents.schema_linking_agent import render_query_plan
 
@@ -500,20 +501,20 @@ class SQLCodeAgent:
             HumanMessage(content=prompt),
         ]
 
-        print("\n  ┌─ LLM SYSTEM PROMPT (sql_code_agent) ─────────────────────")
+        trace("\n  ┌─ LLM SYSTEM PROMPT (sql_code_agent) ─────────────────────")
         for line in system_p.splitlines():
-            print(f"  │ {line}")
-        print("  ├─ GENERATION PROMPT ──────────────────────────────────────")
+            trace(f"  │ {line}")
+        trace("  ├─ GENERATION PROMPT ──────────────────────────────────────")
         for line in prompt.splitlines():
-            print(f"  │ {line}")
-        print("  └───────────────────────────────────────────────────────────")
+            trace(f"  │ {line}")
+        trace("  └───────────────────────────────────────────────────────────")
 
         raw = self.llm.invoke(messages).content
 
-        print("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
+        trace("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
         for line in raw.splitlines():
-            print(f"  │ {line}")
-        print("  └───────────────────────────────────────────────────────────")
+            trace(f"  │ {line}")
+        trace("  └───────────────────────────────────────────────────────────")
 
         sqls = self._extract_sqls(raw)
         # Deterministic repairs BEFORE dialect normalization: fix unescaped
@@ -532,7 +533,7 @@ class SQLCodeAgent:
 
         if not sqls:
             logger.warning("[SQL_GEN] No SQL extracted from LLM output")
-            print("  ⚠️  No SQL code blocks found in LLM output!")
+            trace("  ⚠️  No SQL code blocks found in LLM output!")
         return sqls[: n]
 
     def normalize_dialect(self, sql: str) -> str:
@@ -726,7 +727,7 @@ class SQLCodeAgent:
         repaired = _double_interior_apostrophes(sql)
         if repaired != sql and self._parses(repaired):
             logger.info("[SQL_GEN] Repaired unescaped apostrophe(s) in a string literal")
-            print("  🔧 Repaired an unescaped apostrophe in a string literal")
+            trace("  🔧 Repaired an unescaped apostrophe in a string literal")
             return repaired
         return sql
 
@@ -937,15 +938,15 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
 
         try:
             raw_choice = self.llm.invoke(messages).content.strip()
-            print(f"\n  ┌─ RERANKER OUTPUT ──────────────────────────────────────────")
-            print(f"  │ {raw_choice}")
-            print(f"  └────────────────────────────────────────────────────────────")
+            trace(f"\n  ┌─ RERANKER OUTPUT ──────────────────────────────────────────")
+            trace(f"  │ {raw_choice}")
+            trace(f"  └────────────────────────────────────────────────────────────")
             idx = int(re.search(r"\d", raw_choice).group()) - 1
             chosen = sqls[max(0, min(idx, len(sqls) - 1))]
-            print(f"  🏆 Reranker chose candidate {idx + 1}")
+            trace(f"  🏆 Reranker chose candidate {idx + 1}")
             return chosen
         except Exception:
-            print("  ⚠️  Reranker failed to parse choice — defaulting to candidate 1")
+            trace("  ⚠️  Reranker failed to parse choice — defaulting to candidate 1")
             return sqls[0]
 
     # ── Helpers ─────────────────────────────────

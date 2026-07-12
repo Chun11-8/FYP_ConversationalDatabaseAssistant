@@ -27,6 +27,8 @@ class ChatResponse(BaseModel):
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
     cache_hit: bool = False   # answered from the semantic cache (no generation)
+    latency_ms: Optional[int] = None            # total turn wall-clock (GH#42)
+    timings: Optional[Dict[str, int]] = None    # per-stage ms (GH#42)
 
 
 class FeedbackRequest(BaseModel):

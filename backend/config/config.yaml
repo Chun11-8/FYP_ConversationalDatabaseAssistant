@@ -71,3 +71,8 @@ response:
   inline_row_limit: 10
   table_row_limit: 100
   csv_row_limit: 500
+
+logging:
+  # GH#42: rich console pipeline banners (the tuning workflow). Set false for
+  # structured logs only — request IDs + per-stage timings remain either way.
+  pipeline_trace: true

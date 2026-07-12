@@ -18,11 +18,13 @@ Endpoints:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import queue
 import threading
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -41,11 +43,48 @@ from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.retrieval.data_processing import get_schema_info
 
+# ── request correlation (GH#42) ───────────────────────────────────────────────
+_request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default="-")
+
+
+class RequestIdFilter(logging.Filter):
+    """Stamp every log record with the current request id (or '-')."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = _request_id_var.get()
+        return True
+
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(levelname)-8s %(name)s — %(message)s",
+    format="%(levelname)-8s %(name)s [%(request_id)s] — %(message)s",
 )
+for _h in logging.getLogger().handlers:
+    _h.addFilter(RequestIdFilter())
 logger = logging.getLogger(__name__)
+
+# ── rolling in-memory metrics (GH#42) — reset on restart, demo-grade ──────────
+_METRICS_LOCK = threading.Lock()
+_METRICS = {
+    "turns": 0,
+    "errors": 0,
+    "cache_hits": 0,
+    "latencies_ms": deque(maxlen=200),
+    "stage_ms": defaultdict(int),
+    "stage_n": defaultdict(int),
+}
+
+
+def _record_turn(result: dict) -> None:
+    with _METRICS_LOCK:
+        _METRICS["turns"] += 1
+        if result.get("cache_hit"):
+            _METRICS["cache_hits"] += 1
+        if result.get("latency_ms") is not None:
+            _METRICS["latencies_ms"].append(int(result["latency_ms"]))
+        for stage, ms in (result.get("timings") or {}).items():
+            _METRICS["stage_ms"][stage] += int(ms)
+            _METRICS["stage_n"][stage] += 1
 
 # ── outputs directory — single source of truth shared with ResponseOptimizer ───
 _OUTPUTS_DIR = ResponseOptimizer._DEFAULT_OUTPUT_DIR
@@ -136,6 +175,18 @@ def _get_agent() -> OrchestrationAgent:
     return _agent
 
 
+@app.middleware("http")
+async def _request_id_middleware(request, call_next):
+    rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    token = _request_id_var.set(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        _request_id_var.reset(token)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health", response_model=HealthResponse, tags=["ops"])
@@ -179,8 +230,11 @@ def chat(req: ChatRequest) -> ChatResponse:
         )
     except Exception as exc:
         logger.exception("Agent error for session %s", req.session_id)
+        with _METRICS_LOCK:
+            _METRICS["errors"] += 1
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
 
+    _record_turn(result)
     return ChatResponse(**result)
 
 
@@ -206,7 +260,10 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
         elif event_type == "sql":
             q.put({"type": "sql", "sql": str(payload)})
 
+    rid = _request_id_var.get()   # contextvars don't cross manual threads
+
     def _worker() -> None:
+        token = _request_id_var.set(rid)
         try:
             result = agent.run(
                 session_id=req.session_id,
@@ -214,11 +271,15 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 api_key=req.api_key or None,
                 stage_callback=_cb,
             )
+            _record_turn(result)
             q.put({"type": "done", **result})
         except Exception as exc:  # terminal error event, then close
             logger.exception("Agent stream error for session %s", req.session_id)
+            with _METRICS_LOCK:
+                _METRICS["errors"] += 1
             q.put({"type": "error", "message": str(exc)})
         finally:
+            _request_id_var.reset(token)
             q.put(None)
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -232,6 +293,28 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
 
     return StreamingResponse(_gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/metrics-lite", tags=["ops"])
+def metrics_lite() -> Dict[str, Any]:
+    """Rolling in-memory pipeline metrics (GH#42). Reset on restart."""
+    with _METRICS_LOCK:
+        lats = sorted(_METRICS["latencies_ms"])
+        n = len(lats)
+        avg_stage = {
+            s: round(_METRICS["stage_ms"][s] / _METRICS["stage_n"][s])
+            for s in _METRICS["stage_ms"] if _METRICS["stage_n"][s]
+        }
+        return {
+            "turns": _METRICS["turns"],
+            "errors": _METRICS["errors"],
+            "cache_hits": _METRICS["cache_hits"],
+            "cache_hit_rate": round(_METRICS["cache_hits"] / _METRICS["turns"], 3)
+            if _METRICS["turns"] else 0.0,
+            "latency_avg_ms": round(sum(lats) / n) if n else None,
+            "latency_p95_ms": lats[max(0, int(n * 0.95) - 1)] if n else None,
+            "avg_stage_ms": avg_stage,
+        }
 
 
 @app.get("/sessions", response_model=List[SessionSummary], tags=["session"])
