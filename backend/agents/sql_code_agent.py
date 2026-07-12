@@ -472,6 +472,7 @@ class SQLCodeAgent:
         history: List[Dict[str, str]],
         query_plan: Optional[dict] = None,
         tier: Optional[str] = None,
+        previous_sql: Optional[str] = None,
     ) -> List[str]:
         """Generate top-k SQL candidates.
 
@@ -490,7 +491,8 @@ class SQLCodeAgent:
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
         prompt = self._build_prompt(query, schema_context, few_shots, history,
-                                    query_plan, tier=tier, n_candidates=n)
+                                    query_plan, tier=tier, n_candidates=n,
+                                    previous_sql=previous_sql)
 
         system_p = self._system_prompt()
         messages = [
@@ -737,6 +739,7 @@ class SQLCodeAgent:
         query_plan: Optional[dict] = None,
         tier: Optional[str] = None,
         n_candidates: Optional[int] = None,
+        previous_sql: Optional[str] = None,
     ) -> str:
         few_shot_block = "\n\n".join(few_shots) if few_shots else "No examples available."
         history_block = "\n".join(
@@ -750,6 +753,15 @@ class SQLCodeAgent:
         # Difficulty-adaptive strategy block (Issue #27); moderate/None → none.
         strategy = TIER_STRATEGIES.get(tier or "")
         strategy_section = f"\n{strategy}\n" if strategy else ""
+        # GH#40: the session's last validated SQL — follow-ups usually REFINE it.
+        prev_section = (
+            f"\n<previous_sql>\n{previous_sql.strip()}\n</previous_sql>\n"
+            "If the question is a follow-up that refines the previous request "
+            "(adds a filter, changes a limit, narrows the scope), prefer MODIFYING "
+            "<previous_sql> over re-deriving from scratch. Ignore it when the "
+            "question is unrelated.\n"
+            if previous_sql else ""
+        )
 
         dialect = self.dialect.upper()
         return f"""
@@ -764,7 +776,7 @@ class SQLCodeAgent:
 <conversation_history>
 {history_block}
 </conversation_history>
-{plan_section}
+{prev_section}{plan_section}
 <user_question>
 {query}
 </user_question>

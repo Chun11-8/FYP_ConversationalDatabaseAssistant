@@ -18,16 +18,19 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import logging
+import queue
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psycopg2
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
@@ -179,6 +182,56 @@ def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
 
     return ChatResponse(**result)
+
+
+@app.post("/chat/stream", tags=["chat"])
+def chat_stream(req: ChatRequest) -> StreamingResponse:
+    """
+    Streaming variant of /chat (GH#39): Server-Sent Events with live pipeline
+    progress so the user isn't staring at a spinner through 4–6 LLM calls.
+
+    Event stream (each line `data: <json>\\n\\n`):
+        {"type": "stage", "stage": "<node name>"}   — pipeline stage entered
+        {"type": "sql",   "sql": "..."}            — winning SQL selected
+        {"type": "done",  ...ChatResponse fields}  — terminal success event
+        {"type": "error", "message": "..."}        — terminal failure event
+    Always ends with a terminal event — never a silently dropped connection.
+    """
+    agent = _get_agent()
+    q: "queue.Queue[Optional[dict]]" = queue.Queue()
+
+    def _cb(event_type: str, payload: Any) -> None:
+        if event_type == "stage":
+            q.put({"type": "stage", "stage": str(payload)})
+        elif event_type == "sql":
+            q.put({"type": "sql", "sql": str(payload)})
+
+    def _worker() -> None:
+        try:
+            result = agent.run(
+                session_id=req.session_id,
+                user_query=req.message,
+                api_key=req.api_key or None,
+                stage_callback=_cb,
+            )
+            q.put({"type": "done", **result})
+        except Exception as exc:  # terminal error event, then close
+            logger.exception("Agent stream error for session %s", req.session_id)
+            q.put({"type": "error", "message": str(exc)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    def _gen():
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/sessions", response_model=List[SessionSummary], tags=["session"])
