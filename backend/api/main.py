@@ -37,7 +37,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, FeedbackRequest, HealthResponse, SessionResponse,
-    SchemaResponse, SessionSummary,
+    SchemaResponse, SessionSummary, SchemaDiffResponse, SchemaSyncRequest,
+    SchemaSyncResponse,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -391,3 +392,33 @@ def get_db_schema() -> SchemaResponse:
         logger.exception("Schema fetch failed")
         raise HTTPException(status_code=500, detail=f"Schema fetch failed: {exc}") from exc
     return SchemaResponse(**info)
+
+
+def _versioner() -> "SchemaVersioningAgent":
+    from backend.agents.schema_versioning_agent import SchemaVersioningAgent
+    return SchemaVersioningAgent(db_name=(_db_config or {}).get("name"))
+
+
+@app.get("/schema/diff", response_model=SchemaDiffResponse, tags=["schema"])
+def schema_diff() -> SchemaDiffResponse:
+    """Report schema changes + unindexed tables vs the last synced snapshot (Issue #7)."""
+    try:
+        return SchemaDiffResponse(**_versioner().check())
+    except Exception as exc:
+        logger.exception("Schema diff failed")
+        raise HTTPException(status_code=500, detail=f"Schema diff failed: {exc}") from exc
+
+
+@app.post("/schema/sync", response_model=SchemaSyncResponse, tags=["schema"])
+def schema_sync(req: SchemaSyncRequest) -> SchemaSyncResponse:
+    """
+    Re-index the RAG store to match the live database (Issue #7). Surgical by
+    default (only changed/unindexed tables); `full=true` re-embeds everything —
+    the refresh for DATA changes. NOTE: no admin-auth guard yet (Issue #6/GH#7).
+    """
+    try:
+        result = _versioner().sync(full=req.full, tables=req.tables)
+    except Exception as exc:
+        logger.exception("Schema sync failed")
+        raise HTTPException(status_code=500, detail=f"Schema sync failed: {exc}") from exc
+    return SchemaSyncResponse(**result)
