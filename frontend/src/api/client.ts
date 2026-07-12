@@ -39,6 +39,58 @@ export async function createSession(): Promise<string> {
   return data.session_id;
 }
 
+export type StreamEvent =
+  | { type: 'stage'; stage: string }
+  | { type: 'sql'; sql: string }
+  | ({ type: 'done' } & ChatApiResponse)
+  | { type: 'error'; message: string };
+
+/**
+ * Streaming variant of sendChat (SSE). Emits stage/sql events via onEvent and
+ * resolves with the final ChatApiResponse from the terminal `done` event.
+ * Throws on `error` events or transport failure — callers fall back to sendChat.
+ */
+export async function sendChatStream(
+  sessionId: string,
+  message: string,
+  apiKey: string | undefined,
+  onEvent: (e: StreamEvent) => void,
+): Promise<ChatApiResponse> {
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      message,
+      ...(apiKey ? { api_key: apiKey } : {}),
+    }),
+  });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let donePayload: ChatApiResponse | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const chunk = buffer.slice(0, sep).trim();
+      buffer = buffer.slice(sep + 2);
+      if (!chunk.startsWith('data: ')) continue;
+      const evt = JSON.parse(chunk.slice(6)) as StreamEvent;
+      onEvent(evt);
+      if (evt.type === 'done') donePayload = evt as unknown as ChatApiResponse;
+      if (evt.type === 'error') throw new Error(evt.message);
+    }
+  }
+  if (!donePayload) throw new Error('Stream ended without a result');
+  return donePayload;
+}
+
 export async function sendChat(
   sessionId: string,
   message: string,

@@ -44,6 +44,11 @@ sql:
   # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
   cache_shortcut: true
   cache_hit_threshold: 0.03
+  # GH#40 multi-turn: condense anaphoric follow-ups into standalone questions
+  # before retrieval, and ask ONE clarifying question on AMBIGUOUS intent
+  # instead of running the full generation pipeline first.
+  condense_followups: true
+  clarify_on_ambiguous: true
   # GH#45 step 4: inject DISTINCT on "list" questions over joins (deterministic).
   distinct_postpass: true
   # Strict schema-grounded validation (GH #19): a query referencing unknown
@@ -66,3 +71,8 @@ response:
   inline_row_limit: 10
   table_row_limit: 100
   csv_row_limit: 500
+
+logging:
+  # GH#42: rich console pipeline banners (the tuning workflow). Set false for
+  # structured logs only — request IDs + per-stage timings remain either way.
+  pipeline_trace: true

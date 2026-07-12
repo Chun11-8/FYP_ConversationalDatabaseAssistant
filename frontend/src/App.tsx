@@ -7,12 +7,29 @@ import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { DatabaseTab } from './components/DatabaseTab';
 import {
-  createSession, sendChat, submitFeedback, listSessions, getHistory,
+  createSession, sendChat, sendChatStream, submitFeedback, listSessions, getHistory,
 } from './api/client';
+import type { ChatApiResponse } from './api/client';
 
 const LS_API_KEY = 'db_assistant_api_key';
 const LS_SESSION_ID = 'db_assistant_session_id';
 const LS_MESSAGES = 'db_assistant_messages';
+
+/** Human labels for pipeline stage events (GH#39). */
+const STAGE_LABELS: Record<string, string> = {
+  classify_intent: 'Understanding the question…',
+  condense_query: 'Resolving follow-up…',
+  retrieve_schema: 'Retrieving schema…',
+  link_schema: 'Linking schema…',
+  generate_sql: 'Generating SQL…',
+  validate_sql: 'Validating SQL…',
+  execute_sql: 'Running the query…',
+  refine_sql: 'Refining the query…',
+  format_response: 'Writing the answer…',
+  handle_general: 'Searching…',
+  ask_clarification: 'Thinking…',
+  fallback_handler: 'Retrying…',
+};
 
 function loadStoredMessages(): Message[] {
   try {
@@ -33,6 +50,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(LS_API_KEY) ?? '');
+  const [stage, setStage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Persist API key to localStorage whenever it changes
@@ -86,7 +104,16 @@ function App() {
     setError(null);
 
     try {
-      const result = await sendChat(sessionId, content, apiKey.trim() || undefined);
+      // Streaming first (live stage progress); plain POST as fallback (GH#39).
+      let result: ChatApiResponse;
+      try {
+        result = await sendChatStream(
+          sessionId, content, apiKey.trim() || undefined,
+          (e) => { if (e.type === 'stage') setStage(e.stage); },
+        );
+      } catch {
+        result = await sendChat(sessionId, content, apiKey.trim() || undefined);
+      }
       const botMsg: TextMessage = {
         id: uuidv4(),
         role: 'assistant',
@@ -108,6 +135,7 @@ function App() {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);
+      setStage(null);
     }
   }, [sessionId, isLoading, apiKey, refreshSessions]);
 
@@ -255,8 +283,15 @@ function App() {
                           <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
                         </svg>
                       </div>
-                      <div className="typing-indicator">
-                        <span /><span /><span />
+                      <div>
+                        <div className="typing-indicator">
+                          <span /><span /><span />
+                        </div>
+                        {stage && (
+                          <div className="msg-time" style={{ marginTop: '0.25rem' }}>
+                            {STAGE_LABELS[stage] ?? stage}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

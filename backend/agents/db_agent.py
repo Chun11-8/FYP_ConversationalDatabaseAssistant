@@ -6,6 +6,7 @@ Coordinates: Intent Classification → RAG Schema Retrieval → SQL Generation �
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
@@ -17,6 +18,7 @@ from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
 from backend.agents.schema_linking_agent import SchemaLinkingAgent
 from backend.agents.safety import enforce_limit
+from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
@@ -35,6 +37,47 @@ _tls: threading.local = threading.local()
 # LLM call (GH#38): both are I/O-bound and independent.
 from concurrent.futures import ThreadPoolExecutor
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
+
+
+def _emit(event: str, payload: Any) -> None:
+    """Send a pipeline event to the per-request stage callback (GH#39 SSE)."""
+    cb = getattr(_tls, "stage_cb", None)
+    if cb:
+        try:
+            cb(event, payload)
+        except Exception:
+            pass
+
+
+def _staged(name: str, fn):
+    """
+    Wrap a graph node: its entry (and the selected SQL) stream as events
+    (GH#39), and its wall-clock duration lands in state["timings"] (GH#42) so
+    a slow turn can be attributed to a specific stage.
+    """
+    def inner(state):
+        _emit("stage", name)
+        t0 = time.perf_counter()
+        result = fn(state)
+        ms = int((time.perf_counter() - t0) * 1000)
+        if isinstance(result, dict):
+            timings = dict(state.get("timings") or {})
+            timings[name] = timings.get(name, 0) + ms   # accumulate on re-entry
+            result = {**result, "timings": timings}
+            if name in ("generate_sql", "refine_sql") and result.get("best_sql"):
+                _emit("sql", result["best_sql"])
+        return result
+    inner.__name__ = name
+    return inner
+
+
+# Follow-ups that need condensation before retrieval (GH#40): pronouns /
+# comparative refs / short continuations embed to garbage on their own.
+_ANAPHORIC_RE = re.compile(
+    r"\b(it|that|those|them|these|same|previous|ones?)\b"
+    r"|what about|how about|^and\b|^also\b|^only\b|^now\b",
+    re.IGNORECASE,
+)
 
 # ─────────────────────────────────────────────
 # State Definition
@@ -70,11 +113,14 @@ class AgentState(TypedDict):
     response: str
     turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
+    standalone_query: Optional[str]  # condensed follow-up (GH#40); None = use user_query
+    previous_sql: Optional[str]      # last validated SQL for this session (GH#40)
     cache_hit: bool                  # answered via semantic-cache shortcut (GH#38)
     vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
+    timings: Dict[str, int]          # per-stage wall-clock ms (GH#42)
     error: Optional[str]
 
 
@@ -127,6 +173,13 @@ class OrchestrationAgent:
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
         self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
         self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
+        # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
+        # ask ONE clarifying question on AMBIGUOUS instead of burning the full
+        # generation pipeline first.
+        self._condense = bool(_sql.get("condense_followups", True))
+        self._clarify = bool(_sql.get("clarify_on_ambiguous", True))
+        # GH#42: console banner tracing is config-gated (default on).
+        set_pipeline_trace(config.get("logging", {}).get("pipeline_trace", True))
         # Model routing: intent classification is a one-token decision — allow a
         # cheaper/faster model; same for the response formatter. Absent → the
         # main LLM object is REUSED (identical behavior, no extra client).
@@ -163,7 +216,11 @@ class OrchestrationAgent:
         return getattr(_tls, "linker", self.linker)
 
     def _get_intent_llm(self) -> ChatOpenAI:
-        return getattr(_tls, "intent_llm", getattr(self, "intent_llm", self.llm))
+        tls_llm = getattr(_tls, "intent_llm", None)
+        if tls_llm is not None:
+            return tls_llm
+        own = getattr(self, "intent_llm", None)
+        return own if own is not None else self.llm
 
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
@@ -174,12 +231,12 @@ class OrchestrationAgent:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
         history_str = self._format_history(state.get("conversation_history", [])[-6:])
 
-        print("\n" + "━" * 70)
-        print("🔍  PIPELINE START — classify_intent")
-        print("━" * 70)
-        print(f"  Query   : {state['user_query']}")
-        print(f"  Session : {state.get('session_id', 'n/a')}")
-        print(f"  History : {history_str[:200]}{'…' if len(history_str) > 200 else ''}")
+        trace("\n" + "━" * 70)
+        trace("🔍  PIPELINE START — classify_intent")
+        trace("━" * 70)
+        trace(f"  Query   : {state['user_query']}")
+        trace(f"  Session : {state.get('session_id', 'n/a')}")
+        trace(f"  History : {history_str[:200]}{'…' if len(history_str) > 200 else ''}")
 
         messages = [
             SystemMessage(content=self.INTENT_PROMPT),
@@ -199,41 +256,123 @@ class OrchestrationAgent:
         if any(kw in state["user_query"].upper() for kw in dml_keywords):
             result = "WRITE_BLOCKED"
 
-        print(f"  ✅ Intent: {result}")
+        trace(f"  ✅ Intent: {result}")
         logger.info(f"[INTENT] {result} | query={state['user_query'][:60]}")
         return {**state, "intent": result}
 
     
+    @staticmethod
+    def _looks_anaphoric(query: str, history: List[Dict]) -> bool:
+        if not history:
+            return False
+        return len(query.strip()) < 30 or bool(_ANAPHORIC_RE.search(query))
+
+    def condense_query(self, state: AgentState) -> AgentState:
+        """
+        GH#40: rewrite an anaphoric follow-up ("what about 2013?") into a
+        standalone question BEFORE retrieval — embedding the raw follow-up
+        retrieves garbage. Cheap gate: first questions pay nothing.
+        """
+        if not getattr(self, "_condense", True):
+            return state
+        q = state["user_query"]
+        history = state.get("conversation_history") or []
+        if not self._looks_anaphoric(q, history):
+            return state
+
+        trace("\n" + "─" * 70)
+        trace("🔗  NODE: condense_query (anaphoric follow-up detected)")
+        trace("─" * 70)
+        try:
+            template = PromptHarness.get_file("condense_query.md")
+        except Exception:
+            template = (
+                "Rewrite the user's follow-up as ONE self-contained question that "
+                "needs no conversation context. Preserve every constraint from the "
+                "history that the follow-up implies. Output ONLY the question."
+            )
+        messages = [
+            SystemMessage(content=template),
+            HumanMessage(content=(
+                f"Conversation so far:\n{self._format_history(history[-6:])}\n\n"
+                f"Previous SQL:\n{state.get('previous_sql') or '(none)'}\n\n"
+                f"Follow-up: {q}\n\nStandalone question:"
+            )),
+        ]
+        try:
+            standalone = self._get_intent_llm().invoke(messages).content.strip()
+        except Exception as exc:
+            logger.warning(f"[CONDENSE] failed: {exc}")
+            return state
+        if standalone and len(standalone) < 500:
+            trace(f"  ↪ standalone: {standalone}")
+            logger.info(f"[CONDENSE] '{q[:40]}' → '{standalone[:80]}'")
+            return {**state, "standalone_query": standalone}
+        return state
+
+    def ask_clarification(self, state: AgentState) -> AgentState:
+        """
+        GH#40: AMBIGUOUS questions get ONE targeted clarifying question up
+        front instead of burning the full generation pipeline + two fallback
+        rounds before asking.
+        """
+        trace("\n" + "─" * 70)
+        trace("❓  NODE: ask_clarification (AMBIGUOUS intent)")
+        trace("─" * 70)
+        tables: List[str] = []
+        try:
+            r = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
+                         top_k_tables=3, store="pgvector")
+            tables = [t["table_name"] for t in r.get("tables", [])][:3]
+        except Exception:
+            pass
+        hint = (
+            f" Are you asking about data in **{', '.join(tables)}**?"
+            if tables else ""
+        )
+        response = (
+            "I want to make sure I query the right data — your question is a "
+            "little ambiguous. Could you name the table, entity, or metric you "
+            f"mean?{hint}"
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"], user_query=state["user_query"],
+            response=response, sql=None, valid=None,
+        )
+        return {**state, "response": response, "turn_id": turn_id}
+
     def retrieve_schema(self, state: AgentState) -> AgentState:
         """Agentic RAG: retrieve relevant schema chunks + few-shot SQL pairs."""
-        print("\n" + "─" * 70)
-        print("📚  NODE: retrieve_schema")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace("📚  NODE: retrieve_schema")
+        trace("─" * 70)
 
         # Embed the query once and reuse it for both cache read (now) and cache
         # write (after execution). run() prefetches this concurrently with the
         # intent LLM call (GH#38) — consume the future when present.
+        search_q = state.get("standalone_query") or state["user_query"]
         future = getattr(_tls, "embed_future", None)
-        if future is not None:
+        if future is not None and search_q == state["user_query"]:
             _tls.embed_future = None
             try:
                 query_embedding = future.result(timeout=10)
             except Exception:
-                query_embedding = self.semantic_cache.embed(state["user_query"])
+                query_embedding = self.semantic_cache.embed(search_q)
         else:
-            query_embedding = self.semantic_cache.embed(state["user_query"])
-        few_shots = self._retrieve_few_shots(state["user_query"], query_embedding)
+            _tls.embed_future = None
+            query_embedding = self.semantic_cache.embed(search_q)
+        few_shots = self._retrieve_few_shots(search_q, query_embedding)
 
         if few_shots:
-            print(f"  💡 Few-shot examples injected ({len(few_shots)}):")
+            trace(f"  💡 Few-shot examples injected ({len(few_shots)}):")
             for i, ex in enumerate(few_shots, 1):
-                print(f"     [{i}] {ex[:120]}{'…' if len(ex) > 120 else ''}")
+                trace(f"     [{i}] {ex[:120]}{'…' if len(ex) > 120 else ''}")
         else:
-            print("  💡 Few-shot examples: none")
+            trace("  💡 Few-shot examples: none")
 
         try:
             db_name = getattr(self, "_db_name", "FYP")
-            schema_chunks = retrieve(state["user_query"], db_name, top_k_tables=5, store="pgvector")
+            schema_chunks = retrieve(search_q, db_name, top_k_tables=5, store="pgvector")
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
             schema_chunks = expand_fk_tables(
                 schema_chunks, db_name,
@@ -245,20 +384,20 @@ class OrchestrationAgent:
 
             primary = [t["table_name"] for t in schema_chunks["tables"]]
             fk_extra = [c["table_name"] for c in schema_chunks.get("fk_tables", [])]
-            print(f"  📋 Primary tables  : {primary}")
+            trace(f"  📋 Primary tables  : {primary}")
             if fk_extra:
-                print(f"  🔗 FK-expanded     : {fk_extra}")
+                trace(f"  🔗 FK-expanded     : {fk_extra}")
 
             # Print similarity distances for debugging retrieval quality
-            print("  📊 Retrieval distances (lower = more relevant):")
+            trace("  📊 Retrieval distances (lower = more relevant):")
             for t in schema_chunks["tables"]:
-                print(f"       {t['distance']:.4f}  {t['table_name']}")
+                trace(f"       {t['distance']:.4f}  {t['table_name']}")
 
-            print("\n  📄 Schema context sent to LLM:")
-            print("  " + "·" * 60)
+            trace("\n  📄 Schema context sent to LLM:")
+            trace("  " + "·" * 60)
             for line in schema_context.splitlines():
-                print(f"  {line}")
-            print("  " + "·" * 60)
+                trace(f"  {line}")
+            trace("  " + "·" * 60)
 
             logger.info(
                 f"[RAG] Retrieved {len(primary)} table(s): {primary}"
@@ -273,7 +412,7 @@ class OrchestrationAgent:
                 hit = self.semantic_cache.best_match(query_embedding)
                 threshold = getattr(self, "_cache_hit_threshold", 0.03)
                 if hit and hit.get("distance") is not None and hit["distance"] <= threshold:
-                    print(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
+                    trace(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
                           f"skipping linking + generation")
                     logger.info(f"[CACHE] shortcut hit d={hit['distance']:.4f}")
                     return {**state, "schema_context": schema_context,
@@ -284,7 +423,7 @@ class OrchestrationAgent:
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
         except Exception as e:
-            print(f"  ❌ RAG retrieval failed: {e}")
+            trace(f"  ❌ RAG retrieval failed: {e}")
             logger.warning(f"[RAG] retrieval failed: {e}")
             return {**state, "schema_context": "", "few_shot_examples": few_shots,
                     "query_embedding": query_embedding, "fallback_level": 1}
@@ -310,9 +449,9 @@ class OrchestrationAgent:
         query plan (entities→columns, FK join-path, filters, aggregation/exclusion)
         that generate_sql follows. Degrades to query_plan=None on any failure.
         """
-        print("\n" + "─" * 70)
-        print("🧩  NODE: link_schema")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace("🧩  NODE: link_schema")
+        trace("─" * 70)
 
         # Reaching this node means no shortcut applies (or a stale cache hit
         # fell back here) — clear the flag so the response isn't mislabeled.
@@ -320,38 +459,38 @@ class OrchestrationAgent:
             state = {**state, "cache_hit": False, "best_sql": ""}
 
         if not self._schema_linking:
-            print("  (schema linking disabled via config sql.schema_linking)")
+            trace("  (schema linking disabled via config sql.schema_linking)")
             return {**state, "query_plan": None}
 
         try:
             plan = self._get_linker().analyze(
-                query=state["user_query"],
+                query=state.get("standalone_query") or state["user_query"],
                 schema_context=state["schema_context"],
                 history=state["conversation_history"][-4:],
             )
         except Exception as exc:  # pragma: no cover - defensive; analyze already guards
-            print(f"  ❌ schema linking failed: {exc}")
+            trace(f"  ❌ schema linking failed: {exc}")
             logger.warning(f"[LINK] schema linking failed: {exc}")
             return {**state, "query_plan": None}
 
         if not plan:
-            print("  ⚠️  no plan produced — generation proceeds without one")
+            trace("  ⚠️  no plan produced — generation proceeds without one")
             return {**state, "query_plan": None}
 
-        print("  ✅ Query plan:")
+        trace("  ✅ Query plan:")
         for key in ("target", "tables", "join_path", "filters",
                     "evidence_predicates", "aggregation", "group_by",
                     "having", "order_by", "set_op"):
             val = plan.get(key)
             if val not in (None, "", [], {}, "null", "none"):
-                print(f"     {key}: {val}")
+                trace(f"     {key}: {val}")
         return {**state, "query_plan": plan}
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
-        print("\n" + "─" * 70)
-        print(f"🧠  NODE: generate_sql  (fallback_level={state.get('fallback_level', 0)})")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace(f"🧠  NODE: generate_sql  (fallback_level={state.get('fallback_level', 0)})")
+        trace("─" * 70)
 
         sql_agent = self._get_sql_agent()
 
@@ -370,7 +509,7 @@ class OrchestrationAgent:
         try:
             tier = self._infer_tier(state.get("query_plan"))
             if tier:
-                print(f"  🎚️  Inferred difficulty tier: {tier}")
+                trace(f"  🎚️  Inferred difficulty tier: {tier}")
             sqls = sql_agent.generate(
                 query=state["user_query"],
                 schema_context=state["schema_context"],
@@ -378,12 +517,13 @@ class OrchestrationAgent:
                 history=state["conversation_history"][-4:],
                 query_plan=state.get("query_plan"),
                 tier=tier,
+                previous_sql=state.get("previous_sql"),
             )
-            print(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
+            trace(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
             for i, sql in enumerate(sqls, 1):
-                print(f"\n  ── Candidate {i} ──")
+                trace(f"\n  ── Candidate {i} ──")
                 for line in sql.splitlines():
-                    print(f"     {line}")
+                    trace(f"     {line}")
             logger.info(f"[SQL_GEN] {len(sqls)} candidate(s) generated")
 
             # Execution-guided selection first (plurality over result sets);
@@ -394,14 +534,14 @@ class OrchestrationAgent:
                     sqls, state["schema_context"])
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
-                print(f"\n  🏆 Reranker selected:")
+                trace(f"\n  🏆 Reranker selected:")
             else:
-                print(f"\n  🗳️  Execution vote selected:")
+                trace(f"\n  🗳️  Execution vote selected:")
             for line in best.splitlines():
-                print(f"     {line}")
+                trace(f"     {line}")
             logger.info(f"[SQL_GEN] best={best[:80]}")
         except Exception as exc:
-            print(f"  ❌ SQL generation failed: {exc}")
+            trace(f"  ❌ SQL generation failed: {exc}")
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
             return {**state, "generated_sqls": [], "best_sql": ""}
 
@@ -465,7 +605,7 @@ class OrchestrationAgent:
                 # agree — later candidates cannot overturn a 2-vote lead among
                 # ≤5 total without at best tying, and ties defer to consensus.
                 if len(groups[fp]) >= 2:
-                    print("  🗳️  Execution vote: early plurality — remaining candidates skipped")
+                    trace("  🗳️  Execution vote: early plurality — remaining candidates skipped")
                     break
             except Exception as exc:
                 logger.debug(f"[VOTE] candidate failed: {exc}")
@@ -475,44 +615,44 @@ class OrchestrationAgent:
             return groups[fp][0], group_rows.get(fp), group_run.get(fp)
 
         if not groups:
-            print("  🗳️  Execution vote: no candidate executed — falling back to reranker")
+            trace("  🗳️  Execution vote: no candidate executed — falling back to reranker")
             return "", None, None
 
         best_size = max(len(s) for s in groups.values())
         tied = [fp for fp, s in groups.items() if len(s) == best_size]
         if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
-            print(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
+            trace(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
                   f"({len(groups)} distinct result sets)")
             return _win(tied[0])
         non_empty = [fp for fp in tied if len(fp) > 0]
         if len(non_empty) == 1:
-            print(f"  🗳️  Execution vote: tie broken toward non-empty result "
+            trace(f"  🗳️  Execution vote: tie broken toward non-empty result "
                   f"({len(groups[non_empty[0]])}/{executed})")
             return _win(non_empty[0])
-        print("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
+        trace("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
         return "", None, None
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""
-        print("\n" + "─" * 70)
-        print("✔️   NODE: validate_sql")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace("✔️   NODE: validate_sql")
+        trace("─" * 70)
         result = self.validator.validate(state["best_sql"], state["schema_context"])
         status = "✅ VALID" if result.get("valid") else "❌ INVALID"
-        print(f"  {status}")
-        print(f"    syntax_ok   : {result.get('syntax_ok')}")
-        print(f"    safety_ok   : {result.get('safety_ok')}")
-        print(f"    semantic_ok : {result.get('semantic_ok')}")
+        trace(f"  {status}")
+        trace(f"    syntax_ok   : {result.get('syntax_ok')}")
+        trace(f"    safety_ok   : {result.get('safety_ok')}")
+        trace(f"    semantic_ok : {result.get('semantic_ok')}")
         if result.get("error"):
-            print(f"    error       : {result['error']}")
+            trace(f"    error       : {result['error']}")
         logger.info(f"[VALIDATE] {result}")
         return {**state, "validation": result}
 
     def execute_sql(self, state: AgentState) -> AgentState:
         """Execute validated SELECT-only query against PostgreSQL."""
-        print("\n" + "─" * 70)
-        print("⚡  NODE: execute_sql")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace("⚡  NODE: execute_sql")
+        trace("─" * 70)
         # Safety LIMIT is a UI guardrail; skip it when benchmarking so the
         # recorded SQL is exactly what the model produced (config sql.enforce_limit).
         sql = (
@@ -520,26 +660,26 @@ class OrchestrationAgent:
             if getattr(self, "_enforce_limit", True)
             else state["best_sql"]
         )
-        print("  SQL to execute:")
+        trace("  SQL to execute:")
         for line in sql.splitlines():
-            print(f"    {line}")
+            trace(f"    {line}")
         try:
             if state.get("vote_rows") is not None and state.get("vote_rows_sql") == sql:
-                print("  ♻️  Reusing execution-vote result (winner already ran once)")
+                trace("  ♻️  Reusing execution-vote result (winner already ran once)")
                 rows = state["vote_rows"]
             else:
                 rows = execute_query(
                     sql, timeout_ms=getattr(self, "_stmt_timeout_ms", 15000))
             row_count = len(rows) if isinstance(rows, list) else "?"
-            print(f"  ✅ Returned {row_count} row(s)")
+            trace(f"  ✅ Returned {row_count} row(s)")
             if isinstance(rows, list) and rows:
                 preview = rows[:3]
-                print(f"  Preview (first {len(preview)}):")
+                trace(f"  Preview (first {len(preview)}):")
                 for r in preview:
-                    print(f"    {dict(r)}")
+                    trace(f"    {dict(r)}")
             return {**state, "best_sql": sql, "execution_result": rows, "error": None}
         except Exception as e:
-            print(f"  ❌ Execution error: {e}")
+            trace(f"  ❌ Execution error: {e}")
             logger.error(f"[EXECUTE] {e}")
             return {**state, "execution_result": None, "error": str(e)}
 
@@ -550,9 +690,9 @@ class OrchestrationAgent:
         LLM can fix the specific problem, then re-validate and re-execute.
         """
         level = state.get("refine_level", 0) + 1
-        print("\n" + "─" * 70)
-        print(f"🔁  NODE: refine_sql  (round {level}/{self.MAX_REFINE_ROUNDS})")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace(f"🔁  NODE: refine_sql  (round {level}/{self.MAX_REFINE_ROUNDS})")
+        trace("─" * 70)
 
         # Build the observation the model must react to.
         if state.get("error"):
@@ -563,10 +703,10 @@ class OrchestrationAgent:
                 "If a filter, JOIN, or value/format looks too strict or wrong, fix it; "
                 "if the query already looks correct, return it unchanged."
             )
-        print(f"  Observation: {observation}")
-        print("  Failed SQL:")
+        trace(f"  Observation: {observation}")
+        trace("  Failed SQL:")
         for line in (state.get("best_sql") or "").splitlines():
-            print(f"    {line}")
+            trace(f"    {line}")
 
         sql_agent = self._get_sql_agent()
         try:
@@ -579,17 +719,17 @@ class OrchestrationAgent:
             )
             best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"]) if sqls else ""
         except Exception as exc:
-            print(f"  ❌ Refine failed: {exc}")
+            trace(f"  ❌ Refine failed: {exc}")
             logger.warning(f"[REFINE] regeneration failed: {exc}")
             return {**state, "refine_level": level}
 
         if not best:
-            print("  ⚠️  Refine produced no SQL — giving up, will format prior result.")
+            trace("  ⚠️  Refine produced no SQL — giving up, will format prior result.")
             return {**state, "refine_level": level}
 
-        print("  ✏️  Refined SQL:")
+        trace("  ✏️  Refined SQL:")
         for line in best.splitlines():
-            print(f"    {line}")
+            trace(f"    {line}")
         # Clear the prior error so the refined SQL gets a clean validate→execute pass.
         return {**state, "best_sql": best, "generated_sqls": sqls,
                 "refine_level": level, "error": None}
@@ -674,9 +814,9 @@ class OrchestrationAgent:
 
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
-        print("\n" + "─" * 70)
-        print("📝  NODE: format_response")
-        print("─" * 70)
+        trace("\n" + "─" * 70)
+        trace("📝  NODE: format_response")
+        trace("─" * 70)
         if state.get("error"):
             response = f"I encountered an error executing the query: {state['error']}"
             csv_path = None
@@ -703,12 +843,12 @@ class OrchestrationAgent:
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
-        print("\n" + "─" * 70)
+        trace("\n" + "─" * 70)
         level = state.get("fallback_level", 0) + 1
-        print(f"⚠️   NODE: fallback_handler → level {level}")
+        trace(f"⚠️   NODE: fallback_handler → level {level}")
         if state.get("validation", {}).get("error"):
-            print(f"  Reason: {state['validation']['error']}")
-        print("─" * 70)
+            trace(f"  Reason: {state['validation']['error']}")
+        trace("─" * 70)
 
         if level == 1:
             # Broaden schema scan
@@ -751,7 +891,9 @@ class OrchestrationAgent:
             return "handle_write_blocked"
         if intent == "GENERAL":
             return "handle_general"
-        return "retrieve_schema"  # READ or AMBIGUOUS → attempt SQL
+        if intent == "AMBIGUOUS" and getattr(self, "_clarify", True):
+            return "ask_clarification"   # GH#40: ask first, don't burn the pipeline
+        return "retrieve_schema"  # READ (and AMBIGUOUS when clarification is off)
 
     def route_after_validation(self, state: AgentState) -> str:
         v = state.get("validation", {})
@@ -786,25 +928,30 @@ class OrchestrationAgent:
     def _build_graph(self) -> Any:
         g = StateGraph(AgentState)
 
-        g.add_node("classify_intent", self.classify_intent)
-        g.add_node("retrieve_schema", self.retrieve_schema)
-        g.add_node("link_schema", self.link_schema)
-        g.add_node("generate_sql", self.generate_sql)
-        g.add_node("validate_sql", self.validate_sql)
-        g.add_node("execute_sql", self.execute_sql)
-        g.add_node("refine_sql", self.refine_sql)
-        g.add_node("format_response", self.format_response)
-        g.add_node("handle_general", self.handle_general)
-        g.add_node("handle_write_blocked", self.handle_write_blocked)
-        g.add_node("fallback_handler", self.fallback_handler)
+        g.add_node("classify_intent", _staged("classify_intent", self.classify_intent))
+        g.add_node("condense_query", _staged("condense_query", self.condense_query))
+        g.add_node("ask_clarification", _staged("ask_clarification", self.ask_clarification))
+        g.add_node("retrieve_schema", _staged("retrieve_schema", self.retrieve_schema))
+        g.add_node("link_schema", _staged("link_schema", self.link_schema))
+        g.add_node("generate_sql", _staged("generate_sql", self.generate_sql))
+        g.add_node("validate_sql", _staged("validate_sql", self.validate_sql))
+        g.add_node("execute_sql", _staged("execute_sql", self.execute_sql))
+        g.add_node("refine_sql", _staged("refine_sql", self.refine_sql))
+        g.add_node("format_response", _staged("format_response", self.format_response))
+        g.add_node("handle_general", _staged("handle_general", self.handle_general))
+        g.add_node("handle_write_blocked", _staged("handle_write_blocked", self.handle_write_blocked))
+        g.add_node("fallback_handler", _staged("fallback_handler", self.fallback_handler))
 
         g.set_entry_point("classify_intent")
 
         g.add_conditional_edges("classify_intent", self.route_by_intent, {
-            "retrieve_schema": "retrieve_schema",
+            "retrieve_schema": "condense_query",   # READ path condenses follow-ups first
             "handle_general": "handle_general",
             "handle_write_blocked": "handle_write_blocked",
+            "ask_clarification": "ask_clarification",
         })
+        g.add_edge("condense_query", "retrieve_schema")
+        g.add_edge("ask_clarification", END)
 
         # Happy path routes through schema-linking (#17) before generation;
         # a cache hit (GH#38) jumps straight to validation.
@@ -870,7 +1017,8 @@ class OrchestrationAgent:
         final = self.graph.invoke(initial_state)
         return final["response"]
     """
-    def run(self, session_id: str, user_query: str, api_key: str | None = None) -> Dict[str, Any]:
+    def run(self, session_id: str, user_query: str, api_key: str | None = None,
+            stage_callback=None) -> Dict[str, Any]:
         """
         Run the full pipeline for one user turn.
 
@@ -906,6 +1054,10 @@ class OrchestrationAgent:
             _tls.embed_future = None
 
         history = self.memory.get_history(session_id)
+        try:
+            previous_sql = self.memory.get_last_sql(session_id)
+        except Exception:
+            previous_sql = None
         initial_state: AgentState = {
             "session_id": session_id,
             "user_query": user_query,
@@ -922,19 +1074,24 @@ class OrchestrationAgent:
             "response": "",
             "turn_id": None,
             "csv_path": None,
+            "standalone_query": None,
+            "previous_sql": previous_sql,
             "cache_hit": False,
             "vote_rows": None,
             "vote_rows_sql": None,
             "fallback_level": 0,
             "refine_level": 0,
+            "timings": {},
             "error": None,
         }
+        _tls.stage_cb = stage_callback
         t0 = time.perf_counter()
         try:
             final = self.graph.invoke(initial_state)
         finally:
             # Clear the per-request overrides so the thread can be reused cleanly.
             # Only needed when we set them.
+            _tls.stage_cb = None
             if use_custom_key:
                 _tls.llm = self.llm
                 _tls.intent_llm = self.intent_llm
@@ -942,9 +1099,9 @@ class OrchestrationAgent:
                 _tls.linker = self.linker
                 _tls.optimizer = self.optimizer
         latency_ms = int((time.perf_counter() - t0) * 1000)
-        print("\n" + "━" * 70)
-        print(f"✅  PIPELINE DONE  |  latency={latency_ms}ms  |  intent={final.get('intent')}")
-        print("━" * 70 + "\n")
+        trace("\n" + "━" * 70)
+        trace(f"✅  PIPELINE DONE  |  latency={latency_ms}ms  |  intent={final.get('intent')}")
+        trace("━" * 70 + "\n")
 
         rows = final.get("execution_result")
         row_count = len(rows) if isinstance(rows, list) else None
@@ -965,6 +1122,8 @@ class OrchestrationAgent:
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
             "cache_hit":  bool(final.get("cache_hit")),
+            "latency_ms": latency_ms,
+            "timings":    final.get("timings") or {},
         }
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).
@@ -1066,4 +1225,4 @@ if __name__ == "__main__":
         user_query="How many distinct players have overall rating of 67 and above and show me the top 5 names of those players?",
     )
     import json
-    print(json.dumps(result, indent=2, default=str))
+    trace(json.dumps(result, indent=2, default=str))
