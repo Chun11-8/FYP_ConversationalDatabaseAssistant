@@ -124,9 +124,30 @@ def _split_two_args(body: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def _mask_string_literals(sql: str) -> Tuple[str, List[str]]:
+    """Replace each 'string literal' with a paren-free sentinel; return (masked, literals)."""
+    literals: List[str] = []
+
+    def _repl(m: "re.Match") -> str:
+        literals.append(m.group(0))
+        return f"\x00L{len(literals) - 1}\x00"
+
+    return _STRING_LITERAL_SPLIT.sub(_repl, sql), literals
+
+
+def _unmask_string_literals(masked: str, literals: List[str]) -> str:
+    for idx, lit in enumerate(literals):
+        masked = masked.replace(f"\x00L{idx}\x00", lit)
+    return masked
+
+
 def translate_pseudo_functions(sql: str) -> str:
-    """Rewrite evidence pseudo-functions into real SQL operators (idempotent)."""
-    out = sql
+    """Rewrite evidence pseudo-functions into real SQL operators (idempotent).
+
+    String literals are masked out first so a value like ``'Grand Total(2020)'``
+    or ``'DIVIDE(x)'`` is never mistaken for a pseudo-function call.
+    """
+    out, _literals = _mask_string_literals(sql)
     for _ in range(20):  # bounded — each pass rewrites one call
         changed = False
         for name, op in _PSEUDO_OPS.items():
@@ -146,13 +167,20 @@ def translate_pseudo_functions(sql: str) -> str:
             if not args:
                 continue
             a, b = args[0].strip(), args[1].strip()
-            out = out[: m.start()] + f"({a} {op} {b})" + out[i:]
+            if name == "DIVIDE":
+                # Cast the numerator to REAL so integer/integer does not truncate
+                # (BIRD ratio evidence like DIVIDE(male, total) means a real
+                # quotient, e.g. 0.42 — not 0 from integer division).
+                replacement = f"(CAST({a} AS REAL) / {b})"
+            else:
+                replacement = f"({a} {op} {b})"
+            out = out[: m.start()] + replacement + out[i:]
             changed = True
         if not changed:
             break
     # Total(x) → SUM(x): evidence shorthand, not a portable SQL function.
     out = re.sub(r"\bTotal\s*\(", "SUM(", out, flags=re.IGNORECASE)
-    return out
+    return _unmask_string_literals(out, _literals)
 
 
 # ─────────────────────────────────────────────

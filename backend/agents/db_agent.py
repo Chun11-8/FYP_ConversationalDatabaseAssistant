@@ -545,7 +545,8 @@ class OrchestrationAgent:
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
             return {**state, "generated_sqls": [], "best_sql": ""}
 
-        return {**state, "generated_sqls": sqls, "best_sql": best}
+        return {**state, "generated_sqls": sqls, "best_sql": best,
+                "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql}
 
     @staticmethod
     def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -585,7 +586,8 @@ class OrchestrationAgent:
         group_run: Dict[frozenset, str] = {}
         executed = 0
         timeout_ms = getattr(self, "_stmt_timeout_ms", 15000)
-        for sql in sqls[: getattr(self, "_vote_max", 5)]:
+        capped = sqls[: getattr(self, "_vote_max", 5)]
+        for idx, sql in enumerate(capped):
             try:
                 if not self.validator.validate(sql, schema_context).get("valid"):
                     continue
@@ -601,11 +603,20 @@ class OrchestrationAgent:
                 groups.setdefault(fp, []).append(sql)
                 if fp not in group_rows:
                     group_rows[fp], group_run[fp] = rows, run_sql
-                # Early plurality (GH#41 cost bound): two candidates already
-                # agree — later candidates cannot overturn a 2-vote lead among
-                # ≤5 total without at best tying, and ties defer to consensus.
-                if len(groups[fp]) >= 2:
-                    trace("  🗳️  Execution vote: early plurality — remaining candidates skipped")
+                # Early plurality (GH#41 cost bound): stop ONLY when the current
+                # leader's lead is mathematically unassailable. Each remaining
+                # candidate can add at most one vote, and in the worst case they
+                # all pile onto the current runner-up, so a competitor can reach
+                # at most (second_best + remaining). Breaking merely at 2 votes
+                # would wrongly return a minority result set when later
+                # candidates agree on a larger plurality (e.g. [A,B,A,B,B]→B).
+                sizes = sorted((len(s) for s in groups.values()), reverse=True)
+                leader = sizes[0]
+                second = sizes[1] if len(sizes) > 1 else 0
+                remaining = len(capped) - (idx + 1)
+                if leader > second + remaining:
+                    trace("  🗳️  Execution vote: unassailable plurality — "
+                          "remaining candidates skipped")
                     break
             except Exception as exc:
                 logger.debug(f"[VOTE] candidate failed: {exc}")
