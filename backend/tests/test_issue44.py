@@ -140,8 +140,12 @@ class TestOverlapTieBreak:
 class TestAdaptivePrompting:
 
     def _agent(self, adaptive=True):
+        # path_diversity off: these tests pin the TIER block / candidate count
+        # of the direct prompt; GH#48 fan-out is covered in
+        # test_path_diversity_selection.py.
         cfg = {"db": {"dialect": "sqlite"},
-               "sql": {"n_candidates": 5, "adaptive_prompting": adaptive}}
+               "sql": {"n_candidates": 5, "adaptive_prompting": adaptive,
+                       "path_diversity": False}}
         a = SQLCodeAgent(cfg, MagicMock())
         a.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
         return a

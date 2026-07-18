@@ -171,6 +171,11 @@ class OrchestrationAgent:
         self._db_name = config.get("db", {}).get("name", "FYP")
         self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
+        # GH#48: when execution voting is inconclusive, resolve with a
+        # unit-test screen + pairwise LLM comparison instead of the text
+        # reranker ("pairwise"); "reranker" restores the old behavior.
+        self._selection = str(_sql.get("selection", "pairwise")).lower()
+        self._unit_tests = bool(_sql.get("unit_tests", True))
         self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
         self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
         # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
@@ -531,7 +536,8 @@ class OrchestrationAgent:
             best, vote_rows, vote_rows_sql = "", None, None
             if getattr(self, "_exec_voting", True) and len(sqls) > 1:
                 best, vote_rows, vote_rows_sql = self._vote_candidates(
-                    sqls, state["schema_context"])
+                    sqls, state["schema_context"],
+                    query=state.get("standalone_query") or state["user_query"])
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
                 trace(f"\n  🏆 Reranker selected:")
@@ -569,7 +575,7 @@ class OrchestrationAgent:
         return "moderate"
 
     def _vote_candidates(
-        self, sqls: List[str], schema_context: str
+        self, sqls: List[str], schema_context: str, query: Optional[str] = None
     ) -> Tuple[str, Optional[list], Optional[str]]:
         """
         Execution-guided selection for the live pipeline: validate each
@@ -640,8 +646,115 @@ class OrchestrationAgent:
             trace(f"  🗳️  Execution vote: tie broken toward non-empty result "
                   f"({len(groups[non_empty[0]])}/{executed})")
             return _win(non_empty[0])
+
+        # GH#48: genuinely inconclusive — unit-test screen + pairwise
+        # comparison beat both plurality and a rows-blind text reranker
+        # (CHASE-SQL ablation: pairwise > self-consistency by ~4 EX).
+        if query and getattr(self, "_selection", "pairwise") == "pairwise" and len(groups) >= 2:
+            fps = sorted(groups, key=lambda f: len(groups[f]), reverse=True)[:3]
+            if getattr(self, "_unit_tests", True) and len(fps) >= 2:
+                passing = self._unit_test_screen(query, fps, groups, group_rows)
+                if len(passing) == 1:
+                    trace("  🧪 Unit-test screen: single surviving result set")
+                    return _win(passing[0])
+                if len(passing) >= 2:
+                    fps = passing
+            winner_fp = self._pairwise_select(query, fps, groups, group_rows)
+            if winner_fp is not None:
+                trace("  ⚖️  Pairwise comparison selected the winner")
+                return _win(winner_fp)
+
         trace("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
         return "", None, None
+
+    # ── GH#48: unit-test screen + pairwise selection ───────────────────────
+
+    @staticmethod
+    def _describe_group(idx: int, fp, groups: Dict, group_rows: Dict) -> str:
+        sql = groups[fp][0]
+        rows = group_rows.get(fp) or []
+        sample = "\n".join(str(dict(r)) for r in rows[:5]) or "(0 rows)"
+        return (f"CANDIDATE {idx}:\nSQL:\n{sql}\n"
+                f"Result: {len(rows)} row(s), first {min(5, len(rows))}:\n{sample}")
+
+    def _unit_test_screen(
+        self, query: str, fps: list, groups: Dict, group_rows: Dict
+    ) -> list:
+        """
+        CHESS-style screen: derive the properties a correct result must have
+        (row grain, shape, plausibility) and drop candidate groups whose actual
+        rows violate them. One LLM call; on any failure returns all fps.
+        """
+        blocks = "\n\n".join(
+            self._describe_group(i + 1, fp, groups, group_rows)
+            for i, fp in enumerate(fps)
+        )
+        messages = [
+            SystemMessage(content=(
+                "You check SQL results against the question they must answer. "
+                "First derive 3-4 checks a correct result must satisfy: the row "
+                "GRAIN (one row per what? a scalar question has exactly one row), "
+                "the expected columns, entity values vs prose, plausible "
+                "magnitude. Then evaluate each candidate's ACTUAL rows against "
+                "the checks. Output ONLY a line 'PASS: <candidate numbers "
+                "comma-separated>' naming every candidate consistent with all "
+                "checks."
+            )),
+            HumanMessage(content=f"Question: {query}\n\n{blocks}"),
+        ]
+        try:
+            out = self._get_llm().invoke(messages).content
+            m = re.search(r"PASS:\s*([\d,\s]+)", out)
+            if not m:
+                return fps
+            picked = {int(t) for t in re.findall(r"\d+", m.group(1))}
+            passing = [fp for i, fp in enumerate(fps) if (i + 1) in picked]
+            trace(f"  🧪 Unit-test screen: {len(passing)}/{len(fps)} group(s) pass")
+            return passing or fps
+        except Exception as exc:
+            logger.warning(f"[SELECT] unit-test screen failed: {exc}")
+            return fps
+
+    def _pairwise_select(
+        self, query: str, fps: list, groups: Dict, group_rows: Dict
+    ):
+        """
+        CHASE-SQL-style round-robin: for each pair, ask which candidate answers
+        the question, judging SQL *and* actual result rows. Most wins takes it;
+        an unresolved tie returns None (caller falls back to the reranker).
+        """
+        if len(fps) < 2:
+            return fps[0] if fps else None
+        wins = {fp: 0 for fp in fps}
+        try:
+            for i in range(len(fps)):
+                for j in range(i + 1, len(fps)):
+                    a, b = fps[i], fps[j]
+                    messages = [
+                        SystemMessage(content=(
+                            "Two SQL candidates answer the same question. Judge "
+                            "which one is correct using BOTH the SQL logic and "
+                            "the actual result rows (grain, filters, evidence "
+                            "adherence). Answer with ONLY the single digit 1 "
+                            "or 2."
+                        )),
+                        HumanMessage(content=(
+                            f"Question: {query}\n\n"
+                            + self._describe_group(1, a, groups, group_rows)
+                            + "\n\n"
+                            + self._describe_group(2, b, groups, group_rows)
+                        )),
+                    ]
+                    out = self._get_llm().invoke(messages).content.strip()
+                    m = re.search(r"[12]", out)
+                    if m:
+                        wins[a if m.group() == "1" else b] += 1
+        except Exception as exc:
+            logger.warning(f"[SELECT] pairwise comparison failed: {exc}")
+            return None
+        best = max(wins.values())
+        top = [fp for fp, w in wins.items() if w == best]
+        return top[0] if len(top) == 1 else None
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""

@@ -40,6 +40,16 @@ sql:
   execution_voting: true
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
+  # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):
+  # part of the candidate budget goes to a divide-and-conquer and a
+  # query-plan-CoT prompt instead of N× the direct prompt — decorrelated errors
+  # give execution voting real signal. Set false to A/B.
+  path_diversity: true
+  # GH#48: when execution voting is inconclusive, resolve with a unit-test
+  # screen + pairwise LLM comparison over the ACTUAL result rows ("pairwise");
+  # "reranker" restores the rows-blind text reranker.
+  selection: pairwise
+  unit_tests: true
   # GH#38: semantic-cache hit shortcut — a near-identical past question skips
   # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
   cache_shortcut: true

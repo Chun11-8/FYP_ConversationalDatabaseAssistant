@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 import sqlglot
@@ -459,6 +460,39 @@ TIER_STRATEGIES: Dict[str, str] = {
     ),
 }
 
+# ─────────────────────────────────────────────
+# Reasoning-path diversity (GH#48, CHASE-SQL)
+# ─────────────────────────────────────────────
+# Temperature resamples of ONE prompt produce correlated errors — execution
+# voting then confidently agrees on the same wrong answer. Distinct reasoning
+# paths disagree in useful ways: the direct prompt, a divide-and-conquer
+# decomposition, and a query-execution-plan chain-of-thought each fail
+# differently, so the vote/selector has real signal to work with.
+
+PATH_STRATEGIES: Dict[str, str] = {
+    "divide_conquer": (
+        "STRATEGY (DIVIDE & CONQUER): solve by decomposition, in the answer text\n"
+        "BEFORE the final SQL block:\n"
+        "  1. Split the question into the smallest sub-questions.\n"
+        "  2. For each sub-question write a minimal sub-SELECT and state its\n"
+        "     GRAIN (one row per what?).\n"
+        "  3. Merge the sub-SELECTs into ONE final query (JOIN / IN / CASE-sum /\n"
+        "     CTE), re-checking the grain at every merge.\n"
+        "Then output the single merged query as the ONLY ```sql block."
+    ),
+    "query_plan": (
+        "STRATEGY (QUERY EXECUTION PLAN): reason like a database engine, in the\n"
+        "answer text BEFORE the final SQL block:\n"
+        "  1. SCAN: which tables, which columns.\n"
+        "  2. JOIN: the exact FK pairs connecting them.\n"
+        "  3. FILTER: every WHERE predicate, with literal values copied exactly.\n"
+        "  4. AGGREGATE: function + GROUP BY key (a PK, never a name column).\n"
+        "  5. SORT/LIMIT: only if the question asks for it.\n"
+        "Then output the query implementing exactly that plan as the ONLY\n"
+        "```sql block."
+    ),
+}
+
 
 # ─────────────────────────────────────────────
 # SQL Code Agent
@@ -490,6 +524,9 @@ class SQLCodeAgent:
             "moderate": int(tiers.get("moderate", self.top_k)),
             "challenging": int(tiers.get("challenging", 7)),
         }
+        # GH#48: reasoning-path-diverse candidates for moderate/challenging.
+        self._path_diversity = bool(
+            config.get("sql", {}).get("path_diversity", True))
 
     # ── Generation ──────────────────────────────
 
@@ -519,15 +556,19 @@ class SQLCodeAgent:
         # has no dynamic few-shots yet — they teach the JOIN/grain patterns.
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
+
+        # GH#48: for moderate/challenging, replace two direct candidates with one
+        # divide-and-conquer and one query-plan-CoT candidate — decorrelated
+        # errors give execution voting real signal. Simple tier keeps the single
+        # cheap direct call.
+        diverse = self._path_diversity and tier in ("moderate", "challenging")
+        n_direct = max(1, n - len(PATH_STRATEGIES)) if diverse else n
+
         prompt = self._build_prompt(query, schema_context, few_shots, history,
-                                    query_plan, tier=tier, n_candidates=n,
+                                    query_plan, tier=tier, n_candidates=n_direct,
                                     previous_sql=previous_sql)
 
         system_p = self._system_prompt()
-        messages = [
-            SystemMessage(content=system_p),
-            HumanMessage(content=prompt),
-        ]
 
         trace("\n  ┌─ LLM SYSTEM PROMPT (sql_code_agent) ─────────────────────")
         for line in system_p.splitlines():
@@ -537,14 +578,49 @@ class SQLCodeAgent:
             trace(f"  │ {line}")
         trace("  └───────────────────────────────────────────────────────────")
 
-        raw = self.llm.invoke(messages).content
+        def _invoke(p: str) -> str:
+            return self.llm.invoke([
+                SystemMessage(content=system_p), HumanMessage(content=p),
+            ]).content
 
-        trace("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
-        for line in raw.splitlines():
-            trace(f"  │ {line}")
-        trace("  └───────────────────────────────────────────────────────────")
-
-        sqls = self._extract_sqls(raw)
+        if diverse:
+            path_prompts = {
+                name: self._build_prompt(
+                    query, schema_context, few_shots, history, query_plan,
+                    tier=tier, n_candidates=1, previous_sql=previous_sql,
+                    strategy_override=block)
+                for name, block in PATH_STRATEGIES.items()
+            }
+            # The direct + path calls are independent I/O — run them concurrently.
+            with ThreadPoolExecutor(max_workers=1 + len(path_prompts)) as pool:
+                direct_f = pool.submit(_invoke, prompt)
+                path_fs = {name: pool.submit(_invoke, p)
+                           for name, p in path_prompts.items()}
+                raw = direct_f.result()
+                sqls = self._extract_sqls(raw)
+                tagged = [("direct", s) for s in sqls]
+                for name, f in path_fs.items():
+                    try:
+                        extra = self._extract_sqls(f.result())
+                    except Exception as exc:
+                        logger.warning(f"[SQL_GEN] {name} path failed: {exc}")
+                        continue
+                    # One candidate per extra path — first block wins.
+                    tagged += [(name, s) for s in extra[:1]]
+            sqls = [s for _, s in tagged]
+            for strat, s in tagged:
+                trace(f"  🧭 [{strat}] {' '.join(s.split())[:100]}")
+            logger.info("[SQL_GEN] path mix: "
+                        + ", ".join(f"{strat}×1" if strat != "direct" else
+                                    f"direct×{sum(1 for t, _ in tagged if t == 'direct')}"
+                                    for strat in dict.fromkeys(t for t, _ in tagged)))
+        else:
+            raw = _invoke(prompt)
+            trace("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
+            for line in raw.splitlines():
+                trace(f"  │ {line}")
+            trace("  └───────────────────────────────────────────────────────────")
+            sqls = self._extract_sqls(raw)
         # Deterministic repairs BEFORE dialect normalization: fix unescaped
         # apostrophes (Issue #21) and mangled space/hyphen column names, so the
         # sqlite transpile step receives parseable, schema-true SQL.
@@ -769,6 +845,7 @@ class SQLCodeAgent:
         tier: Optional[str] = None,
         n_candidates: Optional[int] = None,
         previous_sql: Optional[str] = None,
+        strategy_override: Optional[str] = None,
     ) -> str:
         few_shot_block = "\n\n".join(few_shots) if few_shots else "No examples available."
         history_block = "\n".join(
@@ -780,7 +857,8 @@ class SQLCodeAgent:
         plan_block = render_query_plan(query_plan)
         plan_section = f"\n{plan_block}\n" if plan_block else ""
         # Difficulty-adaptive strategy block (Issue #27); moderate/None → none.
-        strategy = TIER_STRATEGIES.get(tier or "")
+        # A reasoning-path override (GH#48) replaces the tier block entirely.
+        strategy = strategy_override or TIER_STRATEGIES.get(tier or "")
         strategy_section = f"\n{strategy}\n" if strategy else ""
         # GH#40: the session's last validated SQL — follow-ups usually REFINE it.
         prev_section = (
