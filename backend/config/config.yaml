@@ -50,6 +50,10 @@ sql:
   # "reranker" restores the rows-blind text reranker.
   selection: pairwise
   unit_tests: true
+  # GH#49: ReAct execute→refine depth. Challenging-tier questions get more
+  # rounds (RSL-SQL/CHESS use multi-turn correction).
+  max_refine_rounds: 1
+  max_refine_rounds_challenging: 2
   # GH#38: semantic-cache hit shortcut — a near-identical past question skips
   # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
   cache_shortcut: true
@@ -76,6 +80,14 @@ retrieval:
   fk_max_hops: 2
   fk_max_expansion: 5
   max_schema_tokens: 4000
+  # GH#49 P3: deterministic WHERE-literal grounding — an in-memory distinct-
+  # value index over TEXT columns corrects casing/format of literals the user
+  # (or evidence) wrote differently from the stored values. No LLM calls.
+  value_grounding: true
+  # GH#49 P4: RSL-SQL-style backward linking — when the linker plan names a
+  # table forward retrieval missed, its schema chunk is fetched by name and
+  # appended to the context before generation.
+  backward_linking: true
 
 response:
   inline_row_limit: 10

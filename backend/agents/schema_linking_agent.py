@@ -31,12 +31,13 @@ logger = logging.getLogger(__name__)
 # of these to be treated as a usable plan.
 PLAN_KEYS = (
     "target", "tables", "join_path", "filters", "evidence_predicates",
-    "aggregation", "group_by", "having", "order_by", "set_op",
+    "evidence_formula", "aggregation", "group_by", "having", "order_by", "set_op",
 )
 
 # Fields rendered as bullet lists vs. scalars in the <query_plan> block.
 _LIST_FIELDS = ("tables", "join_path", "filters", "evidence_predicates")
-_SCALAR_FIELDS = ("target", "aggregation", "group_by", "having", "order_by", "set_op")
+_SCALAR_FIELDS = ("target", "evidence_formula", "aggregation", "group_by",
+                  "having", "order_by", "set_op")
 
 
 # ── value helpers ─────────────────────────────────────────────────────────────
@@ -113,6 +114,9 @@ def render_query_plan(plan: Optional[dict]) -> str:
     add_list("join_path")
     add_list("filters")
     add_list("evidence_predicates")
+    # GH#49 P5 (TA-SQL): the evidence formula is transcribed, never paraphrased.
+    if _is_set(plan.get("evidence_formula")):
+        lines.append(f"evidence_formula (COPY VERBATIM): {plan['evidence_formula']}")
     for key in ("aggregation", "group_by", "having", "order_by", "set_op"):
         add_scalar(key)
 
@@ -124,7 +128,9 @@ def render_query_plan(plan: Optional[dict]) -> str:
     lines.append(
         "Follow this plan: use exactly these tables and join conditions, apply "
         "every filter/predicate, and keep the aggregation/grouping/set-operation "
-        "as specified. Deviate only if the plan clearly contradicts the schema."
+        "as specified. If an evidence_formula is given, transcribe it into the "
+        "SQL VERBATIM — same operators, operands, and constants — never "
+        "reinterpret it. Deviate only if the plan clearly contradicts the schema."
     )
     return "\n".join(lines)
 
@@ -191,8 +197,9 @@ class SchemaLinkingAgent:
                 "You are a schema-linking module for a text-to-SQL system. Read "
                 "the schema, the <domain_context> evidence, and the question, then "
                 "output ONLY a JSON object with keys: target, tables, join_path, "
-                "filters, evidence_predicates, aggregation, group_by, having, "
-                "order_by, set_op. Resolve joins only from the schema's foreign-key "
+                "filters, evidence_predicates, evidence_formula (the evidence's "
+                "arithmetic copied verbatim, else null), aggregation, group_by, "
+                "having, order_by, set_op. Resolve joins only from the schema's foreign-key "
                 "section. Use only tables/columns that appear in the schema. Do not "
                 "write SQL."
             )

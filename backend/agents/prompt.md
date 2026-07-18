@@ -71,6 +71,7 @@ Output ONLY a JSON object (no prose, no code fence) with EXACTLY these keys:
   "join_path": ["t1.col = t2.col", "..."],
   "filters": ["col = 'value'", "..."],
   "evidence_predicates": ["..."],
+  "evidence_formula": "<the arithmetic formula from the evidence COPIED CHARACTER-FOR-CHARACTER, or null>",
   "aggregation": "COUNT|SUM|AVG|MIN|MAX|null",
   "group_by": "<columns or null>",
   "having": "<condition or null>",
@@ -81,6 +82,10 @@ Output ONLY a JSON object (no prose, no code fence) with EXACTLY these keys:
 
 Rules:
 - Use `null` (not an omitted key) for fields that do not apply.
+- `evidence_formula`: when the `<domain_context>` evidence states a formula
+  (e.g. `average = DIVIDE(SUM(x), COUNT(y))`, `rate = deaths * 100 / cases`),
+  copy the right-hand side EXACTLY as written — do not simplify, reorder, or
+  substitute column names. `null` when the evidence has no formula.
 - Use ONLY tables and columns that appear in `<schema_context>`. Never invent names.
 - Every join condition in `join_path` must use columns shown in the schema's
   foreign-key section (or an obvious PK/FK pair). Do not guess a join from name

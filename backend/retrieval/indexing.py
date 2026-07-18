@@ -294,6 +294,40 @@ def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
         except Exception:
             pass
 
+# ── Backward schema linking (GH#49 P4) ────────────────────────────────────────
+
+def fetch_table_chunks(
+    table_names: list[str], db_name: str, store: str = "pgvector"
+) -> list[dict]:
+    """
+    Direct name lookup of schema chunks (no embedding search) — used to recover
+    tables the linker plan names but forward retrieval missed (RSL-SQL-style
+    backward linking). Table names are matched case-insensitively against the
+    indexed names. Returns [] on any failure — never raises.
+    """
+    if not table_names:
+        return []
+    backend = _get_backend(store)
+    conn = None
+    try:
+        conn = backend.get_store()
+        indexed = {t.casefold(): t for t in backend.list_tables(conn, db_name)}
+        resolved = [indexed[n.casefold()] for n in table_names
+                    if n and n.casefold() in indexed]
+        if not resolved:
+            return []
+        return backend.get_chunks_by_tables(conn, resolved, db_name)
+    except Exception as exc:
+        _logger.warning(f"[BACKWARD_LINK] chunk fetch failed: {exc}")
+        return []
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
 # ── FK-aware retrieval expansion ──────────────────────────────────────────────
 
 def expand_fk_tables(

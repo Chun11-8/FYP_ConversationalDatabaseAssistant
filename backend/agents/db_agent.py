@@ -23,7 +23,10 @@ from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
-from backend.retrieval.indexing import retrieve, execute_query, expand_fk_tables
+from backend.retrieval.indexing import (
+    retrieve, execute_query, expand_fk_tables, fetch_table_chunks,
+)
+from backend.retrieval.value_index import ValueIndex, render_value_hints
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.tools.registry import ToolRegistry
 from backend.tools.web_search import WebSearchTool
@@ -120,6 +123,7 @@ class AgentState(TypedDict):
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
+    tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
     timings: Dict[str, int]          # per-stage wall-clock ms (GH#42)
     error: Optional[str]
 
@@ -166,6 +170,16 @@ class OrchestrationAgent:
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        # GH#49 P3: deterministic WHERE-literal grounding against real values.
+        self._value_grounding = bool(_r.get("value_grounding", True))
+        if self._value_grounding:
+            from backend.retrieval.pgvector_store import get_query_conn
+            self.value_index = ValueIndex(get_query_conn)
+        else:
+            self.value_index = None
+        # GH#49 P4: RSL-SQL-style backward linking — recover tables the plan
+        # names but forward retrieval missed.
+        self._backward_linking = bool(_r.get("backward_linking", True))
         # GH#38 latency + GH#41 hardening knobs.
         _sql = config.get("sql", {}) or {}
         self._db_name = config.get("db", {}).get("name", "FYP")
@@ -176,6 +190,11 @@ class OrchestrationAgent:
         # reranker ("pairwise"); "reranker" restores the old behavior.
         self._selection = str(_sql.get("selection", "pairwise")).lower()
         self._unit_tests = bool(_sql.get("unit_tests", True))
+        # GH#49 quick win: ReAct refine depth, deeper for the challenging tier
+        # (RSL-SQL/CHESS both use multi-turn correction).
+        self._max_refine = int(_sql.get("max_refine_rounds", self.MAX_REFINE_ROUNDS))
+        self._max_refine_challenging = int(
+            _sql.get("max_refine_rounds_challenging", 2))
         self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
         self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
         # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
@@ -393,6 +412,16 @@ class OrchestrationAgent:
             if fk_extra:
                 trace(f"  🔗 FK-expanded     : {fk_extra}")
 
+            # GH#49 P3: ground literal-looking spans against ACTUAL stored
+            # values; a hint block tells the generator the exact casing/format.
+            if getattr(self, "value_index", None) is not None:
+                hints = self.value_index.ground(search_q, primary + fk_extra)
+                if hints:
+                    trace(f"  🔤 Value hints     : {hints}")
+                    schema_context = (
+                        schema_context + "\n\n" + render_value_hints(hints)
+                    )
+
             # Print similarity distances for debugging retrieval quality
             trace("  📊 Retrieval distances (lower = more relevant):")
             for t in schema_chunks["tables"]:
@@ -484,12 +513,34 @@ class OrchestrationAgent:
 
         trace("  ✅ Query plan:")
         for key in ("target", "tables", "join_path", "filters",
-                    "evidence_predicates", "aggregation", "group_by",
-                    "having", "order_by", "set_op"):
+                    "evidence_predicates", "evidence_formula", "aggregation",
+                    "group_by", "having", "order_by", "set_op"):
             val = plan.get(key)
             if val not in (None, "", [], {}, "null", "none"):
                 trace(f"     {key}: {val}")
-        return {**state, "query_plan": plan}
+
+        # GH#49 P4 (backward linking): the plan may name tables forward
+        # retrieval missed — fetch their chunks by name and append, so the
+        # generator can actually join them.
+        schema_context = state["schema_context"]
+        if getattr(self, "_backward_linking", True):
+            planned = [t for t in (plan.get("tables") or [])
+                       if isinstance(t, str) and t.strip()]
+            ctx_low = schema_context.casefold()
+            missing = [t for t in planned if t.casefold() not in ctx_low]
+            if missing:
+                chunks = fetch_table_chunks(
+                    missing, getattr(self, "_db_name", "FYP"))
+                if chunks:
+                    recovered = [c["table_name"] for c in chunks]
+                    trace(f"  🔙 Backward-linked tables recovered: {recovered}")
+                    logger.info(f"[LINK] backward-linked: {recovered}")
+                    schema_context = (
+                        schema_context + "\n\n"
+                        + "\n\n".join(c["content"] for c in chunks)
+                    )
+
+        return {**state, "query_plan": plan, "schema_context": schema_context}
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
@@ -552,7 +603,8 @@ class OrchestrationAgent:
             return {**state, "generated_sqls": [], "best_sql": ""}
 
         return {**state, "generated_sqls": sqls, "best_sql": best,
-                "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql}
+                "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql,
+                "tier": tier}
 
     @staticmethod
     def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -815,7 +867,7 @@ class OrchestrationAgent:
         """
         level = state.get("refine_level", 0) + 1
         trace("\n" + "─" * 70)
-        trace(f"🔁  NODE: refine_sql  (round {level}/{self.MAX_REFINE_ROUNDS})")
+        trace(f"🔁  NODE: refine_sql  (round {level}/{self._refine_limit(state)})")
         trace("─" * 70)
 
         # Build the observation the model must react to.
@@ -1036,9 +1088,15 @@ class OrchestrationAgent:
             return "fallback_handler"
         return "generate_sql"
 
+    def _refine_limit(self, state: AgentState) -> int:
+        """Max ReAct refine rounds — deeper for the challenging tier (GH#49)."""
+        if state.get("tier") == "challenging":
+            return getattr(self, "_max_refine_challenging", 2)
+        return getattr(self, "_max_refine", self.MAX_REFINE_ROUNDS)
+
     def route_after_execution(self, state: AgentState) -> str:
-        """ReAct: refine once on an execution error or an empty result set."""
-        if state.get("refine_level", 0) >= self.MAX_REFINE_ROUNDS:
+        """ReAct: refine on an execution error or an empty result set."""
+        if state.get("refine_level", 0) >= self._refine_limit(state):
             return "format_response"
         rows = state.get("execution_result")
         has_error = bool(state.get("error"))
@@ -1205,6 +1263,7 @@ class OrchestrationAgent:
             "vote_rows_sql": None,
             "fallback_level": 0,
             "refine_level": 0,
+            "tier": None,
             "timings": {},
             "error": None,
         }
