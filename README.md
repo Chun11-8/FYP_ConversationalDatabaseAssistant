@@ -17,9 +17,10 @@ A final-year project — a **read-only, conversational Text-to-SQL assistant** p
 9. [API Reference](#api-reference)
 10. [Frontend](#frontend)
 11. [Safety & Security](#safety--security)
-12. [Development Status](#development-status)
-13. [Roadmap](#roadmap)
-14. [Contributing](#contributing)
+12. [Accuracy & Evaluation](#accuracy--evaluation)
+13. [Development Status](#development-status)
+14. [Roadmap](#roadmap)
+15. [Contributing](#contributing)
 
 ---
 
@@ -28,13 +29,18 @@ A final-year project — a **read-only, conversational Text-to-SQL assistant** p
 The assistant operates as a **multi-agent pipeline** built on a LangGraph `StateGraph`. A user types a plain-English question; the system:
 
 1. **Classifies intent** — `READ` (SQL query), `GENERAL` (how-to answer), `WRITE_BLOCKED` (mutation rejected), or `AMBIGUOUS` (needs clarification).
-2. **Retrieves schema context** via agentic RAG — pgvector embeddings of table/column descriptions narrow down the relevant schema.
-3. **Generates SQL** — an LLM-powered SQL agent produces candidate queries, which are ranked by a reranker.
-4. **Validates SQL** — syntax (sqlglot), safety (injection/mutation guard), and semantic checks all run before execution.
-5. **Executes the query** — read-only execution against PostgreSQL.
-6. **Formats the response** — results are rendered as markdown tables, inline answers, or exported to CSV for large result sets.
+2. **Condenses follow-ups** — anaphoric questions ("what about 2013?") are rewritten into standalone queries before retrieval, using prior turns and the last SQL.
+3. **Retrieves schema context** via agentic RAG — pgvector embeddings narrow down the relevant tables, then FK-aware expansion pulls in linked tables and **value grounding** injects the actual stored values/casing for `WHERE` literals. A semantic cache supplies few-shot examples (and can short-circuit near-identical past questions).
+4. **Links the schema** — a schema-linking agent produces a structured **query plan** (target, tables, join path, filters, evidence formula, aggregation, grouping, set-ops) that the generator follows. Tables named in the plan but missed by retrieval are recovered by **backward linking**.
+5. **Generates SQL** — an LLM SQL agent produces multiple candidates. On the harder tiers, candidates come from **diverse reasoning paths** (direct, divide-and-conquer, query-plan chain-of-thought) so they fail differently. Deterministic repairs fix evidence pseudo-functions, mangled identifiers, and dialect quirks.
+6. **Validates SQL** — syntax (sqlglot), safety (injection/mutation guard), and schema-grounded semantic checks run before any execution.
+7. **Selects the best candidate** — valid candidates are executed and **plurality-voted on their result sets**; genuine ties are resolved by a unit-test screen + pairwise LLM comparison over the actual rows (falling back to a text reranker).
+8. **Refines (ReAct)** — on an execution error or an empty result, the query is fed back for one or two repair rounds.
+9. **Formats the response** — results are rendered as inline answers, markdown tables, or exported to CSV for large result sets.
 
-The system is **strictly read-only** — `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, and `TRUNCATE` are blocked at both the intent-classification and validation layers.
+Throughout, the turn streams live stage events over SSE, records per-stage timings, and (on success) caches the validated question→SQL pair.
+
+The system is **strictly read-only** — `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, and `CREATE` are blocked at the intent-classification layer, the SQL validator, **and** an optional read-only database role.
 
 ---
 
@@ -45,31 +51,49 @@ User Query
     │
     ▼
 classify_intent ──┬── WRITE_BLOCKED ──► handle_write_blocked ──► END
-                  ├── GENERAL       ──► handle_general       ──► END
-                  └── READ / AMBIGUOUS
+                  ├── GENERAL       ──► handle_general (web search + LLM) ──► END
+                  ├── AMBIGUOUS     ──► ask_clarification ──► END
+                  └── READ
                           │
                           ▼
-                   retrieve_schema   (pgvector RAG — top-k tables + few-shot pairs)
+                   condense_query    (rewrite anaphoric follow-ups → standalone)
                           │
                           ▼
-                   generate_sql      (SQLCodeAgent — candidate SQL + reranking)
+                   retrieve_schema   (pgvector RAG + FK expansion + value grounding;
+                          │            semantic-cache few-shots / hit shortcut)
+                          ▼
+                   link_schema       (structured query plan + backward linking)
                           │
                           ▼
-                   validate_sql ─────┬── valid   ──► execute_sql ──► format_response ──► END
-                                     └── invalid ──► fallback_handler ──► (retry, max 2 rounds)
+                   generate_sql      (diverse-path candidates + deterministic repairs)
+                          │
+                          ▼
+                   validate_sql ─────┬── valid   ──► execute_sql
+                          │          │                   │  (execution voting +
+                          │          │                   │   unit-test/pairwise select)
+                          │          │                   ▼
+                          │          │             route_after_execution
+                          │          │              ├── error / 0 rows ──► refine_sql ↺
+                          │          │              └── ok ──► format_response ──► END
+                          └── invalid ──► fallback_handler ──► (retry, max 2 rounds)
 ```
 
 ### Agent & Module Responsibilities
 
 | Component | Module | Description |
 |---|---|---|
-| Orchestrator | `backend/agents/db_agent.py` | LangGraph `StateGraph`; wires all nodes |
-| SQL Generator | `backend/agents/sql_code_agent.py` | Generates + reranks candidate SQL |
-| SQL Validator | `backend/agents/sql_validator_agent.py` | Syntax, safety, semantic validation |
-| Schema RAG | `backend/retrieval/` | pgvector-based schema embedding & retrieval |
-| Memory | `backend/memory/session_memory.py` | In-RAM session turn history |
-| Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) |
-| HTTP API | `backend/api/main.py` | FastAPI server exposing the agent over HTTP |
+| Orchestrator | `backend/agents/db_agent.py` | LangGraph `StateGraph`; wires all nodes, voting, selection, ReAct refine |
+| Schema Linker | `backend/agents/schema_linking_agent.py` | Produces the structured query plan (tables, joins, filters, evidence formula) |
+| SQL Generator | `backend/agents/sql_code_agent.py` | Diverse-path candidate generation, reranking, deterministic repairs |
+| SQL Validator | `backend/agents/sql_validator_agent.py` | Syntax, safety, schema-grounded semantic validation |
+| Safety helpers | `backend/agents/safety.py` | Shared DML/injection regexes + `LIMIT` enforcement |
+| Schema Versioning | `backend/agents/schema_versioning_agent.py` | Snapshot/diff/hash; surgical vs full re-index |
+| Schema RAG | `backend/retrieval/` | pgvector store, FK expansion, value index, indexing CLI |
+| Memory | `backend/memory/session_memory.py` | Session turn history (in-RAM, optional Postgres) with rolling summaries |
+| Semantic cache | `backend/memory/semantic_cache.py` | Validated question→SQL pairs; few-shots + hit shortcut |
+| Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) + output guardrail |
+| BIRD evaluation | `backend/eval/` | BIRD mini-dev harness (EX / Soft-F1 / VES), error analysis |
+| HTTP API | `backend/api/main.py` | FastAPI server: chat, SSE streaming, schema sync, feedback, metrics |
 | Config Loader | `backend/config/config_loader.py` | Single config entry point; validates secrets |
 
 ---
@@ -113,10 +137,14 @@ FYP_ConversationalDatabaseAssistant/
 ├── backend/
 │   ├── agents/
 │   │   ├── db_agent.py                 # Orchestrator (LangGraph StateGraph)
-│   │   ├── sql_code_agent.py           # SQL generation + reranking
+│   │   ├── schema_linking_agent.py     # Structured query-plan generation
+│   │   ├── sql_code_agent.py           # SQL generation, reranking, deterministic repairs
 │   │   ├── sql_validator_agent.py      # Syntax / safety / semantic validation
-│   │   ├── schema_versioning_agent.py  # Stub — not yet functional
-│   │   └── prompt.md                   # Intent classification system prompt
+│   │   ├── schema_versioning_agent.py  # Schema snapshot / diff / re-index
+│   │   ├── safety.py                   # Shared DML + injection guards, LIMIT enforcement
+│   │   ├── trace.py                    # Config-gated pipeline console tracing
+│   │   ├── prompt.md                   # Intent + schema-linking + SQL system prompts
+│   │   └── prompts/                    # Condense / regenerate / rerank templates
 │   ├── api/
 │   │   ├── main.py                     # FastAPI app (lifespan, routes, CORS)
 │   │   └── models.py                   # Pydantic request/response models
@@ -129,24 +157,22 @@ FYP_ConversationalDatabaseAssistant/
 │   │   └── postgres/
 │   │       └── schema.sql              # DB bootstrap (enables pgvector extension)
 │   ├── memory/
-│   │   └── session_memory.py           # In-RAM session turn history
+│   │   ├── session_memory.py           # Session turn history + rolling summaries
+│   │   └── semantic_cache.py           # Validated query→SQL pairs (few-shots + shortcut)
 │   ├── pipelines/
-│   │   ├── postprocessing.py           # ResponseOptimizer (inline/table/CSV)
+│   │   ├── postprocessing.py           # ResponseOptimizer (inline/table/CSV) + guardrail
 │   │   └── prompt_response.md          # Response formatting prompt template
 │   ├── retrieval/
 │   │   ├── pgvector_store.py           # Canonical vector store (pgvector)
 │   │   ├── pinecone_store.py           # Alternate vector store (Pinecone)
-│   │   ├── indexing.py                 # CLI: build/query the schema index
-│   │   ├── embedding.py                # OpenAI embedding client
+│   │   ├── indexing.py                 # CLI: build/query index, FK expansion, backward link
+│   │   ├── embedding.py                # Embedding client + verbose / M-Schema chunk builders
+│   │   ├── value_index.py              # Distinct-value index for WHERE-literal grounding
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
-│   ├── tests/
-│   │   ├── test_config.py              # Config loader unit tests
-│   │   ├── test_api.py                 # FastAPI integration tests (httpx)
-│   │   ├── test_agent.py               # Agent tests (stub)
-│   │   ├── test_pipeline.py            # Pipeline tests (stub)
-│   │   └── test_tools.py               # Tool tests (stub)
-│   └── tools/                          # External tool stubs (planned)
+│   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
+│   ├── tests/                          # ~580 unit/integration tests (offline)
+│   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx                     # Root component — session + chat loop
@@ -156,9 +182,10 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── api/
 │   │   │   └── client.ts               # API client (createSession, sendChat…)
 │   │   └── components/
-│   │       ├── ChatLayout.tsx          # App shell (sidebar + top bar)
-│   │       ├── ChatMessage.tsx         # Message renderer (markdown, SQL panel, badges)
-│   │       └── ChatInput.tsx           # Auto-resize textarea + send button
+│   │       ├── ChatLayout.tsx          # App shell (sidebar + top bar + tabs)
+│   │       ├── ChatMessage.tsx         # Message renderer (markdown, SQL panel, records, badges)
+│   │       ├── ChatInput.tsx           # Auto-resize textarea + send button
+│   │       └── DatabaseTab.tsx         # Schema browser + Index Sync panel
 │   ├── package.json
 │   └── vite.config.ts
 ├── dataset/                            # Sample data (minidev)
@@ -226,6 +253,11 @@ PG_USER=postgres
 PG_PASSWORD=your_postgres_password_here
 PG_HOST=127.0.0.1
 PG_PORT=5432
+
+# Optional — a read-only role for executing USER queries (defense-in-depth).
+# When both are set, generated queries run on this role instead of PG_USER.
+# PG_APP_USER=fyp_readonly
+# PG_APP_PASSWORD=your_readonly_password_here
 ```
 
 > **Never commit `secrets.env`** — it is git-ignored. Only `secrets.env.example` is tracked.
@@ -249,12 +281,32 @@ retrieval:
   vector_store: pgvector       # or "pinecone"
   top_k_tables: 5              # schema chunks to retrieve per query
   top_k_kb: 3                  # few-shot examples to retrieve
+  fk_max_hops: 2               # FK-aware context expansion depth
+  fk_max_expansion: 5          # cap on FK-added tables
+  value_grounding: true        # correct WHERE-literal casing against real values
+  backward_linking: true       # recover plan-named tables retrieval missed
+
+sql:
+  schema_linking: true         # produce a structured query plan before generation
+  n_candidates: 5              # SQL candidates per question
+  adaptive_prompting: true     # per-tier strategy blocks + candidate counts
+  path_diversity: true         # divide-and-conquer + query-plan CoT candidates
+  execution_voting: true       # plurality-vote on candidate result sets
+  selection: pairwise          # tie-break: "pairwise" (unit-test + pairwise) | "reranker"
+  unit_tests: true             # LLM-derived result checks before pairwise
+  max_refine_rounds: 1         # ReAct refine rounds (challenging tier: 2)
+  cache_shortcut: true         # skip generation on a near-identical cached question
 
 response:
   inline_row_limit: 10         # rows returned inline in markdown
   table_row_limit: 100         # rows rendered as a markdown table
   csv_row_limit: 500           # rows written to CSV (larger results)
 ```
+
+> Every accuracy feature is config-gated so it can be A/B'd independently. The
+> schema-chunk format is selected at **build time** via the `SCHEMA_FORMAT` env
+> var (`verbose` default, or `mschema` for XiYan-SQL's compact layout —
+> switching requires a re-index).
 
 ### 3. (Optional) Frontend API base URL
 
@@ -402,9 +454,14 @@ Sends a user message and returns a structured response.
   "response": "Here are the top 10 players by overall rating:\n\n| Name | Overall |\n|---|---|\n| Lionel Messi | 94 |\n...",
   "sql": "SELECT name, overall FROM players ORDER BY overall DESC LIMIT 10",
   "intent": "READ",
-  "validation": { "syntax": true, "safety": true, "semantic": true },
+  "validation": { "valid": true, "syntax_ok": true, "safety_ok": true, "semantic_ok": true },
   "row_count": 10,
-  "csv_path": null
+  "rows": [{ "name": "Lionel Messi", "overall": 94 }],
+  "csv_path": null,
+  "turn_id": 42,
+  "cache_hit": false,
+  "latency_ms": 1830,
+  "timings": { "retrieve_schema": 210, "generate_sql": 940, "execute_sql": 60 }
 }
 ```
 
@@ -413,9 +470,32 @@ Sends a user message and returns a structured response.
 | `response` | string | Natural-language answer in markdown |
 | `sql` | string \| null | The SQL query used (null for GENERAL intent) |
 | `intent` | string | `READ`, `GENERAL`, `WRITE_BLOCKED`, or `AMBIGUOUS` |
-| `validation` | object | Validation check results |
+| `validation` | object | `valid` + per-check flags (`syntax_ok`, `safety_ok`, `semantic_ok`) |
 | `row_count` | integer \| null | Number of rows returned |
+| `rows` | array \| null | Result rows (capped at 500) for the frontend records panel |
 | `csv_path` | string \| null | CSV filename for large result sets (>100 rows) |
+| `turn_id` | integer \| null | Turn id, used to submit feedback |
+| `cache_hit` | boolean | Answered via the semantic-cache shortcut |
+| `latency_ms` | integer | End-to-end turn latency |
+| `timings` | object | Per-stage wall-clock ms |
+
+An optional `api_key` may be included in the request body to use a per-request
+OpenAI key instead of the server default.
+
+---
+
+### `POST /chat/stream`
+
+Same request shape as `/chat`, but streams **Server-Sent Events** so the UI can
+show live progress through the pipeline. Each event is a `data: <json>` line:
+
+```
+data: {"type": "stage", "stage": "retrieve_schema"}
+data: {"type": "sql", "sql": "SELECT ..."}
+data: {"type": "done", "response": "...", "sql": "...", ...}   ← same fields as /chat
+```
+
+A terminal `done` (or `error`) event always closes the stream.
 
 ---
 
@@ -442,6 +522,49 @@ Serves a CSV file from the `outputs/` directory.
 
 ---
 
+### `GET /sessions`
+
+Lists known sessions with a short summary (id, turn count, last activity).
+
+---
+
+### `POST /feedback`
+
+Records thumbs up/down on an assistant turn. Body: `turn_id`, `session_id`,
+`rating` (`up`/`down`), optional `comment`.
+
+---
+
+### `GET /schema`
+
+Returns the connected database's tables and columns (name, type, PK/FK flags,
+descriptions) for the frontend Database tab.
+
+---
+
+### `GET /schema/diff`
+
+Compares the live database schema against the last indexed snapshot and reports
+added/dropped tables, added/dropped/modified columns, and any unindexed tables.
+
+---
+
+### `POST /schema/sync`
+
+Re-embeds the RAG index to match the live schema. Body: `full` (re-embed every
+table — use when table **data** changed) and optional `tables` filter. The
+default is a **surgical** sync that only touches changed/unindexed tables and
+removes chunks for dropped ones.
+
+---
+
+### `GET /metrics-lite`
+
+Lightweight in-process counters — turn count, error count, cache-hit rate, and
+rolling latency — for quick operational visibility.
+
+---
+
 ## Frontend
 
 The React frontend provides a dark-minimal chat interface:
@@ -460,6 +583,11 @@ The React frontend provides a dark-minimal chat interface:
 | **Error banner** | Dismissible error display for network or server errors |
 | **New chat** | Starts a fresh session from the sidebar button |
 | **Responsive layout** | Collapsible sidebar on mobile screens |
+| **Live streaming stages** | Pipeline stage labels update in real time over SSE (falls back to `/chat`) |
+| **Records panel** | First 10 result rows inline, the rest behind a toggle; cache-hit chip |
+| **Database tab** | Browse tables/columns with descriptions and value hints |
+| **Index Sync panel** | Detect schema/data changes and re-index (surgical or full) from the UI |
+| **Feedback** | Thumbs up/down per assistant turn |
 
 ---
 
@@ -473,7 +601,9 @@ The system enforces read-only semantics at multiple independent layers:
 | SQL validator | `sqlglot` parse-tree check blocks `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `CREATE` |
 | SQL validator | Injection guard — rejects string-concatenation patterns, stacked statements, and dangerous functions |
 | SQL validator | `LIMIT` enforcement — every generated query must carry a `LIMIT` (max 500) |
-| Response optimizer | Row limits applied before display or CSV export |
+| Read-only DB role | When `PG_APP_USER`/`PG_APP_PASSWORD` are set, user queries run on a read-only role — a write cannot succeed even if every prior layer were bypassed |
+| Statement timeout | Every user query runs under a per-statement timeout so a pathological query cannot hang the request |
+| Response optimizer | Row limits + an output guardrail re-scan applied before display or CSV export |
 | Download endpoint | Path-traversal guard — only files inside `outputs/` are served |
 
 **Secret management:**
@@ -483,48 +613,64 @@ The system enforces read-only semantics at multiple independent layers:
 
 ---
 
+## Accuracy & Evaluation
+
+Accuracy is measured on the **BIRD mini-dev** benchmark (`backend/eval/`), which
+reports Execution Accuracy (EX), Soft-F1, and VES per difficulty tier. The
+harness transpiles MySQL-dialect gold queries to SQLite, flags unwinnable
+questions (gold that errors on SQLite), and supports execution voting, ReAct
+refinement, and schema linking as toggles for A/B runs.
+
+```bash
+# End-to-end BIRD run (predictions + official EX/F1/VES scoring)
+bash backend/eval/run_bird.sh
+
+# Or the lightweight ground-truth harness on your own labelled set
+python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP
+```
+
+Research-backed techniques implemented to raise accuracy **without a stronger
+model** (all config-gated) — see GitHub issues #48/#49:
+
+| Technique | Targets | Source |
+|---|---|---|
+| Diverse-path candidates (divide-and-conquer, query-plan CoT) | grain, grouped superlatives, multi-joins | CHASE-SQL |
+| Unit-test screen + pairwise selection | wrong-candidate selection | CHESS / CHASE-SQL |
+| Value index for `WHERE`-literal grounding | value casing/format mismatches | CHESS |
+| Backward schema linking | broken ≥3-table joins | RSL-SQL |
+| Verbatim evidence formula in the plan | evidence paraphrase | TA-SQL |
+| M-Schema compact schema format | schema legibility | XiYan-SQL |
+
+---
+
 ## Development Status
 
 | Issue | Area | Status | Notes |
 |---|---|---|---|
 | #0 | Security & config hardening | ✅ Done | Secrets in env, `load_config()` with validation |
-| #1 | FastAPI HTTP API | ✅ Done | All endpoints live with Pydantic models |
-| #2 | Frontend ↔ Backend integration | ✅ Done | Real API wiring, dark-minimal UI |
-| #3 | Memory — history bug + persistence | ⏳ Planned | History injection bug; memory is in-RAM only |
-| #4 | Semantic cache / few-shot | ⏳ Planned | `few_shot_examples` always `[]` currently |
-| #5 | Feedback collection (thumbs) | ⏳ Planned | Not started |
-| #6 | User isolation & roles | ⏳ Planned | No authentication today |
-| #7 | Schema versioning | ⏳ Planned | Stub only — calls non-existent methods |
-| #9 | Tools / external APIs | ⏳ Planned | Empty stubs |
-| #10 | Response optimizer guardrails | ⏳ Planned | Basic implementation exists |
-| #11 | Full test suite + CI | ⏳ Planned | Config + API tests exist; agent/pipeline stubs empty |
+| #1 | FastAPI HTTP API | ✅ Done | Chat, SSE streaming, schema sync, feedback, metrics |
+| #2 | Frontend ↔ Backend integration | ✅ Done | Real API wiring, streaming, Database tab |
+| #3 | Memory — history + condensation | ✅ Done | History fixed; rolling summaries; multi-turn condensation |
+| #4 | Semantic cache / few-shot | ✅ Done | Validated pairs as few-shots + hit shortcut |
+| #5 | Feedback collection (thumbs) | ✅ Done | `/feedback` endpoint + UI |
+| #6 | User isolation & roles | ⏳ Planned | Read-only DB role landed; auth still open |
+| #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
+| #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
+| #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
+| #11 | Full test suite | ✅ Done | ~580 tests; CI still to wire |
+| #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
+| #48–49 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #12 | Knowledge Graph (LlamaIndex) | 🔮 Deferred | Not started |
 
 ---
 
 ## Roadmap
 
-**Phase 1 — Core pipeline (complete)**
-- [x] Issue #0 — Security & config hardening
-- [x] Issue #1 — FastAPI HTTP server
-- [x] Issue #2 — Frontend integration + UI
-
-**Phase 2 — Memory & intelligence**
-- [ ] Issue #3 — Fix history injection bug; add Postgres-backed session persistence
-- [ ] Issue #4 — Semantic cache: store query→SQL pairs; retrieve as few-shot examples
-- [ ] Issue #5 — Feedback (thumbs up/down); gate cache writes on positive feedback
-
-**Phase 3 — Access control & reliability**
-- [ ] Issue #6 — User isolation, roles, JWT auth
-- [ ] Issue #7 — Schema versioning: detect diffs, re-embed changed tables
-- [ ] Issue #9 — Tools layer: web search for GENERAL intent
-- [ ] Issue #10 — Response optimizer guardrails
-
-**Phase 4 — Quality**
-- [ ] Issue #11 — Complete test suite, GitHub Actions CI
-
-**Phase 5 — Optional**
-- [ ] Issue #12 — Knowledge Graph via LlamaIndex (PropertyGraphIndex + SQLTableRetriever)
+**Remaining work**
+- [ ] Issue #6 — User isolation, roles, JWT auth (read-only DB role already landed)
+- [ ] GitHub Actions CI wired to the test suite
+- [ ] BIRD 3-tier A/B rerun to quantify the #48/#49 accuracy techniques
+- [ ] Issue #12 — Knowledge Graph via LlamaIndex (deferred)
 
 ---
 
