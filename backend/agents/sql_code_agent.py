@@ -195,6 +195,7 @@ def translate_pseudo_functions(sql: str) -> str:
 
 _BIRD_COL_RE = re.compile(r"^\s*-\s*([^:\n]+?):", re.MULTILINE)       # "  - aCL IgM: REAL"
 _CHUNK_COL_RE = re.compile(r"^\s{2}([A-Za-z][^(\n]*?)\s*\(", re.MULTILINE)  # "  aCL IgM (REAL"
+_MSCHEMA_COL_RE = re.compile(r"^\(([^:,)\n]+?):", re.MULTILINE)       # "(aCL IgM:REAL, …)"
 
 _STRING_LITERAL_SPLIT = re.compile(r"('(?:[^']|'')*')")
 
@@ -202,7 +203,7 @@ _STRING_LITERAL_SPLIT = re.compile(r"('(?:[^']|'')*')")
 def _special_schema_columns(schema_context: str) -> List[str]:
     """Schema column names containing non-word chars (spaces, hyphens, dots)."""
     names = set()
-    for pat in (_BIRD_COL_RE, _CHUNK_COL_RE):
+    for pat in (_BIRD_COL_RE, _CHUNK_COL_RE, _MSCHEMA_COL_RE):
         for m in pat.findall(schema_context or ""):
             name = m.strip()
             if name and re.search(r"[^\w]", name):
@@ -676,8 +677,9 @@ class SQLCodeAgent:
     # vote-winner / reranker default favours PK-grained candidates.
 
     _PK_PATTERNS = (
-        re.compile(r"-\s*(\w+):[^\n]*\[PK", re.IGNORECASE),   # bird.py schema format
-        re.compile(r"(\w+)\s*\([^)\n]*\[PK", re.IGNORECASE),  # embedding chunk format
+        re.compile(r"-\s*(\w+):[^\n]*\[PK", re.IGNORECASE),      # bird.py schema format
+        re.compile(r"(\w+)\s*\([^)\n]*\[PK", re.IGNORECASE),     # embedding chunk format
+        re.compile(r"\(\s*(\w+):[^,\n)]*,\s*Primary Key", re.IGNORECASE),  # M-Schema
     )
 
     def _grain_penalty(self, sql: str, schema_context: str) -> int:

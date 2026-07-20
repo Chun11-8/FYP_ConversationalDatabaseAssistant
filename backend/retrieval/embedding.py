@@ -41,8 +41,81 @@ def get_openai_client() -> OpenAI:
 EMBED_MODEL      = "text-embedding-3-small"
 EMBED_BATCH_SIZE = 100
 
+# Schema chunk format (GH#49): "verbose" (default, human-readable) or "mschema"
+# (XiYan-SQL's compact semi-structured layout). Switching requires a re-index.
+SCHEMA_FORMAT = os.getenv("SCHEMA_FORMAT", "verbose").strip().lower()
+
 
 # ── table chunk builder ────────────────────────────────────────────────────────
+
+def build_mschema_chunk(table: dict) -> dict:
+    """
+    Render one table in M-Schema format (XiYan-SQL / XGenerationLab/M-Schema):
+
+        【DB_ID】 db_name
+        # Table: table_name
+        [
+        (col:TYPE, Primary Key, NOT NULL, description, Examples: [v1, v2]),
+        (col:TYPE, description),
+        ]
+        【Foreign keys】
+        table.from_col=to_table.to_col
+
+    Compact and explicit — the ensemble leader treats the format as
+    load-bearing. Same metadata/chunk_id as :func:`build_table_chunk`; only the
+    ``text`` differs. PK markers ("Primary Key") and the `(col:TYPE` column
+    syntax are recognized by the downstream grain/identifier passes.
+    """
+    db_name    = table["db_name"]
+    table_name = table["table_name"]
+
+    lines = [f"【DB_ID】 {db_name}", f"# Table: {table_name}", "["]
+    col_reprs: list[str] = []
+    for col in table["columns"]:
+        parts = [f"{col['name']}:{col['type']}"]
+        if col.get("primary_key"):
+            parts.append("Primary Key")
+        if col.get("not_null") and not col.get("primary_key"):
+            parts.append("NOT NULL")
+        desc = (col.get("description") or "").strip()
+        if desc:
+            parts.append(desc)
+        distinct = col.get("distinct_values")
+        val_desc = (col.get("value_description") or "").strip()
+        if distinct:
+            parts.append("Examples: [" + ", ".join(str(v) for v in distinct) + "]")
+        elif val_desc:
+            parts.append(f"Values: {val_desc}")
+        col_reprs.append(f"({', '.join(parts)})")
+    # Trailing comma on every column line but the last (M-Schema convention).
+    for i, rep in enumerate(col_reprs):
+        lines.append(rep + ("," if i < len(col_reprs) - 1 else ""))
+    lines.append("]")
+
+    if table.get("foreign_keys"):
+        lines.append("【Foreign keys】")
+        for fk in table["foreign_keys"]:
+            lines.append(
+                f"{table_name}.{fk['from_col']}={fk['to_table']}.{fk['to_col']}"
+            )
+
+    sample_rows = table.get("sample_rows", [])
+    if sample_rows:
+        lines.append("【Sample rows】")
+        for row in sample_rows[:3]:
+            short_row = {
+                k: (str(v)[:80] if v is not None else "NULL")
+                for k, v in row.items()
+            }
+            lines.append(f"{short_row}")
+
+    return {
+        "chunk_id":   f"{db_name}__{table_name}__schema",
+        "chunk_type": "table_schema",
+        "db_name":    db_name,
+        "table_name": table_name,
+        "text":       "\n".join(lines),
+    }
 
 def build_table_chunk(table: dict) -> dict:
     """
@@ -182,10 +255,13 @@ def build_chunks(all_dbs: list[dict]) -> list[dict]:
     """
     chunks = []
 
+    # Format is env-selected once per build (a full re-index applies it).
+    builder = build_mschema_chunk if SCHEMA_FORMAT == "mschema" else build_table_chunk
+
     for db in all_dbs:
         # Table schema chunks (schema + col descriptions + sample rows)
         for table in db["tables"]:
-            chunks.append(build_table_chunk(table))
+            chunks.append(builder(table))
 
         # ── [FUTURE] KB chunks ─────────────────────────────────────────────
         # Uncomment when knowledge_base is returned by data_processing

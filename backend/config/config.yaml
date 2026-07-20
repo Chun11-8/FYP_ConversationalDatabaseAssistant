@@ -88,6 +88,10 @@ retrieval:
   # table forward retrieval missed, its schema chunk is fetched by name and
   # appended to the context before generation.
   backward_linking: true
+  # GH#49: schema chunk format — "verbose" (default) or "mschema" (XiYan-SQL's
+  # compact layout). Selected via the SCHEMA_FORMAT env var at BUILD time;
+  # switching requires a full re-index (python -m backend.retrieval.indexing build).
+  # schema_format: verbose
 
 response:
   inline_row_limit: 10
