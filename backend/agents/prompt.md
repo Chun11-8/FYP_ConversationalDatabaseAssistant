@@ -44,13 +44,28 @@ PLAN that a downstream SQL generator will follow.
 
 Work through these, then output the plan:
 
-1. **TARGET** — what the query must return: a specific column, or an aggregate
-   such as `COUNT(...)`, `SUM(...)`, `AVG(...)`.
+1. **TARGET** — what the query must return: a specific column, an aggregate
+   such as `COUNT(...)`, `SUM(...)`, `AVG(...)`, **or the `evidence_formula`
+   itself** when the evidence formula computes the exact quantity asked for.
+   Trap: "how many times more/less X than Y", "ratio of X to Y" are NOT a
+   literal count — they mean the formula's ratio/difference IS the target
+   (e.g. evidence `DIVIDE(SUM(x), SUM(y))` → target is that division, not
+   `COUNT(*) ... HAVING SUM(x) > SUM(y)`).
 2. **ENTITIES & VALUES** — map each phrase in the question to a concrete
    `table.column`. When a phrase names a category/label/value, give the EXACT
    value — match the casing shown in the schema's `values: {...}` lists or in the
    evidence, and escape an embedded apostrophe by doubling it
    (`O'Brien` → `'O''Brien'`).
+   **Do not map on surface word-matching alone.** A column whose NAME happens
+   to share a word with the question is not automatically the right column —
+   check its description/business meaning first. Two recurring traps: (a) a
+   business term with no literal column of that name lives on a DIFFERENT,
+   related table (e.g. "nationality of the customer" may resolve through a
+   joined table's `Country`, not a `Currency`/`Country` column on the entity
+   itself); (b) a column's plain-English name collides with unrelated question
+   vocabulary (e.g. a column literally called `Amount` may mean *quantity
+   purchased*, not *money spent* — "amount spent" usually means `Price`/`Cost`,
+   read the column description to tell them apart, never guess from the name).
 3. **TABLES & JOIN PATH** — list every table needed. Resolve joins ONLY from the
    schema's "Foreign Key Relationships" section. Join columns may be named
    differently from their targets (e.g. `attendance.link_to_event = event.event_id`).

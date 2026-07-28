@@ -770,13 +770,65 @@ class SQLCodeAgent:
                 penalty += 1
         return penalty
 
+    # ── Join-minimality demotion (Issue #50) ──────────────────────────────────
+    # A join that contributes no column anywhere OUTSIDE its own ON clause is
+    # pure risk: if the join key isn't fully referentially covered, an INNER
+    # JOIN silently drops otherwise-valid rows for no logical reason (BIRD
+    # q1189: joining `Patient` when every needed column already lives on
+    # `Examination` alone corrupted a COUNT via referential gaps). This is the
+    # inverse of _plan_penalty's missing-join check — here a table is present
+    # that the query never actually needed.
+
+    def _join_penalty(self, sql: str) -> int:
+        """+1 for each joined table whose columns are never referenced outside
+        its own ON clause (spurious join risk); 0 on parse failure / no joins."""
+        if not sql:
+            return 0
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+            joins = list(ast.find_all(sqlglot.exp.Join))
+            if not joins:
+                return 0
+
+            alias_map: Dict[str, str] = {}
+            for t in ast.find_all(sqlglot.exp.Table):
+                if not t.name:
+                    continue
+                real = t.name.lower()
+                alias_map[(t.alias or t.name).lower()] = real
+                alias_map[real] = real
+
+            def _resolve(col: sqlglot.exp.Column) -> Optional[str]:
+                key = (col.table or "").lower()
+                return alias_map.get(key, key) if key else None
+
+            penalty = 0
+            for j in joins:
+                table_node = j.this if isinstance(j.this, sqlglot.exp.Table) else None
+                if table_node is None or not table_node.name:
+                    continue
+                joined_table = table_node.name.lower()
+                on_ids = {id(c) for c in j.args.get("on").find_all(sqlglot.exp.Column)} \
+                    if j.args.get("on") is not None else set()
+                used_elsewhere = any(
+                    _resolve(c) == joined_table
+                    for c in ast.find_all(sqlglot.exp.Column)
+                    if id(c) not in on_ids
+                )
+                if not used_elsewhere:
+                    penalty += 1
+            return penalty
+        except Exception:
+            return 0
+
     def _order_candidates(
         self,
         sqls: List[str],
         schema_context: str,
         query_plan: Optional[dict] = None,
     ) -> List[str]:
-        """Stable-sort: plan-conforming, correctly-grained candidates first."""
+        """Stable-sort: plan-conforming, correctly-grained, minimally-joined
+        candidates first."""
         if len(sqls) < 2:
             return sqls
         return sorted(
@@ -784,6 +836,7 @@ class SQLCodeAgent:
             key=lambda s: (
                 self._grain_penalty(s, schema_context)
                 + self._plan_penalty(s, query_plan)
+                + self._join_penalty(s)
             ),
         )
 
@@ -837,6 +890,14 @@ class SQLCodeAgent:
             return repaired
         return sql
 
+    # NOTE (Issue #50): the "CAST the numerator AS REAL" rule below is a known,
+    # accepted source of a small number of BIRD gold mismatches — some gold SQL
+    # divides two integer aggregates with NO cast at all, which under SQLite
+    # truncates to integer division; our REAL cast produces the mathematically
+    # correct (but gold-mismatching) ratio in that minority of cases. This is
+    # judged net-positive: the same rule fixes the much larger, well-documented
+    # integer-division-truncation failure cluster elsewhere. Do not remove it to
+    # chase those few mismatches.
     def _build_prompt(
         self,
         query: str,
@@ -895,7 +956,16 @@ Target SQL dialect: {dialect}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
-   (An evidence formula may instead define a FILTER — see Step 4.)
+   (An evidence formula may instead define a FILTER — see Step 4.) When the
+   formula computes the EXACT quantity the question asks for — "how many times
+   more/less", "ratio of", "percentage of", "difference in" — the formula IS the
+   SELECT expression itself; it is NOT a HAVING/WHERE threshold to satisfy and
+   NOT something to count occurrences of. Concrete trap: "how many times was X
+   more than Y" with evidence `DIVIDE(SUM(...X...), SUM(...Y...))` means
+   `SELECT SUM(...X...) / SUM(...Y...)` (one ratio number) — NOT
+   `SELECT COUNT(*) ... GROUP BY ... HAVING SUM(X) > SUM(Y)` (a count of groups
+   where a comparison holds); "how many times" here is idiomatic for a
+   multiplier, not a literal COUNT.
    Output shape: "full name refers to first_name, last_name" → TWO separate
    columns, never concatenated. Yes/no question → CASE WHEN ... THEN 1 ELSE 0
    (never 'Yes'/'No' strings). "List X and Y" → exactly those columns, DISTINCT

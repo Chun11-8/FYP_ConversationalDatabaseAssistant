@@ -103,6 +103,26 @@ class TestAnalyze:
         agent.llm.invoke.return_value = MagicMock(content='{"foo": "bar"}')
         assert agent.analyze("q", "schema") is None
 
+    def test_entity_guidance_covers_lexical_collision_trap(self):
+        # Issue #50 step 3: don't map a column purely on shared vocabulary
+        # (e.g. a column named "Amount" is not automatically "amount spent").
+        agent = _linker()
+        agent.llm.invoke.return_value = MagicMock(content=_PLAN_JSON)
+        agent.analyze("q", "schema")
+        system_sent = agent.llm.invoke.call_args[0][0][0].content
+        assert "surface word-matching" in system_sent.lower()
+        assert "amount" in system_sent.lower()
+
+    def test_target_guidance_covers_how_many_times_trap(self):
+        # Issue #50 step 2: "how many times more X than Y" is a ratio target
+        # (the evidence_formula itself), NOT a literal COUNT(*)/HAVING.
+        agent = _linker()
+        agent.llm.invoke.return_value = MagicMock(content=_PLAN_JSON)
+        agent.analyze("q", "schema")
+        system_sent = agent.llm.invoke.call_args[0][0][0].content
+        assert "how many times" in system_sent.lower()
+        assert "evidence_formula" in system_sent
+
 
 # ── render_query_plan ─────────────────────────────────────────────────────────
 
