@@ -23,7 +23,10 @@ from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache
-from backend.retrieval.indexing import retrieve, execute_query, expand_fk_tables
+from backend.retrieval.indexing import (
+    retrieve, execute_query, expand_fk_tables, fetch_table_chunks,
+)
+from backend.retrieval.value_index import ValueIndex, render_value_hints
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.tools.registry import ToolRegistry
 from backend.tools.web_search import WebSearchTool
@@ -120,6 +123,7 @@ class AgentState(TypedDict):
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
+    tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
     timings: Dict[str, int]          # per-stage wall-clock ms (GH#42)
     error: Optional[str]
 
@@ -166,11 +170,31 @@ class OrchestrationAgent:
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        # GH#49 P3: deterministic WHERE-literal grounding against real values.
+        self._value_grounding = bool(_r.get("value_grounding", True))
+        if self._value_grounding:
+            from backend.retrieval.pgvector_store import get_query_conn
+            self.value_index = ValueIndex(get_query_conn)
+        else:
+            self.value_index = None
+        # GH#49 P4: RSL-SQL-style backward linking — recover tables the plan
+        # names but forward retrieval missed.
+        self._backward_linking = bool(_r.get("backward_linking", True))
         # GH#38 latency + GH#41 hardening knobs.
         _sql = config.get("sql", {}) or {}
         self._db_name = config.get("db", {}).get("name", "FYP")
         self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
+        # GH#48: when execution voting is inconclusive, resolve with a
+        # unit-test screen + pairwise LLM comparison instead of the text
+        # reranker ("pairwise"); "reranker" restores the old behavior.
+        self._selection = str(_sql.get("selection", "pairwise")).lower()
+        self._unit_tests = bool(_sql.get("unit_tests", True))
+        # GH#49 quick win: ReAct refine depth, deeper for the challenging tier
+        # (RSL-SQL/CHESS both use multi-turn correction).
+        self._max_refine = int(_sql.get("max_refine_rounds", self.MAX_REFINE_ROUNDS))
+        self._max_refine_challenging = int(
+            _sql.get("max_refine_rounds_challenging", 2))
         self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
         self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
         # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
@@ -388,6 +412,16 @@ class OrchestrationAgent:
             if fk_extra:
                 trace(f"  🔗 FK-expanded     : {fk_extra}")
 
+            # GH#49 P3: ground literal-looking spans against ACTUAL stored
+            # values; a hint block tells the generator the exact casing/format.
+            if getattr(self, "value_index", None) is not None:
+                hints = self.value_index.ground(search_q, primary + fk_extra)
+                if hints:
+                    trace(f"  🔤 Value hints     : {hints}")
+                    schema_context = (
+                        schema_context + "\n\n" + render_value_hints(hints)
+                    )
+
             # Print similarity distances for debugging retrieval quality
             trace("  📊 Retrieval distances (lower = more relevant):")
             for t in schema_chunks["tables"]:
@@ -479,12 +513,34 @@ class OrchestrationAgent:
 
         trace("  ✅ Query plan:")
         for key in ("target", "tables", "join_path", "filters",
-                    "evidence_predicates", "aggregation", "group_by",
-                    "having", "order_by", "set_op"):
+                    "evidence_predicates", "evidence_formula", "aggregation",
+                    "group_by", "having", "order_by", "set_op"):
             val = plan.get(key)
             if val not in (None, "", [], {}, "null", "none"):
                 trace(f"     {key}: {val}")
-        return {**state, "query_plan": plan}
+
+        # GH#49 P4 (backward linking): the plan may name tables forward
+        # retrieval missed — fetch their chunks by name and append, so the
+        # generator can actually join them.
+        schema_context = state["schema_context"]
+        if getattr(self, "_backward_linking", True):
+            planned = [t for t in (plan.get("tables") or [])
+                       if isinstance(t, str) and t.strip()]
+            ctx_low = schema_context.casefold()
+            missing = [t for t in planned if t.casefold() not in ctx_low]
+            if missing:
+                chunks = fetch_table_chunks(
+                    missing, getattr(self, "_db_name", "FYP"))
+                if chunks:
+                    recovered = [c["table_name"] for c in chunks]
+                    trace(f"  🔙 Backward-linked tables recovered: {recovered}")
+                    logger.info(f"[LINK] backward-linked: {recovered}")
+                    schema_context = (
+                        schema_context + "\n\n"
+                        + "\n\n".join(c["content"] for c in chunks)
+                    )
+
+        return {**state, "query_plan": plan, "schema_context": schema_context}
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
@@ -531,7 +587,8 @@ class OrchestrationAgent:
             best, vote_rows, vote_rows_sql = "", None, None
             if getattr(self, "_exec_voting", True) and len(sqls) > 1:
                 best, vote_rows, vote_rows_sql = self._vote_candidates(
-                    sqls, state["schema_context"])
+                    sqls, state["schema_context"],
+                    query=state.get("standalone_query") or state["user_query"])
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
                 trace(f"\n  🏆 Reranker selected:")
@@ -545,7 +602,9 @@ class OrchestrationAgent:
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
             return {**state, "generated_sqls": [], "best_sql": ""}
 
-        return {**state, "generated_sqls": sqls, "best_sql": best}
+        return {**state, "generated_sqls": sqls, "best_sql": best,
+                "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql,
+                "tier": tier}
 
     @staticmethod
     def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -568,7 +627,7 @@ class OrchestrationAgent:
         return "moderate"
 
     def _vote_candidates(
-        self, sqls: List[str], schema_context: str
+        self, sqls: List[str], schema_context: str, query: Optional[str] = None
     ) -> Tuple[str, Optional[list], Optional[str]]:
         """
         Execution-guided selection for the live pipeline: validate each
@@ -585,7 +644,8 @@ class OrchestrationAgent:
         group_run: Dict[frozenset, str] = {}
         executed = 0
         timeout_ms = getattr(self, "_stmt_timeout_ms", 15000)
-        for sql in sqls[: getattr(self, "_vote_max", 5)]:
+        capped = sqls[: getattr(self, "_vote_max", 5)]
+        for idx, sql in enumerate(capped):
             try:
                 if not self.validator.validate(sql, schema_context).get("valid"):
                     continue
@@ -601,11 +661,20 @@ class OrchestrationAgent:
                 groups.setdefault(fp, []).append(sql)
                 if fp not in group_rows:
                     group_rows[fp], group_run[fp] = rows, run_sql
-                # Early plurality (GH#41 cost bound): two candidates already
-                # agree — later candidates cannot overturn a 2-vote lead among
-                # ≤5 total without at best tying, and ties defer to consensus.
-                if len(groups[fp]) >= 2:
-                    trace("  🗳️  Execution vote: early plurality — remaining candidates skipped")
+                # Early plurality (GH#41 cost bound): stop ONLY when the current
+                # leader's lead is mathematically unassailable. Each remaining
+                # candidate can add at most one vote, and in the worst case they
+                # all pile onto the current runner-up, so a competitor can reach
+                # at most (second_best + remaining). Breaking merely at 2 votes
+                # would wrongly return a minority result set when later
+                # candidates agree on a larger plurality (e.g. [A,B,A,B,B]→B).
+                sizes = sorted((len(s) for s in groups.values()), reverse=True)
+                leader = sizes[0]
+                second = sizes[1] if len(sizes) > 1 else 0
+                remaining = len(capped) - (idx + 1)
+                if leader > second + remaining:
+                    trace("  🗳️  Execution vote: unassailable plurality — "
+                          "remaining candidates skipped")
                     break
             except Exception as exc:
                 logger.debug(f"[VOTE] candidate failed: {exc}")
@@ -629,8 +698,115 @@ class OrchestrationAgent:
             trace(f"  🗳️  Execution vote: tie broken toward non-empty result "
                   f"({len(groups[non_empty[0]])}/{executed})")
             return _win(non_empty[0])
+
+        # GH#48: genuinely inconclusive — unit-test screen + pairwise
+        # comparison beat both plurality and a rows-blind text reranker
+        # (CHASE-SQL ablation: pairwise > self-consistency by ~4 EX).
+        if query and getattr(self, "_selection", "pairwise") == "pairwise" and len(groups) >= 2:
+            fps = sorted(groups, key=lambda f: len(groups[f]), reverse=True)[:3]
+            if getattr(self, "_unit_tests", True) and len(fps) >= 2:
+                passing = self._unit_test_screen(query, fps, groups, group_rows)
+                if len(passing) == 1:
+                    trace("  🧪 Unit-test screen: single surviving result set")
+                    return _win(passing[0])
+                if len(passing) >= 2:
+                    fps = passing
+            winner_fp = self._pairwise_select(query, fps, groups, group_rows)
+            if winner_fp is not None:
+                trace("  ⚖️  Pairwise comparison selected the winner")
+                return _win(winner_fp)
+
         trace("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
         return "", None, None
+
+    # ── GH#48: unit-test screen + pairwise selection ───────────────────────
+
+    @staticmethod
+    def _describe_group(idx: int, fp, groups: Dict, group_rows: Dict) -> str:
+        sql = groups[fp][0]
+        rows = group_rows.get(fp) or []
+        sample = "\n".join(str(dict(r)) for r in rows[:5]) or "(0 rows)"
+        return (f"CANDIDATE {idx}:\nSQL:\n{sql}\n"
+                f"Result: {len(rows)} row(s), first {min(5, len(rows))}:\n{sample}")
+
+    def _unit_test_screen(
+        self, query: str, fps: list, groups: Dict, group_rows: Dict
+    ) -> list:
+        """
+        CHESS-style screen: derive the properties a correct result must have
+        (row grain, shape, plausibility) and drop candidate groups whose actual
+        rows violate them. One LLM call; on any failure returns all fps.
+        """
+        blocks = "\n\n".join(
+            self._describe_group(i + 1, fp, groups, group_rows)
+            for i, fp in enumerate(fps)
+        )
+        messages = [
+            SystemMessage(content=(
+                "You check SQL results against the question they must answer. "
+                "First derive 3-4 checks a correct result must satisfy: the row "
+                "GRAIN (one row per what? a scalar question has exactly one row), "
+                "the expected columns, entity values vs prose, plausible "
+                "magnitude. Then evaluate each candidate's ACTUAL rows against "
+                "the checks. Output ONLY a line 'PASS: <candidate numbers "
+                "comma-separated>' naming every candidate consistent with all "
+                "checks."
+            )),
+            HumanMessage(content=f"Question: {query}\n\n{blocks}"),
+        ]
+        try:
+            out = self._get_llm().invoke(messages).content
+            m = re.search(r"PASS:\s*([\d,\s]+)", out)
+            if not m:
+                return fps
+            picked = {int(t) for t in re.findall(r"\d+", m.group(1))}
+            passing = [fp for i, fp in enumerate(fps) if (i + 1) in picked]
+            trace(f"  🧪 Unit-test screen: {len(passing)}/{len(fps)} group(s) pass")
+            return passing or fps
+        except Exception as exc:
+            logger.warning(f"[SELECT] unit-test screen failed: {exc}")
+            return fps
+
+    def _pairwise_select(
+        self, query: str, fps: list, groups: Dict, group_rows: Dict
+    ):
+        """
+        CHASE-SQL-style round-robin: for each pair, ask which candidate answers
+        the question, judging SQL *and* actual result rows. Most wins takes it;
+        an unresolved tie returns None (caller falls back to the reranker).
+        """
+        if len(fps) < 2:
+            return fps[0] if fps else None
+        wins = {fp: 0 for fp in fps}
+        try:
+            for i in range(len(fps)):
+                for j in range(i + 1, len(fps)):
+                    a, b = fps[i], fps[j]
+                    messages = [
+                        SystemMessage(content=(
+                            "Two SQL candidates answer the same question. Judge "
+                            "which one is correct using BOTH the SQL logic and "
+                            "the actual result rows (grain, filters, evidence "
+                            "adherence). Answer with ONLY the single digit 1 "
+                            "or 2."
+                        )),
+                        HumanMessage(content=(
+                            f"Question: {query}\n\n"
+                            + self._describe_group(1, a, groups, group_rows)
+                            + "\n\n"
+                            + self._describe_group(2, b, groups, group_rows)
+                        )),
+                    ]
+                    out = self._get_llm().invoke(messages).content.strip()
+                    m = re.search(r"[12]", out)
+                    if m:
+                        wins[a if m.group() == "1" else b] += 1
+        except Exception as exc:
+            logger.warning(f"[SELECT] pairwise comparison failed: {exc}")
+            return None
+        best = max(wins.values())
+        top = [fp for fp, w in wins.items() if w == best]
+        return top[0] if len(top) == 1 else None
 
     def validate_sql(self, state: AgentState) -> AgentState:
         """Validation: syntax → safety → semantic checks."""
@@ -691,7 +867,7 @@ class OrchestrationAgent:
         """
         level = state.get("refine_level", 0) + 1
         trace("\n" + "─" * 70)
-        trace(f"🔁  NODE: refine_sql  (round {level}/{self.MAX_REFINE_ROUNDS})")
+        trace(f"🔁  NODE: refine_sql  (round {level}/{self._refine_limit(state)})")
         trace("─" * 70)
 
         # Build the observation the model must react to.
@@ -912,9 +1088,15 @@ class OrchestrationAgent:
             return "fallback_handler"
         return "generate_sql"
 
+    def _refine_limit(self, state: AgentState) -> int:
+        """Max ReAct refine rounds — deeper for the challenging tier (GH#49)."""
+        if state.get("tier") == "challenging":
+            return getattr(self, "_max_refine_challenging", 2)
+        return getattr(self, "_max_refine", self.MAX_REFINE_ROUNDS)
+
     def route_after_execution(self, state: AgentState) -> str:
-        """ReAct: refine once on an execution error or an empty result set."""
-        if state.get("refine_level", 0) >= self.MAX_REFINE_ROUNDS:
+        """ReAct: refine on an execution error or an empty result set."""
+        if state.get("refine_level", 0) >= self._refine_limit(state):
             return "format_response"
         rows = state.get("execution_result")
         has_error = bool(state.get("error"))
@@ -1081,6 +1263,7 @@ class OrchestrationAgent:
             "vote_rows_sql": None,
             "fallback_level": 0,
             "refine_level": 0,
+            "tier": None,
             "timings": {},
             "error": None,
         }

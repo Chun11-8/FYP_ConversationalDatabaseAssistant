@@ -75,3 +75,34 @@ class SchemaResponse(BaseModel):
     db_name: str
     table_count: int
     tables: List[SchemaTable]
+
+
+# ── Schema versioning / index sync (Issue #7) ──────────────────────────────
+
+class SchemaChange(BaseModel):
+    action: str            # add_table|drop_table|add_column|drop_column|modify_column
+    table: str
+    column: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class SchemaDiffResponse(BaseModel):
+    db_name: str
+    in_sync: bool
+    last_synced_at: Optional[str] = None
+    changes: List[SchemaChange] = Field(default_factory=list)
+    unindexed_tables: List[str] = Field(default_factory=list)
+
+
+class SchemaSyncRequest(BaseModel):
+    full: bool = False                       # re-embed every table (data changed)
+    tables: Optional[List[str]] = None       # restrict to these tables
+
+
+class SchemaSyncResponse(BaseModel):
+    db_name: str
+    schema_hash: str
+    changes_applied: List[SchemaChange] = Field(default_factory=list)
+    reembedded_tables: List[str] = Field(default_factory=list)
+    removed_tables: List[str] = Field(default_factory=list)
+    full: bool = False

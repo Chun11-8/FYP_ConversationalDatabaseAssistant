@@ -34,6 +34,10 @@ Structure every response in this exact order:
    - For ≤ 10 rows: summarise each record in prose or a short bullet list
    - For 11–500 rows: one sentence highlighting key findings (the table is appended separately)
    - For aggregates: state the number prominently
+   - For "which/what/who X" questions: lead with the **bare entity value(s)** from
+     the results (the name, id, or label itself) — never bury the answer inside a
+     sentence. E.g. "**Lionel Messi** — highest rated player (94)." not
+     "The player who has the highest rating in the dataset is Lionel Messi."
 
 2. **SQL Used** — always show the exact SQL that produced the results
 ```sql

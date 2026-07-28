@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { ChevronRight, ChevronDown, Key, Link, RefreshCw, Info } from 'lucide-react';
 import type { SchemaInfo, SchemaTable, SchemaColumn } from '../types';
-import { getSchema } from '../api/client';
+import { getSchema, getSchemaDiff, syncSchema } from '../api/client';
+import type { SchemaDiff, SchemaChange } from '../api/client';
 
 function ColumnRow({ col }: { col: SchemaColumn }) {
   const [showDesc, setShowDesc] = useState(false);
@@ -77,21 +78,123 @@ function TableRow({ table }: { table: SchemaTable }) {
   );
 }
 
+const CHANGE_META: Record<SchemaChange['action'], { label: string; cls: string }> = {
+  add_table:     { label: '+ table',  cls: 'chg-add' },
+  drop_table:    { label: '− table',  cls: 'chg-drop' },
+  add_column:    { label: '+ column', cls: 'chg-add' },
+  drop_column:   { label: '− column', cls: 'chg-drop' },
+  modify_column: { label: '~ type',   cls: 'chg-mod' },
+};
+
+function IndexSyncPanel({ onSynced }: { onSynced: () => void }) {
+  const [diff, setDiff] = useState<SchemaDiff | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const check = useCallback(() => {
+    setBusy(true); setErr(null); setMsg(null);
+    getSchemaDiff()
+      .then(setDiff)
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Check failed'))
+      .finally(() => setBusy(false));
+  }, []);
+
+  useEffect(() => { check(); }, [check]);
+
+  const runSync = (full: boolean) => {
+    setBusy(true); setErr(null); setMsg(null);
+    syncSchema(full)
+      .then((r) => {
+        const n = r.reembedded_tables.length, d = r.removed_tables.length;
+        setMsg(`Re-indexed ${n} table${n !== 1 ? 's' : ''}` +
+               (d ? `, removed ${d}` : '') + (full ? ' (full re-index)' : '') + '.');
+        onSynced();
+        check();
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Sync failed'))
+      .finally(() => setBusy(false));
+  };
+
+  const changeCount = (diff?.changes.length ?? 0) + (diff?.unindexed_tables.length ?? 0);
+
+  return (
+    <div className="sync-panel">
+      <div className="sync-header">
+        <div>
+          <span className="sync-title">Index Sync</span>
+          {diff && (
+            <span className={`sync-status ${diff.in_sync ? 'sync-ok' : 'sync-stale'}`}>
+              {diff.in_sync ? '✓ in sync' : `${changeCount} change${changeCount !== 1 ? 's' : ''}`}
+            </span>
+          )}
+        </div>
+        <button className="icon-btn" onClick={check} disabled={busy} title="Check for changes">
+          <RefreshCw size={13} className={busy ? 'spin' : ''} />
+        </button>
+      </div>
+
+      <p className="sync-hint">
+        Keep the assistant's knowledge in step with the live database. Detects
+        new/removed tables & columns and type changes.
+        {diff?.last_synced_at && ` Last synced: ${new Date(diff.last_synced_at).toLocaleString()}.`}
+      </p>
+
+      {err && <div className="db-tab-error">{err}</div>}
+      {msg && <div className="sync-success">{msg}</div>}
+
+      {diff && !diff.in_sync && (
+        <div className="sync-changes">
+          {diff.changes.map((c, i) => (
+            <div key={i} className="sync-change">
+              <span className={`chg-badge ${CHANGE_META[c.action].cls}`}>
+                {CHANGE_META[c.action].label}
+              </span>
+              <span className="chg-target">
+                {c.table}{c.column ? `.${c.column}` : ''}
+                {c.detail ? ` (${c.detail})` : ''}
+              </span>
+            </div>
+          ))}
+          {diff.unindexed_tables.map((t) => (
+            <div key={`u-${t}`} className="sync-change">
+              <span className="chg-badge chg-warn">unindexed</span>
+              <span className="chg-target">{t}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="sync-actions">
+        <button className="sync-btn sync-btn--primary" disabled={busy || !diff}
+                onClick={() => runSync(false)}>
+          Sync changes
+        </button>
+        <button className="sync-btn" disabled={busy || !diff}
+                onClick={() => runSync(true)}
+                title="Re-embed every table — use when table DATA changed (not just schema)">
+          Full re-index (data changed)
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DatabaseTab() {
   const [schema, setSchema] = useState<SchemaInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
     getSchema()
       .then(setSchema)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load schema'))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="db-tab">
@@ -122,6 +225,8 @@ export function DatabaseTab() {
           <button onClick={load}>Retry</button>
         </div>
       )}
+
+      {!loading && !error && <IndexSyncPanel onSynced={load} />}
 
       {schema && !loading && (
         <div className="schema-browser">

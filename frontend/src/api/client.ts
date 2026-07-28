@@ -138,3 +138,40 @@ export async function submitFeedback(
 export function downloadUrl(filename: string): string {
   return `${API_BASE}/download/${encodeURIComponent(filename)}`;
 }
+
+// ── Schema versioning / index sync (Issue #7) ──────────────────────────────
+
+export interface SchemaChange {
+  action: 'add_table' | 'drop_table' | 'add_column' | 'drop_column' | 'modify_column';
+  table: string;
+  column?: string | null;
+  detail?: string | null;
+}
+
+export interface SchemaDiff {
+  db_name: string;
+  in_sync: boolean;
+  last_synced_at: string | null;
+  changes: SchemaChange[];
+  unindexed_tables: string[];
+}
+
+export interface SchemaSyncResult {
+  db_name: string;
+  schema_hash: string;
+  changes_applied: SchemaChange[];
+  reembedded_tables: string[];
+  removed_tables: string[];
+  full: boolean;
+}
+
+export async function getSchemaDiff(): Promise<SchemaDiff> {
+  return request<SchemaDiff>('/schema/diff');
+}
+
+export async function syncSchema(full: boolean): Promise<SchemaSyncResult> {
+  return request<SchemaSyncResult>('/schema/sync', {
+    method: 'POST',
+    body: JSON.stringify({ full }),
+  });
+}

@@ -116,6 +116,23 @@ class TestVoteHardening:
         assert len(executed) == 2          # third candidate never ran
         assert rows == [{"name": "X"}] and run_sql == winner
 
+    def test_no_early_break_when_lead_is_beatable(self):
+        # Ordering [A,B,A,B,B]: a naive "break at 2 votes" returns A (2 votes),
+        # but B is the true plurality (3 votes). The lead is only unassailable
+        # once no remaining candidate can catch up, so voting must run to the end.
+        executed: list = []
+        sqls = ["SELECT name FROM t WHERE grp = 'A1'",   # → resA
+                "SELECT name FROM t WHERE grp = 'B1'",   # → resB
+                "SELECT name FROM t WHERE grp = 'A2'",   # → resA
+                "SELECT name FROM t WHERE grp = 'B2'",   # → resB
+                "SELECT name FROM t WHERE grp = 'B3'"]   # → resB
+        res = {"'A1'": [{"name": "a"}], "'A2'": [{"name": "a"}],
+               "'B1'": [{"name": "b"}], "'B2'": [{"name": "b"}], "'B3'": [{"name": "b"}]}
+        winner, rows, _ = self._run(_bare_agent(), sqls, res, executed)
+        assert rows == [{"name": "b"}]           # majority (3 votes) wins, not A (2)
+        assert winner in sqls[1::2]              # one of the B candidates
+        assert len(executed) == 5               # ran all — lead was never unassailable early
+
     def test_vote_max_caps_candidates(self):
         executed: list = []
         sqls = [f"SELECT name FROM t WHERE grp = 'g{i}'" for i in range(5)]

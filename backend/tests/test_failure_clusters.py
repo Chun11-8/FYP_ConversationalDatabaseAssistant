@@ -114,6 +114,21 @@ class TestPseudoFunctions:
         once = translate_pseudo_functions("SELECT SUBTRACT(a, b) FROM t")
         assert translate_pseudo_functions(once) == once
 
+    def test_divide_casts_numerator_to_real(self):
+        # Integer/integer division truncates in SQLite/Postgres; a REAL cast
+        # on the numerator preserves the fractional ratio BIRD evidence means.
+        out = translate_pseudo_functions("SELECT DIVIDE(male, total) FROM t")
+        assert out == "SELECT (CAST(male AS REAL) / total) FROM t"
+        # And it must remain idempotent (no double DIVIDE / re-cast pass).
+        assert translate_pseudo_functions(out) == out
+
+    def test_string_literal_with_pseudo_name_is_untouched(self):
+        # A value that merely contains 'Total(' / 'DIVIDE(' must NOT be rewritten.
+        sql = "SELECT name FROM t WHERE label = 'Grand Total(2020)'"
+        assert translate_pseudo_functions(sql) == sql
+        sql2 = "SELECT name FROM t WHERE note = 'use DIVIDE(a, b)'"
+        assert translate_pseudo_functions(sql2) == sql2
+
     def test_unbalanced_parens_left_untouched(self):
         sql = "SELECT SUBTRACT(a, b FROM t"
         assert translate_pseudo_functions(sql) == sql

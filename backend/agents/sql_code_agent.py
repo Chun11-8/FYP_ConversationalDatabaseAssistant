@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 import sqlglot
@@ -124,9 +125,30 @@ def _split_two_args(body: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def _mask_string_literals(sql: str) -> Tuple[str, List[str]]:
+    """Replace each 'string literal' with a paren-free sentinel; return (masked, literals)."""
+    literals: List[str] = []
+
+    def _repl(m: "re.Match") -> str:
+        literals.append(m.group(0))
+        return f"\x00L{len(literals) - 1}\x00"
+
+    return _STRING_LITERAL_SPLIT.sub(_repl, sql), literals
+
+
+def _unmask_string_literals(masked: str, literals: List[str]) -> str:
+    for idx, lit in enumerate(literals):
+        masked = masked.replace(f"\x00L{idx}\x00", lit)
+    return masked
+
+
 def translate_pseudo_functions(sql: str) -> str:
-    """Rewrite evidence pseudo-functions into real SQL operators (idempotent)."""
-    out = sql
+    """Rewrite evidence pseudo-functions into real SQL operators (idempotent).
+
+    String literals are masked out first so a value like ``'Grand Total(2020)'``
+    or ``'DIVIDE(x)'`` is never mistaken for a pseudo-function call.
+    """
+    out, _literals = _mask_string_literals(sql)
     for _ in range(20):  # bounded — each pass rewrites one call
         changed = False
         for name, op in _PSEUDO_OPS.items():
@@ -146,13 +168,20 @@ def translate_pseudo_functions(sql: str) -> str:
             if not args:
                 continue
             a, b = args[0].strip(), args[1].strip()
-            out = out[: m.start()] + f"({a} {op} {b})" + out[i:]
+            if name == "DIVIDE":
+                # Cast the numerator to REAL so integer/integer does not truncate
+                # (BIRD ratio evidence like DIVIDE(male, total) means a real
+                # quotient, e.g. 0.42 — not 0 from integer division).
+                replacement = f"(CAST({a} AS REAL) / {b})"
+            else:
+                replacement = f"({a} {op} {b})"
+            out = out[: m.start()] + replacement + out[i:]
             changed = True
         if not changed:
             break
     # Total(x) → SUM(x): evidence shorthand, not a portable SQL function.
     out = re.sub(r"\bTotal\s*\(", "SUM(", out, flags=re.IGNORECASE)
-    return out
+    return _unmask_string_literals(out, _literals)
 
 
 # ─────────────────────────────────────────────
@@ -166,6 +195,7 @@ def translate_pseudo_functions(sql: str) -> str:
 
 _BIRD_COL_RE = re.compile(r"^\s*-\s*([^:\n]+?):", re.MULTILINE)       # "  - aCL IgM: REAL"
 _CHUNK_COL_RE = re.compile(r"^\s{2}([A-Za-z][^(\n]*?)\s*\(", re.MULTILINE)  # "  aCL IgM (REAL"
+_MSCHEMA_COL_RE = re.compile(r"^\(([^:,)\n]+?):", re.MULTILINE)       # "(aCL IgM:REAL, …)"
 
 _STRING_LITERAL_SPLIT = re.compile(r"('(?:[^']|'')*')")
 
@@ -173,7 +203,7 @@ _STRING_LITERAL_SPLIT = re.compile(r"('(?:[^']|'')*')")
 def _special_schema_columns(schema_context: str) -> List[str]:
     """Schema column names containing non-word chars (spaces, hyphens, dots)."""
     names = set()
-    for pat in (_BIRD_COL_RE, _CHUNK_COL_RE):
+    for pat in (_BIRD_COL_RE, _CHUNK_COL_RE, _MSCHEMA_COL_RE):
         for m in pat.findall(schema_context or ""):
             name = m.strip()
             if name and re.search(r"[^\w]", name):
@@ -431,6 +461,39 @@ TIER_STRATEGIES: Dict[str, str] = {
     ),
 }
 
+# ─────────────────────────────────────────────
+# Reasoning-path diversity (GH#48, CHASE-SQL)
+# ─────────────────────────────────────────────
+# Temperature resamples of ONE prompt produce correlated errors — execution
+# voting then confidently agrees on the same wrong answer. Distinct reasoning
+# paths disagree in useful ways: the direct prompt, a divide-and-conquer
+# decomposition, and a query-execution-plan chain-of-thought each fail
+# differently, so the vote/selector has real signal to work with.
+
+PATH_STRATEGIES: Dict[str, str] = {
+    "divide_conquer": (
+        "STRATEGY (DIVIDE & CONQUER): solve by decomposition, in the answer text\n"
+        "BEFORE the final SQL block:\n"
+        "  1. Split the question into the smallest sub-questions.\n"
+        "  2. For each sub-question write a minimal sub-SELECT and state its\n"
+        "     GRAIN (one row per what?).\n"
+        "  3. Merge the sub-SELECTs into ONE final query (JOIN / IN / CASE-sum /\n"
+        "     CTE), re-checking the grain at every merge.\n"
+        "Then output the single merged query as the ONLY ```sql block."
+    ),
+    "query_plan": (
+        "STRATEGY (QUERY EXECUTION PLAN): reason like a database engine, in the\n"
+        "answer text BEFORE the final SQL block:\n"
+        "  1. SCAN: which tables, which columns.\n"
+        "  2. JOIN: the exact FK pairs connecting them.\n"
+        "  3. FILTER: every WHERE predicate, with literal values copied exactly.\n"
+        "  4. AGGREGATE: function + GROUP BY key (a PK, never a name column).\n"
+        "  5. SORT/LIMIT: only if the question asks for it.\n"
+        "Then output the query implementing exactly that plan as the ONLY\n"
+        "```sql block."
+    ),
+}
+
 
 # ─────────────────────────────────────────────
 # SQL Code Agent
@@ -462,6 +525,9 @@ class SQLCodeAgent:
             "moderate": int(tiers.get("moderate", self.top_k)),
             "challenging": int(tiers.get("challenging", 7)),
         }
+        # GH#48: reasoning-path-diverse candidates for moderate/challenging.
+        self._path_diversity = bool(
+            config.get("sql", {}).get("path_diversity", True))
 
     # ── Generation ──────────────────────────────
 
@@ -491,15 +557,19 @@ class SQLCodeAgent:
         # has no dynamic few-shots yet — they teach the JOIN/grain patterns.
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
+
+        # GH#48: for moderate/challenging, replace two direct candidates with one
+        # divide-and-conquer and one query-plan-CoT candidate — decorrelated
+        # errors give execution voting real signal. Simple tier keeps the single
+        # cheap direct call.
+        diverse = self._path_diversity and tier in ("moderate", "challenging")
+        n_direct = max(1, n - len(PATH_STRATEGIES)) if diverse else n
+
         prompt = self._build_prompt(query, schema_context, few_shots, history,
-                                    query_plan, tier=tier, n_candidates=n,
+                                    query_plan, tier=tier, n_candidates=n_direct,
                                     previous_sql=previous_sql)
 
         system_p = self._system_prompt()
-        messages = [
-            SystemMessage(content=system_p),
-            HumanMessage(content=prompt),
-        ]
 
         trace("\n  ┌─ LLM SYSTEM PROMPT (sql_code_agent) ─────────────────────")
         for line in system_p.splitlines():
@@ -509,14 +579,49 @@ class SQLCodeAgent:
             trace(f"  │ {line}")
         trace("  └───────────────────────────────────────────────────────────")
 
-        raw = self.llm.invoke(messages).content
+        def _invoke(p: str) -> str:
+            return self.llm.invoke([
+                SystemMessage(content=system_p), HumanMessage(content=p),
+            ]).content
 
-        trace("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
-        for line in raw.splitlines():
-            trace(f"  │ {line}")
-        trace("  └───────────────────────────────────────────────────────────")
-
-        sqls = self._extract_sqls(raw)
+        if diverse:
+            path_prompts = {
+                name: self._build_prompt(
+                    query, schema_context, few_shots, history, query_plan,
+                    tier=tier, n_candidates=1, previous_sql=previous_sql,
+                    strategy_override=block)
+                for name, block in PATH_STRATEGIES.items()
+            }
+            # The direct + path calls are independent I/O — run them concurrently.
+            with ThreadPoolExecutor(max_workers=1 + len(path_prompts)) as pool:
+                direct_f = pool.submit(_invoke, prompt)
+                path_fs = {name: pool.submit(_invoke, p)
+                           for name, p in path_prompts.items()}
+                raw = direct_f.result()
+                sqls = self._extract_sqls(raw)
+                tagged = [("direct", s) for s in sqls]
+                for name, f in path_fs.items():
+                    try:
+                        extra = self._extract_sqls(f.result())
+                    except Exception as exc:
+                        logger.warning(f"[SQL_GEN] {name} path failed: {exc}")
+                        continue
+                    # One candidate per extra path — first block wins.
+                    tagged += [(name, s) for s in extra[:1]]
+            sqls = [s for _, s in tagged]
+            for strat, s in tagged:
+                trace(f"  🧭 [{strat}] {' '.join(s.split())[:100]}")
+            logger.info("[SQL_GEN] path mix: "
+                        + ", ".join(f"{strat}×1" if strat != "direct" else
+                                    f"direct×{sum(1 for t, _ in tagged if t == 'direct')}"
+                                    for strat in dict.fromkeys(t for t, _ in tagged)))
+        else:
+            raw = _invoke(prompt)
+            trace("\n  ┌─ RAW LLM OUTPUT ──────────────────────────────────────────")
+            for line in raw.splitlines():
+                trace(f"  │ {line}")
+            trace("  └───────────────────────────────────────────────────────────")
+            sqls = self._extract_sqls(raw)
         # Deterministic repairs BEFORE dialect normalization: fix unescaped
         # apostrophes (Issue #21) and mangled space/hyphen column names, so the
         # sqlite transpile step receives parseable, schema-true SQL.
@@ -572,8 +677,9 @@ class SQLCodeAgent:
     # vote-winner / reranker default favours PK-grained candidates.
 
     _PK_PATTERNS = (
-        re.compile(r"-\s*(\w+):[^\n]*\[PK", re.IGNORECASE),   # bird.py schema format
-        re.compile(r"(\w+)\s*\([^)\n]*\[PK", re.IGNORECASE),  # embedding chunk format
+        re.compile(r"-\s*(\w+):[^\n]*\[PK", re.IGNORECASE),      # bird.py schema format
+        re.compile(r"(\w+)\s*\([^)\n]*\[PK", re.IGNORECASE),     # embedding chunk format
+        re.compile(r"\(\s*(\w+):[^,\n)]*,\s*Primary Key", re.IGNORECASE),  # M-Schema
     )
 
     def _grain_penalty(self, sql: str, schema_context: str) -> int:
@@ -664,13 +770,65 @@ class SQLCodeAgent:
                 penalty += 1
         return penalty
 
+    # ── Join-minimality demotion (Issue #50) ──────────────────────────────────
+    # A join that contributes no column anywhere OUTSIDE its own ON clause is
+    # pure risk: if the join key isn't fully referentially covered, an INNER
+    # JOIN silently drops otherwise-valid rows for no logical reason (BIRD
+    # q1189: joining `Patient` when every needed column already lives on
+    # `Examination` alone corrupted a COUNT via referential gaps). This is the
+    # inverse of _plan_penalty's missing-join check — here a table is present
+    # that the query never actually needed.
+
+    def _join_penalty(self, sql: str) -> int:
+        """+1 for each joined table whose columns are never referenced outside
+        its own ON clause (spurious join risk); 0 on parse failure / no joins."""
+        if not sql:
+            return 0
+        try:
+            ast = sqlglot.parse_one(sql, dialect=self.dialect)
+            joins = list(ast.find_all(sqlglot.exp.Join))
+            if not joins:
+                return 0
+
+            alias_map: Dict[str, str] = {}
+            for t in ast.find_all(sqlglot.exp.Table):
+                if not t.name:
+                    continue
+                real = t.name.lower()
+                alias_map[(t.alias or t.name).lower()] = real
+                alias_map[real] = real
+
+            def _resolve(col: sqlglot.exp.Column) -> Optional[str]:
+                key = (col.table or "").lower()
+                return alias_map.get(key, key) if key else None
+
+            penalty = 0
+            for j in joins:
+                table_node = j.this if isinstance(j.this, sqlglot.exp.Table) else None
+                if table_node is None or not table_node.name:
+                    continue
+                joined_table = table_node.name.lower()
+                on_ids = {id(c) for c in j.args.get("on").find_all(sqlglot.exp.Column)} \
+                    if j.args.get("on") is not None else set()
+                used_elsewhere = any(
+                    _resolve(c) == joined_table
+                    for c in ast.find_all(sqlglot.exp.Column)
+                    if id(c) not in on_ids
+                )
+                if not used_elsewhere:
+                    penalty += 1
+            return penalty
+        except Exception:
+            return 0
+
     def _order_candidates(
         self,
         sqls: List[str],
         schema_context: str,
         query_plan: Optional[dict] = None,
     ) -> List[str]:
-        """Stable-sort: plan-conforming, correctly-grained candidates first."""
+        """Stable-sort: plan-conforming, correctly-grained, minimally-joined
+        candidates first."""
         if len(sqls) < 2:
             return sqls
         return sorted(
@@ -678,6 +836,7 @@ class SQLCodeAgent:
             key=lambda s: (
                 self._grain_penalty(s, schema_context)
                 + self._plan_penalty(s, query_plan)
+                + self._join_penalty(s)
             ),
         )
 
@@ -731,6 +890,14 @@ class SQLCodeAgent:
             return repaired
         return sql
 
+    # NOTE (Issue #50): the "CAST the numerator AS REAL" rule below is a known,
+    # accepted source of a small number of BIRD gold mismatches — some gold SQL
+    # divides two integer aggregates with NO cast at all, which under SQLite
+    # truncates to integer division; our REAL cast produces the mathematically
+    # correct (but gold-mismatching) ratio in that minority of cases. This is
+    # judged net-positive: the same rule fixes the much larger, well-documented
+    # integer-division-truncation failure cluster elsewhere. Do not remove it to
+    # chase those few mismatches.
     def _build_prompt(
         self,
         query: str,
@@ -741,6 +908,7 @@ class SQLCodeAgent:
         tier: Optional[str] = None,
         n_candidates: Optional[int] = None,
         previous_sql: Optional[str] = None,
+        strategy_override: Optional[str] = None,
     ) -> str:
         few_shot_block = "\n\n".join(few_shots) if few_shots else "No examples available."
         history_block = "\n".join(
@@ -752,7 +920,8 @@ class SQLCodeAgent:
         plan_block = render_query_plan(query_plan)
         plan_section = f"\n{plan_block}\n" if plan_block else ""
         # Difficulty-adaptive strategy block (Issue #27); moderate/None → none.
-        strategy = TIER_STRATEGIES.get(tier or "")
+        # A reasoning-path override (GH#48) replaces the tier block entirely.
+        strategy = strategy_override or TIER_STRATEGIES.get(tier or "")
         strategy_section = f"\n{strategy}\n" if strategy else ""
         # GH#40: the session's last validated SQL — follow-ups usually REFINE it.
         prev_section = (
@@ -787,7 +956,16 @@ Target SQL dialect: {dialect}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.
-   (An evidence formula may instead define a FILTER — see Step 4.)
+   (An evidence formula may instead define a FILTER — see Step 4.) When the
+   formula computes the EXACT quantity the question asks for — "how many times
+   more/less", "ratio of", "percentage of", "difference in" — the formula IS the
+   SELECT expression itself; it is NOT a HAVING/WHERE threshold to satisfy and
+   NOT something to count occurrences of. Concrete trap: "how many times was X
+   more than Y" with evidence `DIVIDE(SUM(...X...), SUM(...Y...))` means
+   `SELECT SUM(...X...) / SUM(...Y...)` (one ratio number) — NOT
+   `SELECT COUNT(*) ... GROUP BY ... HAVING SUM(X) > SUM(Y)` (a count of groups
+   where a comparison holds); "how many times" here is idiomatic for a
+   multiplier, not a literal COUNT.
    Output shape: "full name refers to first_name, last_name" → TWO separate
    columns, never concatenated. Yes/no question → CASE WHEN ... THEN 1 ELSE 0
    (never 'Yes'/'No' strings). "List X and Y" → exactly those columns, DISTINCT

@@ -218,6 +218,16 @@ class TestEvidenceHandling:
         assert "nullif(" in joined                  # computed filter guarded
         assert "price / nullif" in joined
 
+    def test_evidence_formula_as_target_guidance_present(self):
+        # Issue #50 step 2: "how many times more" must not be reinterpreted as
+        # COUNT(*)/HAVING — the formula IS the SELECT expression.
+        agent = _agent("sqlite")
+        agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+        agent.generate(query="q", schema_context="s", few_shots=["x"], history=[])
+        sent = agent.llm.invoke.call_args[0][0][1].content
+        assert "how many times" in sent.lower()
+        assert "HAVING SUM(X) > SUM(Y)" in sent
+
     def test_regeneration_prompt_includes_evidence_from_question(self):
         agent = _agent("sqlite")
         agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")

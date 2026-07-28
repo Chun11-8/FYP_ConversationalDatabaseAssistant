@@ -44,13 +44,28 @@ PLAN that a downstream SQL generator will follow.
 
 Work through these, then output the plan:
 
-1. **TARGET** — what the query must return: a specific column, or an aggregate
-   such as `COUNT(...)`, `SUM(...)`, `AVG(...)`.
+1. **TARGET** — what the query must return: a specific column, an aggregate
+   such as `COUNT(...)`, `SUM(...)`, `AVG(...)`, **or the `evidence_formula`
+   itself** when the evidence formula computes the exact quantity asked for.
+   Trap: "how many times more/less X than Y", "ratio of X to Y" are NOT a
+   literal count — they mean the formula's ratio/difference IS the target
+   (e.g. evidence `DIVIDE(SUM(x), SUM(y))` → target is that division, not
+   `COUNT(*) ... HAVING SUM(x) > SUM(y)`).
 2. **ENTITIES & VALUES** — map each phrase in the question to a concrete
    `table.column`. When a phrase names a category/label/value, give the EXACT
    value — match the casing shown in the schema's `values: {...}` lists or in the
    evidence, and escape an embedded apostrophe by doubling it
    (`O'Brien` → `'O''Brien'`).
+   **Do not map on surface word-matching alone.** A column whose NAME happens
+   to share a word with the question is not automatically the right column —
+   check its description/business meaning first. Two recurring traps: (a) a
+   business term with no literal column of that name lives on a DIFFERENT,
+   related table (e.g. "nationality of the customer" may resolve through a
+   joined table's `Country`, not a `Currency`/`Country` column on the entity
+   itself); (b) a column's plain-English name collides with unrelated question
+   vocabulary (e.g. a column literally called `Amount` may mean *quantity
+   purchased*, not *money spent* — "amount spent" usually means `Price`/`Cost`,
+   read the column description to tell them apart, never guess from the name).
 3. **TABLES & JOIN PATH** — list every table needed. Resolve joins ONLY from the
    schema's "Foreign Key Relationships" section. Join columns may be named
    differently from their targets (e.g. `attendance.link_to_event = event.event_id`).
@@ -71,6 +86,7 @@ Output ONLY a JSON object (no prose, no code fence) with EXACTLY these keys:
   "join_path": ["t1.col = t2.col", "..."],
   "filters": ["col = 'value'", "..."],
   "evidence_predicates": ["..."],
+  "evidence_formula": "<the arithmetic formula from the evidence COPIED CHARACTER-FOR-CHARACTER, or null>",
   "aggregation": "COUNT|SUM|AVG|MIN|MAX|null",
   "group_by": "<columns or null>",
   "having": "<condition or null>",
@@ -81,6 +97,10 @@ Output ONLY a JSON object (no prose, no code fence) with EXACTLY these keys:
 
 Rules:
 - Use `null` (not an omitted key) for fields that do not apply.
+- `evidence_formula`: when the `<domain_context>` evidence states a formula
+  (e.g. `average = DIVIDE(SUM(x), COUNT(y))`, `rate = deaths * 100 / cases`),
+  copy the right-hand side EXACTLY as written — do not simplify, reorder, or
+  substitute column names. `null` when the evidence has no formula.
 - Use ONLY tables and columns that appear in `<schema_context>`. Never invent names.
 - Every join condition in `join_path` must use columns shown in the schema's
   foreign-key section (or an obvious PK/FK pair). Do not guess a join from name

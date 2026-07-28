@@ -494,6 +494,21 @@ def delete_database(conn: psycopg2.extensions.connection, db_name: str) -> None:
     print(f"[INFO] Deleted all chunks for database '{db_name}'")
 
 
+def delete_table_chunks(
+    conn: psycopg2.extensions.connection, db_name: str, table_name: str
+) -> int:
+    """Remove chunks for ONE table (Issue #7 surgical drop). Returns rows deleted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM schema_embeddings WHERE db_name = %s AND table_name = %s;",
+            (db_name, table_name),
+        )
+        n = cur.rowcount
+    conn.commit()
+    print(f"[INFO] Deleted {n} chunk(s) for {db_name}.{table_name}")
+    return n
+
+
 def get_stats(conn: psycopg2.extensions.connection) -> dict:
     """Return row counts for all embedding tables."""
     with conn.cursor() as cur:
