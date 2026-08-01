@@ -38,7 +38,7 @@ _DONE_STATES = {"succeeded", "failed", "cancelled"}
 def upload_file(client, path: str) -> str:
     """Upload a JSONL file for fine-tuning and return its file id."""
     with open(path, "rb") as f:
-        uploaded = client.files.create(file=f, purpose="fine-tuning")
+        uploaded = client.files.create(file=f, purpose="fine-tune")
     logger.info("Uploaded %s -> file id %s", path, uploaded.id)
     return uploaded.id
 
