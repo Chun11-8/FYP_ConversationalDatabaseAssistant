@@ -38,7 +38,7 @@ from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, FeedbackRequest, HealthResponse, SessionResponse,
     SchemaResponse, SessionSummary, SchemaDiffResponse, SchemaSyncRequest,
-    SchemaSyncResponse,
+    SchemaSyncResponse, ModelsResponse,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -176,6 +176,15 @@ def _get_agent() -> OrchestrationAgent:
     return _agent
 
 
+def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Optional[str]:
+    """Reject a model name outside the configured allow-list (GH#52)."""
+    if not req_model:
+        return None
+    if req_model not in agent.selectable_models:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {req_model!r}")
+    return req_model
+
+
 @app.middleware("http")
 async def _request_id_middleware(request, call_next):
     rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
@@ -221,13 +230,17 @@ def chat(req: ChatRequest) -> ChatResponse:
 
     If ``api_key`` is supplied in the request body it overrides the system
     default OpenAI key for this request only — it is never stored server-side.
+    ``model`` (GH#52) similarly overrides the LLM model for this request only;
+    it must be one of the models returned by ``GET /models``.
     """
     agent = _get_agent()
+    model = _validate_model(req.model, agent)
     try:
         result = agent.run(
             session_id=req.session_id,
             user_query=req.message,
             api_key=req.api_key or None,
+            model=model,
         )
     except Exception as exc:
         logger.exception("Agent error for session %s", req.session_id)
@@ -253,6 +266,9 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     Always ends with a terminal event — never a silently dropped connection.
     """
     agent = _get_agent()
+    # Validated before the worker thread starts (GH#52) so an unlisted model
+    # returns a synchronous HTTP 400 rather than a mid-stream `error` event.
+    model = _validate_model(req.model, agent)
     q: "queue.Queue[Optional[dict]]" = queue.Queue()
 
     def _cb(event_type: str, payload: Any) -> None:
@@ -270,6 +286,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 session_id=req.session_id,
                 user_query=req.message,
                 api_key=req.api_key or None,
+                model=model,
                 stage_callback=_cb,
             )
             _record_turn(result)
@@ -294,6 +311,13 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
 
     return StreamingResponse(_gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/models", response_model=ModelsResponse, tags=["chat"])
+def list_models() -> ModelsResponse:
+    """Models the frontend's per-request picker (GH#52) may choose from."""
+    agent = _get_agent()
+    return ModelsResponse(models=agent.selectable_models, default=agent.default_model)
 
 
 @app.get("/metrics-lite", tags=["ops"])

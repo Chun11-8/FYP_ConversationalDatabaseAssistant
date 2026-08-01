@@ -7,6 +7,12 @@ llm:
   # classification and response formatting. Absent → main model reused.
   # intent_model: gpt-4o-mini
   # format_model: gpt-4o-mini
+  # GH#52: models exposed to the frontend's per-request model picker. `model`
+  # above is always included even if omitted from this list.
+  selectable_models:
+    - gpt-4o-mini
+    - gpt-4o
+    - gpt-4.1-mini
 
 db:
   dialect: postgres

@@ -8,12 +8,14 @@ import { ChatInput } from './components/ChatInput';
 import { DatabaseTab } from './components/DatabaseTab';
 import {
   createSession, sendChat, sendChatStream, submitFeedback, listSessions, getHistory,
+  getModels,
 } from './api/client';
 import type { ChatApiResponse } from './api/client';
 
 const LS_API_KEY = 'db_assistant_api_key';
 const LS_SESSION_ID = 'db_assistant_session_id';
 const LS_MESSAGES = 'db_assistant_messages';
+const LS_MODEL = 'db_assistant_model';
 
 /** Human labels for pipeline stage events (GH#39). */
 const STAGE_LABELS: Record<string, string> = {
@@ -51,6 +53,9 @@ function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(LS_API_KEY) ?? '');
   const [stage, setStage] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState<string>('');
+  const [model, setModel] = useState<string>(() => localStorage.getItem(LS_MODEL) ?? '');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Persist API key to localStorage whenever it changes
@@ -61,6 +66,28 @@ function App() {
       localStorage.removeItem(LS_API_KEY);
     }
   }, [apiKey]);
+
+  // Persist the model choice only when it diverges from the fetched default —
+  // an untouched selection sends no override (GH#52), matching the api_key idiom.
+  useEffect(() => {
+    if (model && model !== defaultModel) {
+      localStorage.setItem(LS_MODEL, model);
+    } else {
+      localStorage.removeItem(LS_MODEL);
+    }
+  }, [model, defaultModel]);
+
+  // Fetch the selectable models once at startup; the picker stays hidden
+  // (ChatInput guards on models.length) if this fails — chat still works.
+  useEffect(() => {
+    getModels()
+      .then(({ models, default: def }) => {
+        setAvailableModels(models);
+        setDefaultModel(def);
+        setModel((prev) => (prev && models.includes(prev) ? prev : def));
+      })
+      .catch(() => { /* picker stays hidden; chat still works */ });
+  }, []);
 
   // Persist current session id + messages so a page refresh restores the chat
   useEffect(() => {
@@ -103,16 +130,20 @@ function App() {
     setIsLoading(true);
     setError(null);
 
+    // Only send a model override when it diverges from the fetched default
+    // (GH#52) — an untouched selection keeps the backend's fast path.
+    const modelOverride = model && model !== defaultModel ? model : undefined;
+
     try {
       // Streaming first (live stage progress); plain POST as fallback (GH#39).
       let result: ChatApiResponse;
       try {
         result = await sendChatStream(
-          sessionId, content, apiKey.trim() || undefined,
+          sessionId, content, apiKey.trim() || undefined, modelOverride,
           (e) => { if (e.type === 'stage') setStage(e.stage); },
         );
       } catch {
-        result = await sendChat(sessionId, content, apiKey.trim() || undefined);
+        result = await sendChat(sessionId, content, apiKey.trim() || undefined, modelOverride);
       }
       const botMsg: TextMessage = {
         id: uuidv4(),
@@ -137,7 +168,7 @@ function App() {
       setIsLoading(false);
       setStage(null);
     }
-  }, [sessionId, isLoading, apiKey, refreshSessions]);
+  }, [sessionId, isLoading, apiKey, model, defaultModel, refreshSessions]);
 
   const handleFeedback = useCallback(async (messageId: string, rating: 'up' | 'down') => {
     // Optimistic update — apply immediately, revert is not needed (feedback is best-effort)
@@ -302,7 +333,13 @@ function App() {
             </div>
           )}
 
-          <ChatInput onSend={handleSend} disabled={isLoading || !sessionId} />
+          <ChatInput
+            onSend={handleSend}
+            disabled={isLoading || !sessionId}
+            models={availableModels}
+            model={model || defaultModel}
+            onModelChange={setModel}
+          />
         </>
       )}
     </ChatLayout>

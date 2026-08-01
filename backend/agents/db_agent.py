@@ -147,6 +147,11 @@ class OrchestrationAgent:
         self._config = config
         self._model = config["llm"]["model"]
         self._default_api_key = config["llm"]["api_key"]
+        # GH#52: models the frontend's per-request picker may choose from.
+        # The configured default is always present, even if omitted from the list.
+        self._selectable_models = list(config["llm"].get("selectable_models") or [self._model])
+        if self._model not in self._selectable_models:
+            self._selectable_models.insert(0, self._model)
         self.llm = ChatOpenAI(
             model=self._model,
             temperature=0,
@@ -226,6 +231,18 @@ class OrchestrationAgent:
         self.tool_registry = ToolRegistry()
         self.tool_registry.register(WebSearchTool())
         self.graph = self._build_graph()
+
+    # ── Public read-only config surface for the API layer (GH#52) ──────────
+
+    @property
+    def selectable_models(self) -> List[str]:
+        """Models the frontend's per-request picker may choose from."""
+        return list(self._selectable_models)
+
+    @property
+    def default_model(self) -> str:
+        """The configured default LLM model."""
+        return self._model
 
     # ── Per-request LLM helpers (thread-safe via threading.local) ──────────
 
@@ -1200,12 +1217,16 @@ class OrchestrationAgent:
         return final["response"]
     """
     def run(self, session_id: str, user_query: str, api_key: str | None = None,
-            stage_callback=None) -> Dict[str, Any]:
+            model: str | None = None, stage_callback=None) -> Dict[str, Any]:
         """
         Run the full pipeline for one user turn.
 
         If ``api_key`` is provided it is used in place of the system default
-        OpenAI key for all LLM calls in this request (thread-safe).
+        OpenAI key for all LLM calls in this request (thread-safe). If
+        ``model`` is provided and differs from the configured default
+        (GH#52), it overrides the model used for all LLM calls in this
+        request the same way. Selecting the already-default model is a no-op
+        (no extra ``ChatOpenAI`` construction).
 
         Returns:
             {
@@ -1218,11 +1239,19 @@ class OrchestrationAgent:
             }
         """
         # Set up per-request LLM overrides in thread-local storage.
-        # Only branch when a custom key is actually provided; otherwise leave
-        # _tls untouched and read via getattr(..., self.attr) fallback.
-        use_custom_key = bool(api_key and api_key.strip())
-        if use_custom_key:
-            _tls.llm = ChatOpenAI(model=self._model, temperature=0, api_key=api_key)
+        # Only branch when a custom key/model is actually provided; otherwise
+        # leave _tls untouched and read via getattr(..., self.attr) fallback.
+        # Selecting the already-default model is treated as no override (GH#52)
+        # so the common case never pays for an extra ChatOpenAI construction.
+        has_override = bool(
+            (api_key and api_key.strip())
+            or (model and model.strip() and model != self._model)
+        )
+        if has_override:
+            _tls.llm = ChatOpenAI(
+                model=(model or self._model), temperature=0,
+                api_key=(api_key or self._default_api_key),
+            )
             _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
             _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)
@@ -1275,7 +1304,7 @@ class OrchestrationAgent:
             # Clear the per-request overrides so the thread can be reused cleanly.
             # Only needed when we set them.
             _tls.stage_cb = None
-            if use_custom_key:
+            if has_override:
                 _tls.llm = self.llm
                 _tls.intent_llm = self.intent_llm
                 _tls.sql_agent = self.sql_agent
@@ -1369,7 +1398,14 @@ class OrchestrationAgent:
         return "\n".join(lines)
 
     def _summarize_history(self, evicted_text: str, prior_summary: Optional[str]) -> str:
-        """LLM summarizer injected into SessionMemory for rolling context."""
+        """LLM summarizer injected into SessionMemory for rolling context.
+
+        Known limitation (GH#52, pre-existing for api_key too): this calls
+        self.llm directly rather than self._get_llm(), so a per-request
+        api_key/model override never reaches the rolling summarizer — it
+        always runs on the configured default. Accepted, not fixed here: this
+        runs off an eviction callback, not the per-turn request path.
+        """
         prompt = (
             "Compress the following earlier conversation turns into a concise "
             "context note (max 4 sentences) that preserves entities, filters, "

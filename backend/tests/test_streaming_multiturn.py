@@ -75,7 +75,7 @@ class TestStreamEndpoint:
         monkeypatch.setenv("PG_PASSWORD", "pw")
         mock_agent = MagicMock()
 
-        def fake_run(session_id, user_query, api_key=None, stage_callback=None):
+        def fake_run(session_id, user_query, api_key=None, model=None, stage_callback=None):
             stage_callback("stage", "classify_intent")
             stage_callback("stage", "generate_sql")
             stage_callback("sql", "SELECT 1")
