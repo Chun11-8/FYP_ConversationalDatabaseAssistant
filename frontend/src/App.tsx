@@ -256,6 +256,9 @@ function App() {
       onTabChange={setActiveTab}
       apiKey={apiKey}
       onApiKeyChange={setApiKey}
+      models={availableModels}
+      model={model || defaultModel}
+      onModelChange={setModel}
     >
       {error && (
         <div className="error-banner">
@@ -333,13 +336,7 @@ function App() {
             </div>
           )}
 
-          <ChatInput
-            onSend={handleSend}
-            disabled={isLoading || !sessionId}
-            models={availableModels}
-            model={model || defaultModel}
-            onModelChange={setModel}
-          />
+          <ChatInput onSend={handleSend} disabled={isLoading || !sessionId} />
         </>
       )}
     </ChatLayout>
