@@ -48,7 +48,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.eval.bird import extract_sqlite_schema, load_dev_json
+from backend.eval.bird import extract_sqlite_schema, load_dev_json, resolve_model
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--difficulty",
                         choices=["simple", "moderate", "challenging"], default=None,
                         help="LOCAL SMOKE ONLY: filter by difficulty (breaks official alignment)")
+    parser.add_argument("--model", default=None,
+                        help="Override config.yaml's llm.model for this run (any OpenAI model id)")
     args = parser.parse_args(argv)
 
     if args.subset is not None or args.difficulty is not None:
@@ -189,7 +191,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
 
     llm = ChatOpenAI(
-        model=config["llm"]["model"],
+        model=resolve_model(args.model, config),
         temperature=0,
         api_key=config["llm"]["api_key"],
     )

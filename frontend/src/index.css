@@ -851,16 +851,23 @@ body, html, #root {
   cursor: not-allowed;
 }
 
-/* ── Model picker (Issue #52) ────────────────────────────────────────────── */
+.input-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding-bottom: 0.75rem;
+  text-align: center;
+}
 
-.input-footer {
-  width: 100%;
-  max-width: var(--chat-max-width);
+/* ── Sidebar spacer + Model picker + API Key section ─────────────────────── */
+
+/* Model picker (Issue #52) — sits directly above the API Key section as a
+   peer settings row, not a small pill under the input box. */
+
+.model-section {
+  padding-top: 0.75rem;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  position: relative;
+  flex-direction: column;
+  gap: 0.375rem;
 }
 
 .model-picker {
@@ -868,32 +875,32 @@ body, html, #root {
 }
 
 .model-picker-trigger {
-  display: inline-flex;
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.1875rem 0.5rem;
-  border-radius: 9999px;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.5rem;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
-  background: rgba(255,255,255,0.04);
-  color: var(--text-secondary);
-  font-size: 0.6875rem;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
   font-family: inherit;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  transition: border-color 0.15s;
 }
 
-.model-picker-trigger:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--border-light);
+.model-picker-trigger:hover,
+.model-picker-trigger[aria-expanded="true"] {
+  border-color: var(--border-strong);
 }
 
 .model-picker-menu {
   position: absolute;
   bottom: calc(100% + 0.375rem);
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 9rem;
+  left: 0;
+  right: 0;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
@@ -924,15 +931,6 @@ body, html, #root {
   color: var(--accent);
   font-weight: 500;
 }
-
-.input-hint {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  padding-bottom: 0.75rem;
-  text-align: center;
-}
-
-/* ── Sidebar spacer + API Key section ───────────────────────────────────── */
 .sidebar-spacer { flex: 1; }
 
 .api-key-section {
