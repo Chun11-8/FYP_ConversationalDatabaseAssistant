@@ -49,6 +49,10 @@ META_TIMEOUT="${META_TIMEOUT:-30.0}"
 # Skip prediction generation and only re-score an existing PRED_FILE (1 = skip).
 SKIP_GENERATE="${SKIP_GENERATE:-0}"
 
+# Optional: override config.yaml's llm.model for this run, e.g.
+#   MODEL=gpt-4o bash backend/eval/run_bird.sh
+MODEL="${MODEL:-}"
+
 EVAL_DIR="${MINI_DEV_REPO}/evaluation"
 
 # ── Sanity checks ──────────────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ echo "  databases    : $DB_ROOT"
 echo "  gold sql     : $GOLD_SQL"
 echo "  predictions  : $PRED_FILE"
 echo "  eval logs    : $EVAL_OUT_DIR"
+echo "  model        : ${MODEL:-<config.yaml default>}"
 echo "──────────────────────────────────────────────────────────────────────────"
 
 # ── 1. Generate predictions with our system ────────────────────────────────────
@@ -85,7 +90,8 @@ else
     python -m backend.eval.bird_predict \
         --questions "$QUESTIONS" \
         --db-dir    "$DB_ROOT" \
-        --output    "$PRED_FILE"
+        --output    "$PRED_FILE" \
+        ${MODEL:+--model "$MODEL"}
 fi
 
 # ── 2. Score with the official BIRD scripts (EX, F1, VES) ───────────────────────

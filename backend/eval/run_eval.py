@@ -180,9 +180,14 @@ def run_eval(
     unanswerable: List[Dict],
     db_name: str,
     session_prefix: str,
+    model: Optional[str] = None,
 ) -> List[Dict]:
     """
     Run the full evaluation and return a list of per-question result dicts.
+
+    ``model``, when given, overrides the agent's configured default LLM model
+    for every turn — reuses OrchestrationAgent.run()'s existing per-request
+    override (GH#52), no extra plumbing needed.
     """
     results: List[Dict] = []
 
@@ -198,7 +203,7 @@ def run_eval(
         t0 = time.perf_counter()
 
         try:
-            agent_result = agent.run(session_id=session_id, user_query=question)
+            agent_result = agent.run(session_id=session_id, user_query=question, model=model)
         except Exception as e:
             logger.error(f"[EVAL] agent.run failed for {qid}: {e}")
             agent_result = {"response": "", "sql": None, "intent": "", "validation": {}, "row_count": None, "csv_path": None}
@@ -232,7 +237,7 @@ def run_eval(
         t0 = time.perf_counter()
 
         try:
-            agent_result = agent.run(session_id=session_id, user_query=question)
+            agent_result = agent.run(session_id=session_id, user_query=question, model=model)
         except Exception as e:
             logger.error(f"[EVAL] agent.run failed for {qid}: {e}")
             agent_result = {"response": "", "sql": None, "intent": "", "validation": {}, "row_count": None, "csv_path": None}
@@ -326,6 +331,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="PostgreSQL database name (default: FYP)")
     parser.add_argument("--session-prefix", default=None,
                         help="Prefix for synthetic session IDs (default: eval-<uuid>)")
+    parser.add_argument("--model", default=None,
+                        help="Override config.yaml's llm.model for this run (any OpenAI model id)")
     args = parser.parse_args(argv)
 
     session_prefix = args.session_prefix or f"eval-{uuid.uuid4().hex[:8]}"
@@ -342,7 +349,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     logger.info(f"Ground truth: {len(ground_truth)} questions | Unanswerable: {len(unanswerable)}")
 
-    results = run_eval(agent, ground_truth, unanswerable, args.db, session_prefix)
+    results = run_eval(agent, ground_truth, unanswerable, args.db, session_prefix, model=args.model)
     metrics = compute_metrics(results)
 
     write_csv(results, args.output)

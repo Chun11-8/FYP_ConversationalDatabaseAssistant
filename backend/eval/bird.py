@@ -67,6 +67,24 @@ from backend.eval.error_analysis import categorize, summarize
 logger = logging.getLogger(__name__)
 
 
+def resolve_model(cli_value: Optional[str], config: dict) -> str:
+    """CLI --model wins when set (and non-blank); else config.yaml's llm.model.
+
+    Any model id is accepted — this is a research CLI, not the public chat
+    API, so we don't hard-block on config.yaml's llm.selectable_models (that
+    allow-list exists to stop untrusted frontend input, not to constrain a
+    user running their own eval). A model outside the list just gets a
+    heads-up warning in case it's a typo.
+    """
+    model = (cli_value or "").strip() or config["llm"]["model"]
+    selectable = config["llm"].get("selectable_models") or []
+    if selectable and model not in selectable:
+        logger.warning(
+            "[EVAL] model %r is not in config.yaml's llm.selectable_models "
+            "%s — proceeding anyway.", model, selectable)
+    return model
+
+
 # ── Schema extraction ──────────────────────────────────────────────────────────
 
 # Value-grounding limits (Issue #19): show the actual distinct values of a
@@ -798,6 +816,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Disable execution-guided candidate voting for A/B comparison")
     parser.add_argument("--no-refine", action="store_true",
                         help="Disable the one-round ReAct refine on failure for A/B comparison")
+    parser.add_argument("--model", default=None,
+                        help="Override config.yaml's llm.model for this run (any OpenAI model id)")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
@@ -810,8 +830,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Override dialect to sqlite so the agent and validator target SQLite syntax
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
 
+    model_name = resolve_model(args.model, config)
     llm = ChatOpenAI(
-        model=config["llm"]["model"],
+        model=model_name,
         temperature=0,
         api_key=config["llm"]["api_key"],
     )
@@ -847,7 +868,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     metrics = compute_bird_metrics(results)
     run_config = {
-        "model": config["llm"]["model"],
+        "model": model_name,
         "dialect": "sqlite",
         "schema_linking": bool(linker),
         "exec_voting": use_voting,
