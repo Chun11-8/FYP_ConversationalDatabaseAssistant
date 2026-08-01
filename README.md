@@ -171,7 +171,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
 │   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
-│   ├── tests/                          # ~580 unit/integration tests (offline)
+│   ├── tests/                          # ~630 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -269,6 +269,10 @@ Non-secret settings live here; edit as needed:
 ```yaml
 llm:
   model: gpt-4o-mini          # OpenAI model used for all LLM calls
+  selectable_models:          # models offered by the frontend's model picker
+    - gpt-4o-mini
+    - gpt-4o
+    - gpt-4.1-mini
 
 db:
   dialect: postgres
@@ -480,7 +484,9 @@ Sends a user message and returns a structured response.
 | `timings` | object | Per-stage wall-clock ms |
 
 An optional `api_key` may be included in the request body to use a per-request
-OpenAI key instead of the server default.
+OpenAI key instead of the server default. An optional `model` field similarly
+overrides the LLM model for that request only — it must be one of the models
+returned by `GET /models`; an unrecognized value returns `400`.
 
 ---
 
@@ -496,6 +502,20 @@ data: {"type": "done", "response": "...", "sql": "...", ...}   ← same fields a
 ```
 
 A terminal `done` (or `error`) event always closes the stream.
+
+---
+
+### `GET /models`
+
+Returns the models the per-request picker (sidebar) may choose from.
+
+**Response**
+```json
+{
+  "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+  "default": "gpt-4o-mini"
+}
+```
 
 ---
 
@@ -588,6 +608,7 @@ The React frontend provides a dark-minimal chat interface:
 | **Database tab** | Browse tables/columns with descriptions and value hints |
 | **Index Sync panel** | Detect schema/data changes and re-index (surgical or full) from the UI |
 | **Feedback** | Thumbs up/down per assistant turn |
+| **Model picker** | Sidebar row (above the OpenAI API Key section) to switch the per-request LLM model |
 
 ---
 
@@ -625,12 +646,16 @@ refinement, and schema linking as toggles for A/B runs.
 # End-to-end BIRD run (predictions + official EX/F1/VES scoring)
 bash backend/eval/run_bird.sh
 
+# Override the model for this run (any OpenAI model id, not just the
+# frontend's allow-list — see backend/eval/bird.py::resolve_model)
+MODEL=gpt-4o bash backend/eval/run_bird.sh
+
 # Or the lightweight ground-truth harness on your own labelled set
-python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP
+python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP --model gpt-4o
 ```
 
 Research-backed techniques implemented to raise accuracy **without a stronger
-model** (all config-gated) — see GitHub issues #48/#49:
+model** (all config-gated) — see GitHub issues #48/#49/#50:
 
 | Technique | Targets | Source |
 |---|---|---|
@@ -640,6 +665,9 @@ model** (all config-gated) — see GitHub issues #48/#49:
 | Backward schema linking | broken ≥3-table joins | RSL-SQL |
 | Verbatim evidence formula in the plan | evidence paraphrase | TA-SQL |
 | M-Schema compact schema format | schema legibility | XiYan-SQL |
+| Join-minimality demotion | spurious joins silently dropping rows | GH#50 |
+| Evidence-target guidance | evidence formulas misread as filters instead of the SELECT target | GH#50 |
+| Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
 
 ---
 
@@ -657,9 +685,10 @@ model** (all config-gated) — see GitHub issues #48/#49:
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~580 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | ~630 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
-| #48–49 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
+| #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
+| #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |
 | #12 | Knowledge Graph (LlamaIndex) | 🔮 Deferred | Not started |
 
 ---
@@ -669,7 +698,7 @@ model** (all config-gated) — see GitHub issues #48/#49:
 **Remaining work**
 - [ ] Issue #6 — User isolation, roles, JWT auth (read-only DB role already landed)
 - [ ] GitHub Actions CI wired to the test suite
-- [ ] BIRD 3-tier A/B rerun to quantify the #48/#49 accuracy techniques
+- [ ] BIRD 3-tier A/B rerun to quantify the #48–50 accuracy techniques
 - [ ] Issue #12 — Knowledge Graph via LlamaIndex (deferred)
 
 ---
