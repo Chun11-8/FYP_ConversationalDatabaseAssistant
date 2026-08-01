@@ -15,6 +15,12 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(..., min_length=1)
     api_key: Optional[str] = Field(None, description="Override the default OpenAI key for this request")
+    model: Optional[str] = Field(None, description="Override the default LLM model for this request")
+
+
+class ModelsResponse(BaseModel):
+    models: List[str]
+    default: str
 
 
 class ChatResponse(BaseModel):

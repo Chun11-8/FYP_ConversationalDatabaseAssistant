@@ -54,6 +54,7 @@ export async function sendChatStream(
   sessionId: string,
   message: string,
   apiKey: string | undefined,
+  model: string | undefined,
   onEvent: (e: StreamEvent) => void,
 ): Promise<ChatApiResponse> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
@@ -63,6 +64,7 @@ export async function sendChatStream(
       session_id: sessionId,
       message,
       ...(apiKey ? { api_key: apiKey } : {}),
+      ...(model ? { model } : {}),
     }),
   });
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -95,6 +97,7 @@ export async function sendChat(
   sessionId: string,
   message: string,
   apiKey?: string,
+  model?: string,
 ): Promise<ChatApiResponse> {
   return request<ChatApiResponse>('/chat', {
     method: 'POST',
@@ -102,6 +105,7 @@ export async function sendChat(
       session_id: sessionId,
       message,
       ...(apiKey ? { api_key: apiKey } : {}),
+      ...(model ? { model } : {}),
     }),
   });
 }
@@ -116,6 +120,17 @@ export async function listSessions(): Promise<SessionSummary[]> {
 
 export async function getSchema(): Promise<SchemaInfo> {
   return request<SchemaInfo>('/schema');
+}
+
+// ── Model selector (Issue #52) ─────────────────────────────────────────────
+
+export interface ModelsInfo {
+  models: string[];
+  default: string;
+}
+
+export async function getModels(): Promise<ModelsInfo> {
+  return request<ModelsInfo>('/models');
 }
 
 export async function submitFeedback(

@@ -851,6 +851,80 @@ body, html, #root {
   cursor: not-allowed;
 }
 
+/* ── Model picker (Issue #52) ────────────────────────────────────────────── */
+
+.input-footer {
+  width: 100%;
+  max-width: var(--chat-max-width);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  position: relative;
+}
+
+.model-picker {
+  position: relative;
+}
+
+.model-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.model-picker-trigger:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.model-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 9rem;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  z-index: 20;
+}
+
+.model-picker-option {
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.model-picker-option:hover { background-color: var(--bg-hover); color: var(--text-primary); }
+
+.model-picker-option--active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .input-hint {
   font-size: 0.6875rem;
   color: var(--text-muted);
