@@ -658,7 +658,9 @@ The React frontend provides a dark-minimal chat interface:
 | **New chat** | Starts a fresh session from the sidebar button |
 | **Responsive layout** | Collapsible sidebar on mobile screens |
 | **Live streaming stages** | Pipeline stage labels update in real time over SSE (falls back to `/chat`) |
-| **Records panel** | First 10 result rows inline, the rest behind a toggle; cache-hit chip |
+| **Records panel** | First 10 result rows inline, the rest behind a toggle |
+| **Cache chip** | Marks a turn answered from the semantic cache rather than regenerated |
+| **Cost chip** | Per-turn LLM calls, tokens and estimated USD; hover for the per-stage breakdown. A reused answer reads `0 LLM calls` |
 | **Database tab** | Browse tables/columns with descriptions and value hints |
 | **Index Sync panel** | Detect schema/data changes and re-index (surgical or full) from the UI |
 | **Feedback** | Thumbs up/down per assistant turn |
@@ -783,8 +785,6 @@ previous behavior exactly.
 - [ ] BIRD rerun with `sql.fast_path` / `sql.answer_reuse` on vs. off — EX must be
       unchanged (GH#57 is accuracy-neutral by design); the new `cost_usd` metric
       shows the saving
-- [ ] Surface the per-turn `usage` block in the frontend — the API returns tokens
-      and estimated cost, but the UI does not display them yet
 - [ ] Issue #12 — Knowledge Graph via LlamaIndex (deferred)
 
 ---

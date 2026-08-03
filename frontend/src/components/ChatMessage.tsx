@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import type { Message, TextMessage } from '../types';
+import type { Message, TextMessage, TurnUsage } from '../types';
 import { downloadUrl } from '../api/client';
 
 interface ChatMessageProps {
@@ -90,6 +90,47 @@ function IntentBadge({ intent }: { intent: string }) {
   return <span className={`intent-badge ${entry.cls}`}>{entry.label}</span>;
 }
 
+/** "Cached" chip — this turn reused a past validated query instead of generating. */
+function CacheChip() {
+  return (
+    <span className="meta-chip meta-chip--cache" title="Answered from the semantic cache — the stored SQL was re-validated and re-executed, not regenerated">
+      <Zap size={11} />
+      Cached
+    </span>
+  );
+}
+
+/**
+ * Token/cost chip (GH#57). Zero LLM calls is the interesting case — it means the
+ * cached answer was reused because the rows hadn't changed — so it gets its own
+ * label rather than reading as a suspicious "$0.000000".
+ */
+function UsageChip({ usage }: { usage: TurnUsage }) {
+  const tokens = usage.input_tokens + usage.output_tokens;
+  const detail = Object.entries(usage.by_stage ?? {})
+    .sort((a, b) => b[1].input_tokens + b[1].output_tokens - (a[1].input_tokens + a[1].output_tokens))
+    .map(([stage, s]) => `${stage}: ${(s.input_tokens + s.output_tokens).toLocaleString()} tok`)
+    .join('\n');
+
+  if (usage.calls === 0) {
+    return (
+      <span className="meta-chip meta-chip--free" title="No LLM calls — the stored answer was reused because the rows were unchanged">
+        0 LLM calls
+      </span>
+    );
+  }
+  return (
+    <span
+      className="meta-chip"
+      title={`${usage.calls} LLM call${usage.calls !== 1 ? 's' : ''}, ` +
+             `${usage.input_tokens.toLocaleString()} in / ${usage.output_tokens.toLocaleString()} out` +
+             (detail ? `\n\n${detail}` : '')}
+    >
+      {usage.calls} call{usage.calls !== 1 ? 's' : ''} · {tokens.toLocaleString()} tok · ${usage.est_cost_usd.toFixed(4)}
+    </span>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -161,6 +202,8 @@ function AssistantMessage({
           {/* Metadata row: intent badge · timestamp */}
           <div className="msg-meta">
             {message.intent && <IntentBadge intent={message.intent} />}
+            {message.cache_hit && <CacheChip />}
+            {message.usage && <UsageChip usage={message.usage} />}
             <span className="msg-time">{formatTime(message.timestamp)}</span>
           </div>
 

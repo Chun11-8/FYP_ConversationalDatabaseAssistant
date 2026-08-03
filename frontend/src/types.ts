@@ -23,8 +23,24 @@ export interface TextMessage extends BaseMessage {
   turn_id?: number | null;
   /** Answered from the semantic cache (no generation) */
   cache_hit?: boolean;
+  /** LLM tokens + estimated cost for this turn (GH#57) */
+  usage?: TurnUsage | null;
   /** Feedback the user submitted for this message ('up' | 'down' | null) */
   feedback?: 'up' | 'down' | null;
+}
+
+/** Per-turn LLM accounting, as returned by /chat and /chat/stream. */
+export interface TurnUsage {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  est_cost_usd: number;
+  by_stage?: Record<string, {
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    est_cost_usd: number;
+  }>;
 }
 
 export type Message = TextMessage;
