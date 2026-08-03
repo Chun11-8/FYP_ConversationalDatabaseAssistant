@@ -202,6 +202,10 @@ class OrchestrationAgent:
             _sql.get("max_refine_rounds_challenging", 2))
         self._cache_shortcut = bool(_sql.get("cache_shortcut", True))
         self._cache_hit_threshold = float(_sql.get("cache_hit_threshold", 0.03))
+        # DAIL-SQL-style few-shot selection: blend structural-shape overlap
+        # into embedding-distance ranking (see backend.memory.skeleton).
+        self._fewshot_skeleton_blend = bool(_sql.get("fewshot_skeleton_blend", True))
+        self._fewshot_skeleton_weight = float(_sql.get("fewshot_skeleton_weight", 0.3))
         # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
         # ask ONE clarifying question on AMBIGUOUS instead of burning the full
         # generation pipeline first.
@@ -482,11 +486,25 @@ class OrchestrationAgent:
     def _retrieve_few_shots(
         self, user_query: str, embedding: Optional[List[float]] = None
     ) -> List[str]:
-        """Pull similar cached pairs as few-shot examples (never raises)."""
+        """Pull similar cached pairs as few-shot examples (never raises).
+
+        When ``sql.fewshot_skeleton_blend`` is on (default), candidates are
+        reranked by structural-shape overlap against the question in
+        addition to embedding distance (GH#48-50 companion — see
+        backend.memory.skeleton / SemanticCache.retrieve_few_shots_blended).
+        """
         try:
-            few_shots = self.semantic_cache.retrieve_few_shots(
-                user_query, top_k=3, embedding=embedding
-            )
+            if getattr(self, "_fewshot_skeleton_blend", True):
+                from backend.memory.skeleton import question_shape_signature
+                few_shots = self.semantic_cache.retrieve_few_shots_blended(
+                    user_query, question_shape_signature(user_query), top_k=3,
+                    embedding=embedding,
+                    blend_weight=getattr(self, "_fewshot_skeleton_weight", 0.3),
+                )
+            else:
+                few_shots = self.semantic_cache.retrieve_few_shots(
+                    user_query, top_k=3, embedding=embedding
+                )
             if few_shots:
                 logger.info(f"[CACHE] Injected {len(few_shots)} few-shot example(s).")
             return few_shots

@@ -64,6 +64,12 @@ sql:
   # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
   cache_shortcut: true
   cache_hit_threshold: 0.03
+  # DAIL-SQL-style few-shot selection: blend structural-shape overlap
+  # (aggregation type, GROUP BY, joins, superlative shape) with embedding
+  # distance when picking few-shot examples, instead of pure embedding
+  # distance. weight=0 reduces to the old pure-embedding ranking.
+  fewshot_skeleton_blend: true
+  fewshot_skeleton_weight: 0.3
   # GH#40 multi-turn: condense anaphoric follow-ups into standalone questions
   # before retrieval, and ask ONE clarifying question on AMBIGUOUS intent
   # instead of running the full generation pipeline first.
