@@ -366,8 +366,17 @@ class SemanticCache:
         top_k: int = 3,
         group_id: Optional[str] = None,
         embedding: Optional[List[float]] = None,
+        skeleton_pool_multiplier: int = 1,
     ) -> List[dict]:
-        """Return the top-k most similar active pairs as dicts with distances."""
+        """
+        Return the top-k most similar active pairs as dicts with distances.
+
+        ``skeleton_pool_multiplier`` > 1 fetches a wider candidate pool
+        (top_k * multiplier) instead of exactly top_k — used by
+        retrieve_few_shots_blended() to have a real pool to rerank by
+        structural-shape overlap rather than reshuffling an
+        already-truncated top-k.
+        """
         if not self._enabled:
             return []
         if embedding is None:
@@ -379,6 +388,7 @@ class SemanticCache:
 
         lit = _to_vector_literal(embedding)
         group_clause, params_filter = self._group_filter(group_id)
+        pool_size = max(1, top_k) * max(1, skeleton_pool_multiplier)
 
         conn = self._connect()
         try:
@@ -392,7 +402,7 @@ class SemanticCache:
                     ORDER BY distance ASC
                     LIMIT %s;
                     """,
-                    (lit, *params_filter, top_k),
+                    (lit, *params_filter, pool_size),
                 )
                 rows = cur.fetchall()
         except Exception as exc:
@@ -440,3 +450,46 @@ class SemanticCache:
         if max_distance is not None:
             pairs = [p for p in pairs if p["distance"] is not None and p["distance"] <= max_distance]
         return [_format_few_shot(p["user_query"], p["sql"]) for p in pairs]
+
+    def retrieve_few_shots_blended(
+        self,
+        query: str,
+        question_shape,
+        top_k: int = 3,
+        group_id: Optional[str] = None,
+        max_distance: Optional[float] = None,
+        embedding: Optional[List[float]] = None,
+        blend_weight: float = 0.3,
+        pool_multiplier: int = 3,
+    ) -> List[str]:
+        """
+        DAIL-SQL-style blended few-shot selection (GH#48-50 companion):
+        rerank a wider embedding-distance candidate pool by structural-shape
+        overlap (backend.memory.skeleton) against ``question_shape`` — a
+        frozenset from skeleton.question_shape_signature(user_query),
+        computed by the caller since it has no SQL dependency here.
+
+        ``blend_weight=0`` degrades to exactly retrieve_few_shots()'s
+        ranking (embedding distance only) — the config-off / regression-safe
+        path. Never raises; any failure here should fall back to the plain
+        method at the call site.
+        """
+        from backend.memory.skeleton import sql_skeleton, skeleton_overlap
+
+        pairs = self.retrieve_pairs(
+            query, top_k=top_k, group_id=group_id, embedding=embedding,
+            skeleton_pool_multiplier=pool_multiplier,
+        )
+        if max_distance is not None:
+            pairs = [p for p in pairs if p["distance"] is not None and p["distance"] <= max_distance]
+        if not pairs:
+            return []
+
+        def _score(p: dict) -> float:
+            distance = p["distance"] if p["distance"] is not None else 1.0
+            embed_sim = 1.0 - min(max(distance, 0.0), 1.0)
+            shape_sim = skeleton_overlap(question_shape, sql_skeleton(p["sql"]))
+            return (1 - blend_weight) * embed_sim + blend_weight * shape_sim
+
+        ranked = sorted(pairs, key=_score, reverse=True)[:top_k]
+        return [_format_few_shot(p["user_query"], p["sql"]) for p in ranked]
