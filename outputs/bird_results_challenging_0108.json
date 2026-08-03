@@ -1,0 +1,2796 @@
+{
+  "run_config": {
+    "model": "gpt-5-mini",
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 50,
+    "difficulty": "challenging"
+  },
+  "metrics": {
+    "total": 50,
+    "EX": 46.0,
+    "F1": 47.85,
+    "VES": 42.35,
+    "gold_errors": 2,
+    "EX_winnable": 47.92,
+    "error_categories": {
+      "correct": 23,
+      "disjoint": 15,
+      "arity_mismatch": 6,
+      "zero_rows": 2,
+      "subset": 2,
+      "gold_error": 2
+    },
+    "by_difficulty": {
+      "challenging": {
+        "count": 50,
+        "EX": 46.0,
+        "F1": 47.85,
+        "VES": 42.35
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1476,
+      "db_id": "debit_card_specializing",
+      "difficulty": "challenging",
+      "question": "What was the difference in gas consumption between CZK-paying customers and EUR-paying customers in 2012?",
+      "evidence": "Year 2012 can be presented as Between 201201 And 201212; The first 4 strings of the Date values in the yearmonth table can represent year; Difference in Consumption = CZK customers consumption in 2012 - EUR customers consumption in 2012",
+      "gold_sql": "SELECT\n  SUM(CASE WHEN `T1`.`Currency` = 'CZK' THEN `T2`.`Consumption` ELSE 0 END) - SUM(CASE WHEN `T1`.`Currency` = 'EUR' THEN `T2`.`Consumption` ELSE 0 END)\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  SUBSTR(`T2`.`Date`, 1, 4) = '2012'",
+      "pred_sql": "SELECT SUM(CASE WHEN t2.Currency = 'CZK' THEN t1.Consumption ELSE 0 END) - SUM(CASE WHEN t2.Currency = 'EUR' THEN t1.Consumption ELSE 0 END) AS difference FROM yearmonth AS t1 JOIN customers AS t2 ON t1.CustomerID = t2.CustomerID WHERE t1.Date BETWEEN '201201' AND '201212' AND t2.Currency IN ('CZK', 'EUR')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 22576,
+      "gold_elapsed_ms": 63,
+      "pred_elapsed_ms": 212,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "CZK customers consumption in 2012 - EUR customers consumption in 2012",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "yearmonth.Date BETWEEN '201201' AND '201212'",
+          "customers.Currency IN ('CZK','EUR')"
+        ],
+        "evidence_predicates": [
+          "yearmonth.Date BETWEEN '201201' AND '201212'",
+          "customers.Currency = 'CZK'",
+          "customers.Currency = 'EUR'"
+        ],
+        "evidence_formula": "CZK customers consumption in 2012 - EUR customers consumption in 2012",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1481,
+      "db_id": "debit_card_specializing",
+      "difficulty": "challenging",
+      "question": "What is the difference in the annual average consumption of the customers with the least amount of consumption paid in CZK for 2013 between SME and LAM, LAM and KAM, and KAM and SME?",
+      "evidence": "annual average consumption of customer with the lowest consumption in each segment = total consumption per year / the number of customer with lowest consumption in each segment; Difference in annual average = SME's annual average - LAM's annual average; Difference in annual average = LAM's annual average - KAM's annual average; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T1`.`Segment` = 'SME' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`) - CAST(SUM(CASE WHEN `T1`.`Segment` = 'LAM' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`),\n  CAST(SUM(CASE WHEN `T1`.`Segment` = 'LAM' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`) - CAST(SUM(CASE WHEN `T1`.`Segment` = 'KAM' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`),\n  CAST(SUM(CASE WHEN `T1`.`Segment` = 'KAM' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`) - CAST(SUM(CASE WHEN `T1`.`Segment` = 'SME' THEN `T2`.`Consumption` ELSE 0 END) AS DOUBLE) / COUNT(`T1`.`CustomerID`)\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T1`.`Currency` = 'CZK'\n  AND `T2`.`Consumption` = (\n    SELECT\n      MIN(`Consumption`)\n    FROM `yearmonth`\n  )\n  AND `T2`.`Date` BETWEEN 201301 AND 201312",
+      "pred_sql": "WITH per_cust AS (SELECT c.CustomerID, c.Segment, SUM(y.Consumption) AS total_consumption FROM customers AS c JOIN yearmonth AS y ON y.CustomerID = c.CustomerID WHERE c.Currency = 'CZK' AND y.Date BETWEEN '201301' AND '201312' AND c.Segment IN ('SME', 'LAM', 'KAM') GROUP BY c.CustomerID, c.Segment), per_seg_min AS (SELECT Segment, MIN(total_consumption) AS min_total FROM per_cust GROUP BY Segment), per_seg_stats AS (SELECT p.Segment, SUM(CASE WHEN p.total_consumption = m.min_total THEN p.total_consumption ELSE 0 END) AS sum_min_totals, COUNT(CASE WHEN p.total_consumption = m.min_total THEN 1 END) AS count_min_customers FROM per_cust AS p JOIN per_seg_min AS m ON p.Segment = m.Segment GROUP BY p.Segment), per_seg_avg AS (SELECT Segment, CAST(sum_min_totals AS REAL) / NULLIF(count_min_customers, 0) AS annual_average_of_min_customers FROM per_seg_stats) SELECT (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'SME') - (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'LAM') AS SME_minus_LAM, (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'LAM') - (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'KAM') AS LAM_minus_KAM, (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'KAM') - (SELECT annual_average_of_min_customers FROM per_seg_avg WHERE Segment = 'SME') AS KAM_minus_SME",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 45046,
+      "gold_elapsed_ms": 211,
+      "pred_elapsed_ms": 334,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Difference in annual average = SME's annual average - LAM's annual average; Difference in annual average = LAM's annual average - KAM's annual average; Difference in annual average = KAM's annual average - SME's annual average",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'CZK'",
+          "yearmonth.Date BETWEEN '201301' AND '201312'",
+          "customers.Segment IN ('SME','LAM','KAM')"
+        ],
+        "evidence_predicates": [
+          "annual average consumption of customer with the lowest consumption in each segment = total consumption per year / the number of customer with lowest consumption in each segment",
+          "Difference in annual average = SME's annual average - LAM's annual average",
+          "Difference in annual average = LAM's annual average - KAM's annual average",
+          "Difference in annual average = KAM's annual average - SME's annual average",
+          "Year 2013 can be presented as Between 201301 And 201312",
+          "The first 4 strings of the Date values in the yearmonth table can represent year"
+        ],
+        "evidence_formula": "annual average consumption of customer with the lowest consumption in each segment = total consumption per year / the number of customer with lowest consumption in each segment; Difference in annual average = SME's annual average - LAM's annual average; Difference in annual average = LAM's annual average - KAM's annual average; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1482,
+      "db_id": "debit_card_specializing",
+      "difficulty": "challenging",
+      "question": "Which of the three segments—SME, LAM and KAM—has the biggest and lowest percentage increases in consumption paid in EUR between 2012 and 2013?",
+      "evidence": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2013) * 100%; The first 4 strings of the Date values in the yearmonth table can represent year",
+      "gold_sql": "SELECT\n  CAST((\n    SUM(\n      CASE\n        WHEN `T1`.`Segment` = 'SME' AND `T2`.`Date` LIKE '2013%'\n        THEN `T2`.`Consumption`\n        ELSE 0\n      END\n    ) - SUM(\n      CASE\n        WHEN `T1`.`Segment` = 'SME' AND `T2`.`Date` LIKE '2012%'\n        THEN `T2`.`Consumption`\n        ELSE 0\n      END\n    )\n  ) AS DOUBLE) * 100 / SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'SME' AND `T2`.`Date` LIKE '2012%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ),\n  CAST(SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'LAM' AND `T2`.`Date` LIKE '2013%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ) - SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'LAM' AND `T2`.`Date` LIKE '2012%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ) AS DOUBLE) * 100 / SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'LAM' AND `T2`.`Date` LIKE '2012%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ),\n  CAST(SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'KAM' AND `T2`.`Date` LIKE '2013%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ) - SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'KAM' AND `T2`.`Date` LIKE '2012%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  ) AS DOUBLE) * 100 / SUM(\n    CASE\n      WHEN `T1`.`Segment` = 'KAM' AND `T2`.`Date` LIKE '2012%'\n      THEN `T2`.`Consumption`\n      ELSE 0\n    END\n  )\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`",
+      "pred_sql": "WITH per_segment AS (SELECT c.Segment, SUM(CASE WHEN SUBSTRING(y.Date, 1, 4) = '2013' THEN y.Consumption ELSE 0 END) AS consumption_2013, SUM(CASE WHEN SUBSTRING(y.Date, 1, 4) = '2012' THEN y.Consumption ELSE 0 END) AS consumption_2012 FROM customers AS c JOIN yearmonth AS y ON y.CustomerID = c.CustomerID WHERE c.Currency = 'EUR' AND c.Segment IN ('SME', 'LAM', 'KAM') AND SUBSTRING(y.Date, 1, 4) IN ('2012', '2013') GROUP BY c.Segment), metrics AS (SELECT Segment, consumption_2013, consumption_2012, (consumption_2013 - consumption_2012) AS \"Increase or Decrease\", ((consumption_2013 - consumption_2012) / NULLIF(consumption_2013, 0)) * 100 AS \"Percentage of Increase\" FROM per_segment) SELECT (SELECT Segment FROM metrics ORDER BY \"Percentage of Increase\" DESC NULLS FIRST LIMIT 1) AS Biggest_Segment, (SELECT Segment FROM metrics ORDER BY \"Percentage of Increase\" ASC NULLS LAST LIMIT 1) AS Lowest_Segment",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 22881,
+      "gold_elapsed_ms": 147,
+      "pred_elapsed_ms": 77,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "customers.Segment, Percentage_of_Increase",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'EUR'",
+          "substr(yearmonth.Date, 1, 4) IN ('2012','2013')",
+          "customers.Segment IN ('SME','LAM','KAM')"
+        ],
+        "evidence_predicates": [
+          "consumption_2013 = SUM(CASE WHEN substr(yearmonth.Date, 1, 4) = '2013' THEN yearmonth.Consumption ELSE 0 END)",
+          "consumption_2012 = SUM(CASE WHEN substr(yearmonth.Date, 1, 4) = '2012' THEN yearmonth.Consumption ELSE 0 END)",
+          "Increase or Decrease = consumption_2013 - consumption_2012",
+          "Percentage of Increase = (Increase or Decrease / consumption_2013) * 100%"
+        ],
+        "evidence_formula": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2013) * 100%",
+        "aggregation": "SUM",
+        "group_by": "customers.Segment",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1526,
+      "db_id": "debit_card_specializing",
+      "difficulty": "challenging",
+      "question": "For the customer who paid 634.8 in 2012/8/25, what was the consumption decrease rate from Year 2012 to 2013?",
+      "evidence": "'2012/8/24' can be represented by '2012-08-24'; Consumption decrease rate = (consumption_2012 - consumption_2013) / consumption_2012",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN SUBSTR(`Date`, 1, 4) = '2012' THEN `Consumption` ELSE 0 END) - SUM(CASE WHEN SUBSTR(`Date`, 1, 4) = '2013' THEN `Consumption` ELSE 0 END) AS DOUBLE) / SUM(CASE WHEN SUBSTR(`Date`, 1, 4) = '2012' THEN `Consumption` ELSE 0 END)\nFROM `yearmonth`\nWHERE\n  `CustomerID` = (\n    SELECT\n      `T1`.`CustomerID`\n    FROM `transactions_1k` AS `T1`\n    INNER JOIN `gasstations` AS `T2`\n      ON `T1`.`GasStationID` = `T2`.`GasStationID`\n    WHERE\n      `T1`.`Date` = '2012-08-25' AND `T1`.`Price`  = 1513.12   )",
+      "pred_sql": "SELECT (consumption_2012 - consumption_2013) / consumption_2012 FROM (SELECT SUM(CASE WHEN SUBSTRING(y.Date, 1, 4) = '2012' THEN y.Consumption ELSE 0 END) AS consumption_2012, SUM(CASE WHEN SUBSTRING(y.Date, 1, 4) = '2013' THEN y.Consumption ELSE 0 END) AS consumption_2013 FROM yearmonth AS y WHERE EXISTS(SELECT 1 FROM transactions_1k AS t WHERE t.CustomerID = y.CustomerID AND t.Date = '2012-08-25' AND t.Price = 634.8)) AS t",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 41910,
+      "gold_elapsed_ms": 29,
+      "pred_elapsed_ms": 17189,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "(consumption_2012 - consumption_2013) / consumption_2012",
+        "tables": [
+          "transactions_1k",
+          "yearmonth"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = yearmonth.CustomerID"
+        ],
+        "filters": [
+          "transactions_1k.Date = '2012-08-25'",
+          "transactions_1k.Price = 634.8",
+          "yearmonth.Date IN ('2012','2013')"
+        ],
+        "evidence_predicates": [
+          "consumption_2012 = yearmonth.Consumption WHERE yearmonth.Date = '2012'",
+          "consumption_2013 = yearmonth.Consumption WHERE yearmonth.Date = '2013'",
+          "identify customer by transactions_1k.CustomerID WHERE transactions_1k.Date = '2012-08-25' AND transactions_1k.Price = 634.8"
+        ],
+        "evidence_formula": "(consumption_2012 - consumption_2013) / consumption_2012",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1339,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Calculate the total average cost that Elijah Allen spent in the events on September and October.",
+      "evidence": "Elijah Allen is the full name; full name refers to first_name, last_name; The 5th and 6th string of the expense_date in the expense table can refer to month; events in September and October refers to month(expense_date) = 9 OR month(expense_date) = 10",
+      "gold_sql": "SELECT\n  AVG(`T2`.`cost`)\nFROM `member` AS `T1`\nINNER JOIN `expense` AS `T2`\n  ON `T1`.`member_id` = `T2`.`link_to_member`\nWHERE\n  `T1`.`last_name` = 'Allen'\n  AND `T1`.`first_name` = 'Elijah'\n  AND (\n    SUBSTR(`T2`.`expense_date`, 6, 2) = '09'\n    OR SUBSTR(`T2`.`expense_date`, 6, 2) = '10'\n  )",
+      "pred_sql": "SELECT AVG(t1.cost) FROM expense AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.first_name = 'Elijah' AND t2.last_name = 'Allen' AND CAST(SUBSTRING(t1.expense_date, 6, 2) AS INTEGER) IN (9, 10)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 31560,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(expense.cost)",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "expense.link_to_member = member.member_id",
+          "member.first_name = 'Elijah'",
+          "member.last_name = 'Allen'",
+          "CAST(SUBSTR(expense.expense_date, 6, 2) AS INTEGER) IN (9, 10)"
+        ],
+        "evidence_predicates": [
+          "full name refers to first_name, last_name",
+          "month(expense_date) = 9 OR month(expense_date) = 10",
+          "the 5th and 6th string of the expense_date in the expense table can refer to month"
+        ],
+        "evidence_formula": "month(expense_date) = 9 OR month(expense_date) = 10",
+        "aggregation": "AVG",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1359,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "How many times was the budget in Advertisement for \"Yearly Kickoff\" meeting more than \"October Meeting\"?",
+      "evidence": "budget in Advertisement refer to category = 'Advertisement' in the budget table; DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T2`.`event_name` = 'Yearly Kickoff' THEN `T1`.`amount` ELSE 0 END) AS DOUBLE) / SUM(CASE WHEN `T2`.`event_name` = 'October Meeting' THEN `T1`.`amount` ELSE 0 END)\nFROM `budget` AS `T1`\nINNER JOIN `event` AS `T2`\n  ON `T1`.`link_to_event` = `T2`.`event_id`\nWHERE\n  `T1`.`category` = 'Advertisement' AND `T2`.`type` = 'Meeting'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN e.event_name = 'Yearly Kickoff' THEN b.amount ELSE 0 END) AS REAL) / NULLIF(SUM(CASE WHEN e.event_name = 'October Meeting' THEN b.amount ELSE 0 END), 0) FROM budget AS b INNER JOIN event AS e ON b.link_to_event = e.event_id WHERE b.category = 'Advertisement'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 16675,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "budget.category = 'Advertisement'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'Yearly Kickoff'",
+          "event.event_name = 'October Meeting'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1457,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Give the full name and contact number of members who had to spend more than average on each expense.",
+      "evidence": "full name refers to first_name, last_name; contact number refers to phone; had spent more than average on each expense refers to cost > AVG(cost)",
+      "gold_sql": "SELECT DISTINCT\n  `T3`.`first_name`,\n  `T3`.`last_name`,\n  `T3`.`phone`\nFROM `expense` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`link_to_budget` = `T2`.`budget_id`\nINNER JOIN `member` AS `T3`\n  ON `T3`.`member_id` = `T1`.`link_to_member`\nWHERE\n  `T1`.`cost` > (\n    SELECT\n      AVG(`T1`.`cost`)\n    FROM `expense` AS `T1`\n    INNER JOIN `budget` AS `T2`\n      ON `T1`.`link_to_budget` = `T2`.`budget_id`\n    INNER JOIN `member` AS `T3`\n      ON `T3`.`member_id` = `T1`.`link_to_member`\n  )",
+      "pred_sql": "SELECT m.first_name, m.last_name, m.phone FROM member AS m INNER JOIN expense AS e ON e.link_to_member = m.member_id GROUP BY m.member_id, m.first_name, m.last_name, m.phone HAVING MIN(e.cost) > (SELECT AVG(cost) FROM expense)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 3,
+      "pred_row_count": 0,
+      "gen_ms": 33869,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name AS full_name, member.phone",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "expense.cost > AVG(expense.cost)"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": "member.member_id, member.first_name, member.last_name, member.phone",
+        "having": "MIN(expense.cost) > (SELECT AVG(expense.cost) FROM expense)",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1460,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Write the full name of the member who spent money for water, veggie tray and supplies and include the cost of it.",
+      "evidence": "full name refers to first_name, last name; spent money for refers expense description; expense_description = 'Water, Veggie tray, supplies'",
+      "gold_sql": "SELECT\n  `T2`.`first_name`,\n  `T2`.`last_name`,\n  `T1`.`cost`\nFROM `expense` AS `T1`\nINNER JOIN `member` AS `T2`\n  ON `T1`.`link_to_member` = `T2`.`member_id`\nWHERE\n  `T1`.`expense_description` = 'Water, Veggie tray, supplies'",
+      "pred_sql": "SELECT m.first_name, m.last_name, e.cost FROM expense AS e INNER JOIN member AS m ON e.link_to_member = m.member_id WHERE e.expense_description = 'Water, Veggie tray, supplies'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8194,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name AS full_name, expense.cost",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "expense.expense_description = 'Water, Veggie tray, supplies'"
+        ],
+        "evidence_predicates": [
+          "expense_description = 'Water, Veggie tray, supplies'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1464,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Write the full names of students who received funds on the date of 9/9/2019 and include the amount received.",
+      "evidence": "full name refers to first_name, last_name, amount of funds received refers to amount, received funds on date refers to date_received",
+      "gold_sql": "SELECT DISTINCT\n  `T3`.`first_name`,\n  `T3`.`last_name`,\n  `T4`.`amount`\nFROM `event` AS `T1`\nINNER JOIN `attendance` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `member` AS `T3`\n  ON `T3`.`member_id` = `T2`.`link_to_member`\nINNER JOIN `income` AS `T4`\n  ON `T4`.`link_to_member` = `T3`.`member_id`\nWHERE\n  `T4`.`date_received` = '2019-09-09'",
+      "pred_sql": "SELECT m.first_name, m.last_name, i.amount FROM income AS i INNER JOIN member AS m ON i.link_to_member = m.member_id WHERE i.date_received = '2019-09-09'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 20127,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name, member.last_name, income.amount",
+        "tables": [
+          "income",
+          "member"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "income.date_received = '9/9/2019'"
+        ],
+        "evidence_predicates": [
+          "full name refers to first_name, last_name, amount of funds received refers to amount, received funds on date refers to date_received",
+          "income.date_received = '9/9/2019'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1168,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "The oldest SJS patient's medical laboratory work was completed on what date, and what age was the patient when they initially arrived at the hospital?",
+      "evidence": "The larger the birthday value, the younger the person is, and vice versa; 'SJS' refers to diagnosis; (SUBTRACT(year(`First Date`)), year(Birthday)); age of the patients when they initially arrived at the hospital refers to year(Birthday)",
+      "gold_sql": "SELECT \"T1\".\"Date\", STRFTIME('%Y', \"T2\".\"First Date\") - STRFTIME('%Y', \"T2\".\"Birthday\"), \"T2\".\"Birthday\" FROM \"Laboratory\" AS \"T1\" INNER JOIN \"Patient\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T2\".\"Diagnosis\" = 'SJS' AND NOT \"T2\".\"Birthday\" IS NULL ORDER BY \"T2\".\"Birthday\" ASC LIMIT 1",
+      "pred_sql": "SELECT Laboratory.Date, (CAST(STRFTIME('%Y', Patient.\"First Date\") AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) AS age FROM Laboratory INNER JOIN Patient ON Laboratory.ID = Patient.ID WHERE Patient.Diagnosis = 'SJS' ORDER BY age DESC NULLS FIRST, Laboratory.Date DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 88089,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 5,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Laboratory.Date, SUBTRACT(year(Patient.`First Date`), year(Patient.Birthday))",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.Diagnosis = 'SJS'"
+        ],
+        "evidence_predicates": [
+          "age = SUBTRACT(year(`First Date`), year(Birthday))",
+          "'SJS' refers to a diagnosis value"
+        ],
+        "evidence_formula": "SUBTRACT(year(`First Date`), year(Birthday))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "SUBTRACT(year(Patient.`First Date`), year(Patient.Birthday)) DESC",
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1169,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "What is the ratio of male to female patients among all those with abnormal uric acid counts?",
+      "evidence": "male refers to SEX = 'M'; female refers to SEX = 'F'; abnormal uric acid refers to UA < = '8.0' where SEX = 'M', UA < = '6.5' where SEX = 'F'; calculation = DIVIDE(SUM(UA <= '8.0' and SEX = 'M'), SUM(UA <= '6.5 and SEX = 'F'))",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T2`.`UA` <= 8.0 AND `T1`.`SEX` = 'M' THEN 1 ELSE 0 END) AS DOUBLE) / SUM(CASE WHEN `T2`.`UA` <= 6.5 AND `T1`.`SEX` = 'F' THEN 1 ELSE 0 END)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN l.UA <= 8.0 AND p.SEX = 'M' THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(CASE WHEN l.UA <= 6.5 AND p.SEX = 'F' THEN 1 ELSE 0 END), 0) AS ratio FROM Laboratory AS l JOIN Patient AS p ON l.ID = p.ID",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 38660,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 5,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(UA <= '8.0' and SEX = 'M'), SUM(UA <= '6.5 and SEX = 'F'))",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": null,
+        "evidence_predicates": [
+          "UA <= '8.0' and SEX = 'M'",
+          "UA <= '6.5' and SEX = 'F'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(UA <= '8.0' and SEX = 'M'), SUM(UA <= '6.5 and SEX = 'F'))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1171,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "How many underage patients were examined during the course of the three-year period from 1990 to 1993?",
+      "evidence": "underage patients refers to year(Birthday) < 18; three-year period from 1990 to 1993 refers to year(`Examination Date`) between '1990' and '1993'",
+      "gold_sql": "SELECT COUNT(\"T1\".\"ID\") FROM \"Patient\" AS \"T1\" INNER JOIN \"Examination\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE STRFTIME('%Y', \"T2\".\"Examination Date\") BETWEEN '1990' AND '1993' AND STRFTIME('%Y', \"T2\".\"Examination Date\") - STRFTIME('%Y', \"T1\".\"Birthday\") < '18'",
+      "pred_sql": "SELECT COUNT(DISTINCT Patient.ID) FROM Examination INNER JOIN Patient ON Examination.ID = Patient.ID WHERE STRFTIME('%Y', Examination.\"Examination Date\") BETWEEN '1990' AND '1993' AND (CAST(STRFTIME('%Y', Examination.\"Examination Date\") AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) < 18",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 31046,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Examination",
+          "Patient"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "YEAR(Examination.`Examination Date`) BETWEEN '1990' AND '1993'",
+          "YEAR(Examination.`Examination Date`) - YEAR(Patient.Birthday) < 18"
+        ],
+        "evidence_predicates": [
+          "underage patients refers to year(Birthday) < 18",
+          "three-year period from 1990 to 1993 refers to year(`Examination Date`) between '1990' and '1993'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1185,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For the patient who was born on 1959/2/18, what is the decrease rate for his/her total cholesterol from November to December in 1981?",
+      "evidence": "born on 1959/2/18 refers to Birthday = '1959-02-18'; calculation = DIVISION(SUBTRACT(SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`)), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`))",
+      "gold_sql": "SELECT\n  CAST((\n    SUM(CASE WHEN `T2`.`Date` LIKE '1981-11-%' THEN `T2`.`T-CHO` ELSE 0 END) - SUM(CASE WHEN `T2`.`Date` LIKE '1981-12-%' THEN `T2`.`T-CHO` ELSE 0 END)\n  ) AS DOUBLE) / SUM(CASE WHEN `T2`.`Date` LIKE '1981-12-%' THEN `T2`.`T-CHO` ELSE 0 END)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T1`.`Birthday` = '1959-02-18'",
+      "pred_sql": "SELECT CAST((SUM(CASE WHEN Laboratory.Date LIKE '1981-11-%' THEN Laboratory.\"T-CHO\" ELSE 0 END) - SUM(CASE WHEN Laboratory.Date LIKE '1981-12-%' THEN Laboratory.\"T-CHO\" ELSE 0 END)) AS REAL) / NULLIF(SUM(CASE WHEN Laboratory.Date LIKE '1981-12-%' THEN Laboratory.\"T-CHO\" ELSE 0 END), 0) AS decrease_rate FROM Laboratory INNER JOIN Patient ON Laboratory.ID = Patient.ID WHERE Patient.Birthday = '1959-02-18'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 28690,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVISION(SUBTRACT(SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`)), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`))",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.Birthday = '1959-02-18'"
+        ],
+        "evidence_predicates": [
+          "Patient.Birthday = '1959-02-18'",
+          "Laboratory.Date like '1981-11-%'",
+          "Laboratory.Date like '1981-12-%'"
+        ],
+        "evidence_formula": "DIVISION(SUBTRACT(SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`)), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1189,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "What number of patients with a degree of thrombosis level 2 and ANA pattern of only S, have a level of anti-Cardiolip in antibody (IgM) 20% higher than average?",
+      "evidence": "thrombosis level 2 refers to Thrombosis = 2; ANA pattern of only S refers to ANA = 'S'; average anti-Cardiolip in antibody (IgM) refers to AVG(`aCL IgM`); calculation = MULTIPLY(AVG + AVG, 0.2)",
+      "gold_sql": "SELECT\n  COUNT(*)\nFROM `Examination`\nWHERE\n  `Thrombosis` = 2\n  AND `ANA Pattern` = 'S'\n  AND `aCL IgM` > (\n    SELECT\n      AVG(`aCL IgM`) * 1.2\n    FROM `Examination`\n    WHERE\n      `Thrombosis` = 2 AND `ANA Pattern` = 'S'\n  )",
+      "pred_sql": "WITH avg_all AS (SELECT AVG(\"aCL IgM\") AS avg_acl FROM Examination) SELECT COUNT(DISTINCT ID) FROM Examination, avg_all WHERE Thrombosis = 2 AND \"ANA Pattern\" = 'S' AND \"aCL IgM\" > (avg_all.avg_acl + avg_all.avg_acl) * 0.2",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 54207,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Examination.ID)",
+        "tables": [
+          "Examination"
+        ],
+        "join_path": [],
+        "filters": [
+          "Examination.Thrombosis = 2",
+          "Examination.ANA Pattern = 'S'"
+        ],
+        "evidence_predicates": [
+          "AVG(`aCL IgM`)",
+          "calculation = MULTIPLY(AVG + AVG, 0.2)"
+        ],
+        "evidence_formula": "MULTIPLY(AVG + AVG, 0.2)",
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1192,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "List all patients who were followed up at the outpatient clinic who underwent a laboratory test in October 1991 and had a total blood bilirubin level within the normal range.",
+      "evidence": "followed up at the outpatient clinic refers to Admission = '-'; laboratory test in April 1981 refers to Date like '1991-10%'; blood bilirubin level within the normal range refers to T-BIL < 2.0; ",
+      "gold_sql": "SELECT DISTINCT\n  `T1`.`ID`\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T1`.`Admission` = '-' AND `T2`.`T-BIL` < 2.0 AND `T2`.`Date` LIKE '1991-10-%'",
+      "pred_sql": "SELECT DISTINCT p.ID FROM Patient AS p JOIN Laboratory AS l ON l.ID = p.ID WHERE p.Admission = '-' AND l.Date LIKE '1991-10%' AND l.\"T-BIL\" < 2.0",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 6,
+      "pred_row_count": 6,
+      "gen_ms": 10743,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DISTINCT Patient.ID",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.Admission = '-'",
+          "Laboratory.Date LIKE '1991-10%'",
+          "Laboratory.T-BIL < 2.0"
+        ],
+        "evidence_predicates": [
+          "Patient.Admission = '-'",
+          "Laboratory.Date LIKE '1991-10%'",
+          "Laboratory.T-BIL < 2.0"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1231,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For patient born between 1936-1956, how many male patients have creatinine phosphokinase beyond the normal range?",
+      "evidence": "born between 1936-1956 refers to year(Birthday) BETWEEN '1936' AND '1956'; male patients refers to sex = 'M'; creatinine phosphokinase beyond the normal range refers to CPK > = 250; Should consider DISTINCT in the final result;",
+      "gold_sql": "SELECT COUNT(DISTINCT \"T1\".\"ID\") FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE STRFTIME('%Y', \"T1\".\"Birthday\") BETWEEN '1936' AND '1956' AND \"T1\".\"SEX\" = 'M' AND \"T2\".\"CPK\" >= 250",
+      "pred_sql": "SELECT COUNT(DISTINCT p.ID) FROM Patient AS p JOIN Laboratory AS l ON l.ID = p.ID WHERE STRFTIME('%Y', p.Birthday) BETWEEN '1936' AND '1956' AND p.SEX = 'M' AND l.CPK >= 250",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 27414,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "year(Patient.Birthday) BETWEEN '1936' AND '1956'",
+          "Patient.SEX = 'M'",
+          "Laboratory.CPK >= 250"
+        ],
+        "evidence_predicates": [
+          "born between 1936-1956 refers to year(Birthday) BETWEEN '1936' AND '1956'",
+          "male patients refers to sex = 'M'",
+          "creatinine phosphokinase beyond the normal range refers to CPK > = 250",
+          "Should consider DISTINCT in the final result"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1232,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Provide ID, sex and age of patient who has blood glucose (GLU) not within normal range but with total cholesterol(T-CHO) within normal range.",
+      "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); blood glucose (GLU) not within normal range refers to GLU > = 180; total cholesterol(T-CHO) within normal range refers to `T-CHO` < 250; ",
+      "gold_sql": "SELECT DISTINCT \"T1\".\"ID\", \"T1\".\"SEX\", STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', \"T1\".\"Birthday\") FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T2\".\"GLU\" >= 180 AND \"T2\".\"T-CHO\" < 250",
+      "pred_sql": "SELECT DISTINCT Patient.ID, Patient.SEX, (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) AS age FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE Laboratory.GLU >= 180 AND Laboratory.\"T-CHO\" < 250",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 13,
+      "pred_row_count": 13,
+      "gen_ms": 29755,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 8,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Patient.ID, Patient.SEX, SUBTRACT(year(current_timestamp), year(Patient.Birthday))",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.GLU >= 180",
+          "Laboratory.T-CHO < 250"
+        ],
+        "evidence_predicates": [
+          "age = SUBTRACT(year(current_timestamp), year(Birthday))",
+          "GLU >= 180",
+          "T-CHO < 250"
+        ],
+        "evidence_formula": "SUBTRACT(year(current_timestamp), year(Birthday))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1239,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Name the ID and age of patient with two or more laboratory examinations which show their hematoclit level exceeded the normal range.",
+      "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); patient with two or more laboratory examinations refers to COUNT(ID) > 2; hematoclit level exceeded the normal range refers to HCT > = 52;",
+      "gold_sql": "SELECT DISTINCT \"T1\".\"ID\", STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', \"T1\".\"Birthday\") FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T1\".\"ID\" IN (SELECT \"ID\" FROM \"Laboratory\" WHERE \"HCT\" >= 52 GROUP BY \"ID\" HAVING COUNT(\"ID\") >= 2)",
+      "pred_sql": "SELECT Patient.ID, CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER) AS age FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE Laboratory.HCT >= 52 GROUP BY Patient.ID, Patient.Birthday HAVING COUNT(Laboratory.ID) > 2",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.8,
+      "ves_reward": 0.0,
+      "gold_row_count": 3,
+      "pred_row_count": 2,
+      "gen_ms": 36798,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Patient.ID, SUBTRACT(year(current_timestamp), year(Patient.Birthday))",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.HCT >= 52"
+        ],
+        "evidence_predicates": [
+          "age = SUBTRACT(year(current_timestamp), year(Birthday))",
+          "patient with two or more laboratory examinations refers to COUNT(ID) > 2",
+          "hematoclit level exceeded the normal range refers to HCT >= 52"
+        ],
+        "evidence_formula": "SUBTRACT(year(current_timestamp), year(Birthday))",
+        "aggregation": "COUNT",
+        "group_by": "Patient.ID, Patient.Birthday",
+        "having": "COUNT(Laboratory.ID) > 2",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 1241,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For patients with abnormal platelet level, state the number of patients with lower than normal range. How is it compare to the number of patients with higher than normal range?",
+      "evidence": "abnormal platelet level refers to PLT <= 100 or PLT >= 400; platelet level lower than normal range refers to PLT < 100; calculation = SUBTRACT(SUM(PLT < 100), SUM(PLT > 400)); platelet level higher than normal range refers to PLT > 400;",
+      "gold_sql": "SELECT\n  SUM(CASE WHEN `T2`.`PLT` <= 100 THEN 1 ELSE 0 END) - SUM(CASE WHEN `T2`.`PLT` >= 400 THEN 1 ELSE 0 END)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`",
+      "pred_sql": "WITH per_patient AS (SELECT ID, MAX(CASE WHEN PLT < 100 THEN 1 ELSE 0 END) AS has_low, MAX(CASE WHEN PLT > 400 THEN 1 ELSE 0 END) AS has_high FROM Laboratory WHERE PLT <= 100 OR PLT >= 400 GROUP BY ID) SELECT SUM(has_low) AS num_patients_low, SUM(has_high) AS num_patients_high, (SUM(has_low) - SUM(has_high)) AS difference FROM per_patient",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 66519,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 2,
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(SUM(PLT < 100), SUM(PLT > 400))",
+        "tables": [
+          "Laboratory"
+        ],
+        "join_path": [],
+        "filters": [
+          "Laboratory.PLT <= 100 OR Laboratory.PLT >= 400"
+        ],
+        "evidence_predicates": [
+          "abnormal platelet level refers to PLT <= 100 or PLT >= 400",
+          "platelet level lower than normal range refers to PLT < 100",
+          "platelet level higher than normal range refers to PLT > 400",
+          "calculation = SUBTRACT(SUM(PLT < 100), SUM(PLT > 400))"
+        ],
+        "evidence_formula": "SUBTRACT(SUM(PLT < 100), SUM(PLT > 400))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1242,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For laboratory examinations take in 1984, list all patients below 50 years old with normal platelet level.",
+      "evidence": "laboratory examinations take in 1984 refers to YEAR(Date) = '1984'; below 50 years old = SUBTRACT(year(current_timestamp), year(Birthday)) < 50; normal platelet level refers to PLT between 100 and 400; ",
+      "gold_sql": "SELECT DISTINCT \"T1\".\"ID\" FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T2\".\"PLT\" BETWEEN 100 AND 400 AND STRFTIME('%Y', \"T2\".\"Date\") - STRFTIME('%Y', \"T1\".\"Birthday\") < 50 AND STRFTIME('%Y', \"T2\".\"Date\") = '1984'",
+      "pred_sql": "SELECT DISTINCT Patient.ID FROM Laboratory JOIN Patient ON Laboratory.ID = Patient.ID WHERE SUBSTRING(Laboratory.Date, 1, 4) = '1984' AND (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) < 50 AND Laboratory.PLT BETWEEN 100 AND 400",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.12345679012345677,
+      "ves_reward": 0.0,
+      "gold_row_count": 76,
+      "pred_row_count": 5,
+      "gen_ms": 33072,
+      "gold_elapsed_ms": 12,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Patient.ID",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "YEAR(Date) = '1984'",
+          "SUBTRACT(year(current_timestamp), year(Birthday)) < 50",
+          "PLT BETWEEN 100 AND 400"
+        ],
+        "evidence_predicates": [
+          "YEAR(Date) = '1984'",
+          "SUBTRACT(year(current_timestamp), year(Birthday)) < 50",
+          "PLT BETWEEN 100 AND 400"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 1243,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For all patients who are older than 55 years old, what is the percentage of female who has abnormal prothrombin time (PT)?",
+      "evidence": "older than 55 years old = SUBTRACT(year(current_timestamp), year(Birthday)) > 55; abnormal prothrombin time (PT) refers to PT > = 14; percentage = DIVIDE(SUM(PT > = 14 AND SEX = 'F'), SUM(PT > = 14)) * 100; female refers to sex = 'F'; ",
+      "gold_sql": "SELECT CAST(CAST(SUM(CASE WHEN \"T2\".\"PT\" >= 14 AND \"T1\".\"SEX\" = 'F' THEN 1 ELSE 0 END) AS REAL) * 100 AS REAL) / COUNT(CASE WHEN \"T2\".\"PT\" >= 14 THEN 1 ELSE 0 END) FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', \"T1\".\"Birthday\") > 55",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN Laboratory.PT >= 14 AND Patient.SEX = 'F' THEN 1 ELSE 0 END) AS REAL) * 100 / NULLIF(SUM(CASE WHEN Laboratory.PT >= 14 THEN 1 ELSE 0 END), 0) AS percentage FROM Laboratory INNER JOIN Patient ON Laboratory.ID = Patient.ID WHERE (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) > 55",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 34697,
+      "gold_elapsed_ms": 21,
+      "pred_elapsed_ms": 20,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "DIVIDE(SUM(PT > = 14 AND SEX = 'F'), SUM(PT > = 14)) * 100",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "SUBTRACT(year(current_timestamp), year(Patient.Birthday)) > 55"
+        ],
+        "evidence_predicates": [
+          "Laboratory.PT > = 14",
+          "Patient.SEX = 'F'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(PT > = 14 AND SEX = 'F'), SUM(PT > = 14)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1247,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Among the male patients who have a normal level of white blood cells, how many of them have an abnormal fibrinogen level?",
+      "evidence": "male patients refers to Sex = 'M'; normal level of white blood cells refers to WBC > 3.5 and WBC <9.0; abnormal fibrinogen level refers to FG < = 150 or FG > = 450; Don't compute repetitive ones.",
+      "gold_sql": "SELECT\n  COUNT(DISTINCT `T1`.`ID`)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T2`.`FG` <= 150\n  OR `T2`.`FG` >= 450\n  AND `T2`.`WBC` > 3.5\n  AND `T2`.`WBC` < 9.0\n  AND `T1`.`SEX` = 'M'",
+      "pred_sql": "SELECT COUNT(DISTINCT p.ID) FROM Patient AS p WHERE p.SEX = 'M' AND EXISTS(SELECT 1 FROM Laboratory AS l1 WHERE l1.ID = p.ID AND l1.WBC > 3.5 AND l1.WBC < 9.0) AND EXISTS(SELECT 1 FROM Laboratory AS l2 WHERE l2.ID = p.ID AND (l2.FG <= 150 OR l2.FG >= 450))",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 17197,
+      "gold_elapsed_ms": 12,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.SEX = 'M'",
+          "EXISTS (SELECT 1 FROM Laboratory l1 WHERE l1.ID = Patient.ID AND l1.WBC > 3.5 AND l1.WBC < 9.0)",
+          "EXISTS (SELECT 1 FROM Laboratory l2 WHERE l2.ID = Patient.ID AND (l2.FG <= 150 OR l2.FG >= 450))"
+        ],
+        "evidence_predicates": [
+          "Sex = 'M'",
+          "WBC > 3.5 and WBC <9.0",
+          "FG < = 150 or FG > = 450"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1257,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Among the patients whose creatinine level is abnormal, how many of them aren't 70 yet?",
+      "evidence": "creatinine level is abnormal refers to CRE >= 1.5; aren't 70 yet refers to SUBTRACT((YEAR(CURDATE()), YEAR(Birthday))) < 70; ",
+      "gold_sql": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.CRE >= 1.5 AND YEAR(CURDATE()) - YEAR(T1.Birthday) < 70",
+      "pred_sql": "SELECT COUNT(DISTINCT Patient.ID) FROM Laboratory JOIN Patient ON Laboratory.ID = Patient.ID WHERE Laboratory.CRE >= 1.5 AND (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) < 70",
+      "valid": true,
+      "gold_error": "no such function: YEAR",
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 0,
+      "pred_row_count": 0,
+      "gen_ms": 21953,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.CRE >= 1.5",
+          "SUBTRACT((YEAR(CURDATE()), YEAR(Patient.Birthday))) < 70"
+        ],
+        "evidence_predicates": [
+          "CRE >= 1.5",
+          "SUBTRACT((YEAR(CURDATE()), YEAR(Birthday))) < 70"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "gold_error"
+    },
+    {
+      "question_id": 1270,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Among the patients who has a normal anti-scl70, how many of them are female and does not have any symptom?",
+      "evidence": "normal anti-scl70 refers to SC170 IN('negative', '0'); female refers to Sex = 'F'; does not have any symptom refers to symptoms IS NULL; Should consider DISTINCT in the final result;",
+      "gold_sql": "SELECT\n  COUNT(DISTINCT `T1`.`ID`)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nINNER JOIN `Examination` AS `T3`\n  ON `T3`.`ID` = `T2`.`ID`\nWHERE\n  (\n    `T2`.`SC170` = 'negative' OR `T2`.`SC170` = '0'\n  )\n  AND `T1`.`SEX` = 'F'\n  AND `T3`.`Symptoms` IS NULL",
+      "pred_sql": "SELECT COUNT(DISTINCT p.ID) FROM Patient AS p INNER JOIN Laboratory AS l ON l.ID = p.ID INNER JOIN Examination AS e ON e.ID = p.ID WHERE l.SC170 IN ('negative', '0') AND p.SEX = 'F' AND e.Symptoms IS NULL",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 20541,
+      "gold_elapsed_ms": 11,
+      "pred_elapsed_ms": 6,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory",
+          "Examination"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID",
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.SC170 IN ('negative', '0')",
+          "Patient.SEX = 'F'",
+          "Examination.Symptoms IS NULL"
+        ],
+        "evidence_predicates": [
+          "SC170 IN('negative','0')",
+          "SEX = 'F'",
+          "Symptoms IS NULL",
+          "DISTINCT"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1302,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For the patients with a normal range of creatinine phosphokinase, how many of them have a positive measure of degree of coagulation?",
+      "evidence": "normal range of creatinine phosphokinase refers to CPK < 250; positive measure of degree of coagulation refers to KCT = '+' or RVVT = '+' or LAC = '+' ;",
+      "gold_sql": "SELECT\n  COUNT(`T1`.`ID`)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nINNER JOIN `Examination` AS `T3`\n  ON `T1`.`ID` = `T3`.`ID`\nWHERE\n  `T2`.`CPK` < 250\n  AND (\n    `T3`.`KCT` = '+' OR `T3`.`RVVT` = '+' OR `T3`.`LAC` = '+'\n  )",
+      "pred_sql": "SELECT COUNT(DISTINCT p.ID) FROM Patient AS p JOIN Laboratory AS l ON l.ID = p.ID JOIN Examination AS e ON e.ID = p.ID WHERE l.CPK < 250 AND (e.KCT = '+' OR e.RVVT = '+' OR e.LAC = '+')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 12585,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 14,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Laboratory",
+          "Examination",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID",
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.CPK < 250",
+          "(Examination.KCT = '+' OR Examination.RVVT = '+' OR Examination.LAC = '+')"
+        ],
+        "evidence_predicates": [
+          "CPK < 250",
+          "KCT = '+' OR RVVT = '+' OR LAC = '+'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1028,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "In Scotland Premier League, which away team won the most during the 2010 season?",
+      "evidence": "Final result should return the Team.team_long_name; Scotland Premier League refers to League.name = 'Scotland Premier League'; away team refers to away_team_api_id; away team that won the most refers to MAX(SUBTRACT(away_team_goal, home_team_goal) > 0); 2010 season refers to season = '2009/2010'; won the most refers to MAX(COUNT(*));",
+      "gold_sql": "SELECT\n  `teamInfo`.`team_long_name`\nFROM `League` AS `leagueData`\nINNER JOIN `Match` AS `matchData`\n  ON `leagueData`.`id` = `matchData`.`league_id`\nINNER JOIN `Team` AS `teamInfo`\n  ON `matchData`.`away_team_api_id` = `teamInfo`.`team_api_id`\nWHERE\n  `leagueData`.`name` = 'Scotland Premier League'\n  AND `matchData`.`season` = '2009/2010'\n  AND `matchData`.`away_team_goal` - `matchData`.`home_team_goal` > 0\nGROUP BY\n  `matchData`.`away_team_api_id`\nORDER BY\n  COUNT(*) DESC\nLIMIT 1",
+      "pred_sql": "SELECT t.team_long_name FROM Match AS m JOIN League AS l ON m.league_id = l.id JOIN Team AS t ON m.away_team_api_id = t.team_api_id WHERE l.name = 'Scotland Premier League' AND m.season = '2009/2010' AND (m.away_team_goal - m.home_team_goal) > 0 GROUP BY t.id ORDER BY COUNT(*) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 14887,
+      "gold_elapsed_ms": 94,
+      "pred_elapsed_ms": 117,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Team.team_long_name",
+        "tables": [
+          "Match",
+          "League",
+          "Team"
+        ],
+        "join_path": [
+          "Match.league_id = League.id",
+          "Match.away_team_api_id = Team.team_api_id"
+        ],
+        "filters": [
+          "League.name = 'Scotland Premier League'",
+          "Match.season = '2009/2010'",
+          "Match.away_team_goal - Match.home_team_goal > 0"
+        ],
+        "evidence_predicates": [
+          "away team refers to away_team_api_id",
+          "season = '2009/2010'",
+          "MAX(SUBTRACT(away_team_goal, home_team_goal) > 0)",
+          "won the most refers to MAX(COUNT(*))"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": "Team.team_long_name",
+        "having": "COUNT(*) = (SELECT MAX(sub_cnt) FROM (SELECT COUNT(*) AS sub_cnt FROM Match JOIN League ON Match.league_id = League.id WHERE League.name = 'Scotland Premier League' AND Match.season = '2009/2010' AND Match.away_team_goal - Match.home_team_goal > 0 GROUP BY Match.away_team_api_id))",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1031,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "At present, calculate for the player's age who have a sprint speed of no less than 97 between 2013 to 2015.",
+      "evidence": "players age at present = SUBTRACT((DATETIME(), birthday)); sprint speed of no less than 97 refers to sprint_speed > = 97; between 2013 to 2015 refers to YEAR(date) > = '2013' AND YEAR(date) < = '2015'; ",
+      "gold_sql": "SELECT DISTINCT YEAR(CURDATE()) - YEAR(t2.birthday) AS age FROM Player_Attributes AS t1 INNER JOIN Player AS t2 ON t1.player_api_id = t2.player_api_id WHERE YEAR(t1.`date`) BETWEEN 2013 AND 2015 AND t1.sprint_speed >= 97",
+      "pred_sql": "SELECT DISTINCT Player.player_api_id,\n       SUBTRACT((DATETIME(), Player.birthday)) AS age\nFROM Player\nJOIN Player_Attributes ON Player_Attributes.player_api_id = Player.player_api_id\nWHERE Player_Attributes.sprint_speed >= 97\n  AND STRFTIME('%Y', Player_Attributes.date) >= '2013'\n  AND STRFTIME('%Y', Player_Attributes.date) <= '2015';",
+      "valid": true,
+      "gold_error": "no such function: YEAR",
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 0,
+      "pred_row_count": 0,
+      "gen_ms": 37516,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT((DATETIME(), birthday))",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player_Attributes.player_api_id = Player.player_api_id"
+        ],
+        "filters": [
+          "Player_Attributes.sprint_speed >= 97",
+          "YEAR(Player_Attributes.date) >= '2013' AND YEAR(Player_Attributes.date) <= '2015'"
+        ],
+        "evidence_predicates": [
+          "players age at present = SUBTRACT((DATETIME(), birthday))",
+          "sprint speed of no less than 97 refers to sprint_speed > = 97",
+          "between 2013 to 2015 refers to YEAR(date) > = '2013' AND YEAR(date) < = '2015'"
+        ],
+        "evidence_formula": "SUBTRACT((DATETIME(), birthday))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "gold_error"
+    },
+    {
+      "question_id": 1036,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "List the long name of teams with above-average build-up play passing in 2012.",
+      "evidence": "long name of teams refers to team_long_name; build-up play passing refers to buildUpPlayPassing; above-average build-up play passing = buildUpPlayPassing > DIVIDE(SUM(buildUpPlayPassing), COUNT(team_long_name) WHERE buildUpPlayPassing IS NOT NULL); in 2012 refers to strftime('%Y', date) = '2012'; ",
+      "gold_sql": "SELECT DISTINCT \"t4\".\"team_long_name\" FROM \"Team_Attributes\" AS \"t3\" INNER JOIN \"Team\" AS \"t4\" ON \"t3\".\"team_api_id\" = \"t4\".\"team_api_id\" WHERE SUBSTRING(\"t3\".\"date\", 1, 4) = '2012' AND \"t3\".\"buildUpPlayPassing\" > (SELECT CAST(SUM(\"t2\".\"buildUpPlayPassing\") AS REAL) / COUNT(\"t1\".\"id\") FROM \"Team\" AS \"t1\" INNER JOIN \"Team_Attributes\" AS \"t2\" ON \"t1\".\"team_api_id\" = \"t2\".\"team_api_id\" WHERE STRFTIME('%Y', \"t2\".\"date\") = '2012')",
+      "pred_sql": "SELECT DISTINCT t.team_long_name FROM Team AS t JOIN Team_Attributes AS ta ON ta.team_api_id = t.team_api_id WHERE STRFTIME('%Y', ta.date) = '2012' AND NOT ta.buildUpPlayPassing IS NULL AND ta.buildUpPlayPassing > (SELECT CAST(SUM(ta2.buildUpPlayPassing) AS REAL) / COUNT(CASE WHEN NOT ta2.buildUpPlayPassing IS NULL THEN t2.team_long_name END) FROM Team_Attributes AS ta2 JOIN Team AS t2 ON ta2.team_api_id = t2.team_api_id WHERE STRFTIME('%Y', ta2.date) = '2012' AND NOT ta2.buildUpPlayPassing IS NULL)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 128,
+      "pred_row_count": 128,
+      "gen_ms": 41062,
+      "gold_elapsed_ms": 5,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Team.team_long_name",
+        "tables": [
+          "Team",
+          "Team_Attributes"
+        ],
+        "join_path": [
+          "Team_Attributes.team_api_id = Team.team_api_id"
+        ],
+        "filters": [
+          "strftime('%Y', Team_Attributes.date) = '2012'",
+          "Team_Attributes.buildUpPlayPassing IS NOT NULL"
+        ],
+        "evidence_predicates": [
+          "buildUpPlayPassing > DIVIDE(SUM(buildUpPlayPassing), COUNT(team_long_name) WHERE buildUpPlayPassing IS NOT NULL)",
+          "strftime('%Y', date) = '2012'"
+        ],
+        "evidence_formula": "buildUpPlayPassing > DIVIDE(SUM(buildUpPlayPassing), COUNT(team_long_name) WHERE buildUpPlayPassing IS NOT NULL)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1037,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "Calculate the percentage of players who prefer left foot, who were born between 1987 and 1992.",
+      "evidence": "players who prefer left foot refers to preferred_foot = 'left'; percentage of players who prefer left foot = DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id)); born between 1987 and 1992 refers to YEAR(birthday) BETWEEN '1987' AND '1992';",
+      "gold_sql": "SELECT\n  CAST(COUNT(CASE WHEN `t2`.`preferred_foot` = 'left' THEN `t1`.`id` ELSE NULL END) AS DOUBLE) * 100 / COUNT(`t1`.`id`) AS `percent`\nFROM `Player` AS `t1`\nINNER JOIN `Player_Attributes` AS `t2`\n  ON `t1`.`player_api_id` = `t2`.`player_api_id`\nWHERE\n  SUBSTR(`t1`.`birthday`, 1, 4) BETWEEN '1987' AND '1992'",
+      "pred_sql": "SELECT (SUM(pa.preferred_foot = 'left') * 100.0) / COUNT(pa.player_fifa_api_id) FROM Player_Attributes AS pa JOIN Player AS p ON pa.player_api_id = p.player_api_id WHERE SUBSTRING(p.birthday, 1, 4) BETWEEN '1987' AND '1992'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 33501,
+      "gold_elapsed_ms": 138,
+      "pred_elapsed_ms": 133,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id));",
+        "tables": [
+          "Player_Attributes",
+          "Player"
+        ],
+        "join_path": [
+          "Player_Attributes.player_api_id = Player.player_api_id"
+        ],
+        "filters": [
+          "YEAR(Player.birthday) BETWEEN '1987' AND '1992'"
+        ],
+        "evidence_predicates": [
+          "Player_Attributes.preferred_foot = 'left'",
+          "YEAR(Player.birthday) BETWEEN '1987' AND '1992'"
+        ],
+        "evidence_formula": "DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id));",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1042,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "List the name of leagues in which the average goals by the home team is higher than the away team in the 2009/2010 season.",
+      "evidence": "name of league refers to League.name; average goals by the home team is higher than the away team = AVG(home_team_goal) > AVG(away_team_goal); AVG(xx_goal) = SUM(xx_goal) / COUNT(DISTINCT Match.id); 2009/2010 season refers to season = '2009/2010'",
+      "gold_sql": "SELECT\n  `t1`.`name`\nFROM `League` AS `t1`\nINNER JOIN `Match` AS `t2`\n  ON `t1`.`id` = `t2`.`league_id`\nWHERE\n  `t2`.`season` = '2009/2010'\nGROUP BY\n  `t1`.`name`\nHAVING\n  (\n    CAST(SUM(`t2`.`home_team_goal`) AS DOUBLE) / COUNT(DISTINCT `t2`.`id`)\n  ) - (\n    CAST(SUM(`t2`.`away_team_goal`) AS DOUBLE) / COUNT(DISTINCT `t2`.`id`)\n  ) > 0",
+      "pred_sql": "SELECT l.name FROM League AS l JOIN Match AS m ON m.league_id = l.id WHERE m.season = '2009/2010' GROUP BY l.id HAVING CAST(SUM(m.home_team_goal) AS REAL) / COUNT(DISTINCT m.id) > CAST(SUM(m.away_team_goal) AS REAL) / COUNT(DISTINCT m.id)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 11,
+      "pred_row_count": 11,
+      "gen_ms": 17135,
+      "gold_elapsed_ms": 68,
+      "pred_elapsed_ms": 71,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "League.name",
+        "tables": [
+          "League",
+          "Match"
+        ],
+        "join_path": [
+          "Match.league_id = League.id"
+        ],
+        "filters": [
+          "Match.season = '2009/2010'"
+        ],
+        "evidence_predicates": [
+          "AVG(home_team_goal) > AVG(away_team_goal)"
+        ],
+        "evidence_formula": "AVG(xx_goal) = SUM(xx_goal) / COUNT(DISTINCT Match.id)",
+        "aggregation": null,
+        "group_by": "League.name",
+        "having": "AVG(Match.home_team_goal) > AVG(Match.away_team_goal)",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1058,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "Who has the highest average finishing rate between the highest and shortest football player?",
+      "evidence": "finishing rate refers to finishing; highest average finishing rate = MAX(AVG(finishing)); highest football player refers to MAX(height); shortest football player refers to MIN(height);",
+      "gold_sql": "SELECT `A` FROM (SELECT AVG(`finishing`) AS `result`, 'Max' AS `A` FROM `Player` AS `T1` INNER JOIN `Player_Attributes` AS `T2` ON `T1`.`player_api_id` = `T2`.`player_api_id` WHERE `T1`.`height` = (SELECT MAX(`height`) FROM `Player`) UNION SELECT AVG(`finishing`) AS `result`, 'Min' AS `A` FROM `Player` AS `T1` INNER JOIN `Player_Attributes` AS `T2` ON `T1`.`player_api_id` = `T2`.`player_api_id` WHERE `T1`.`height` = (SELECT MIN(`height`) FROM `Player`)) AS `derived` ORDER BY `result` DESC LIMIT 1",
+      "pred_sql": "SELECT p.player_name FROM Player AS p JOIN Player_Attributes AS pa ON p.player_api_id = pa.player_api_id WHERE p.height IN ((SELECT MAX(height) FROM Player), (SELECT MIN(height) FROM Player)) GROUP BY p.player_api_id, p.player_name ORDER BY AVG(pa.finishing) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 36669,
+      "gold_elapsed_ms": 300,
+      "pred_elapsed_ms": 144,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Player.player_name",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "Player.height IN ((SELECT MAX(height) FROM Player), (SELECT MIN(height) FROM Player))"
+        ],
+        "evidence_predicates": [
+          "finishing rate refers to finishing",
+          "highest average finishing rate = MAX(AVG(finishing))",
+          "highest football player refers to MAX(height)",
+          "shortest football player refers to MIN(height)"
+        ],
+        "evidence_formula": "MAX(AVG(finishing))",
+        "aggregation": "AVG",
+        "group_by": "Player.player_api_id, Player.player_name",
+        "having": null,
+        "order_by": "AVG(Player_Attributes.finishing) DESC",
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1076,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What is the difference of the average ball control score between Abdou Diallo and Aaron Appindangoye\n?",
+      "evidence": "difference of the average ball control = SUBTRACT(AVG(ball_control WHERE player_name = 'Abdou Diallo'), AVG(ball_control WHERE player_name = 'Aaron Appindangoye')); AVG(ball_control WHERE player_name = 'XX XX') = SUM(CASE WHEN player_name = 'XX XX' THEN ball_control ELSE 0 END) / COUNT(CASE WHEN player_name = 'XX XX' THEN id ELSE NULL END)",
+      "gold_sql": "SELECT\n  CAST(SUM(\n    CASE WHEN `t1`.`player_name` = 'Abdou Diallo' THEN `t2`.`ball_control` ELSE 0 END\n  ) AS DOUBLE) / COUNT(CASE WHEN `t1`.`player_name` = 'Abdou Diallo' THEN `t2`.`id` ELSE NULL END) - CAST(SUM(\n    CASE\n      WHEN `t1`.`player_name` = 'Aaron Appindangoye'\n      THEN `t2`.`ball_control`\n      ELSE 0\n    END\n  ) AS DOUBLE) / COUNT(CASE WHEN `t1`.`player_name` = 'Aaron Appindangoye' THEN `t2`.`id` ELSE NULL END)\nFROM `Player` AS `t1`\nINNER JOIN `Player_Attributes` AS `t2`\n  ON `t1`.`player_api_id` = `t2`.`player_api_id`",
+      "pred_sql": "SELECT (CAST(SUM(CASE WHEN p.player_name = 'Abdou Diallo' THEN pa.ball_control ELSE 0 END) AS REAL) / NULLIF(COUNT(CASE WHEN p.player_name = 'Abdou Diallo' THEN pa.id ELSE NULL END), 0)) - (CAST(SUM(CASE WHEN p.player_name = 'Aaron Appindangoye' THEN pa.ball_control ELSE 0 END) AS REAL) / NULLIF(COUNT(CASE WHEN p.player_name = 'Aaron Appindangoye' THEN pa.id ELSE NULL END), 0)) FROM Player_Attributes AS pa JOIN Player AS p ON pa.player_api_id = p.player_api_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 42481,
+      "gold_elapsed_ms": 155,
+      "pred_elapsed_ms": 161,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(AVG(ball_control WHERE player_name = 'Abdou Diallo'), AVG(ball_control WHERE player_name = 'Aaron Appindangoye'))",
+        "tables": [
+          "Player_Attributes",
+          "Player"
+        ],
+        "join_path": [
+          "Player_Attributes.player_api_id = Player.player_api_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "player_name = 'Abdou Diallo'",
+          "player_name = 'Aaron Appindangoye'"
+        ],
+        "evidence_formula": "SUBTRACT(AVG(ball_control WHERE player_name = 'Abdou Diallo'), AVG(ball_control WHERE player_name = 'Aaron Appindangoye')); AVG(ball_control WHERE player_name = 'XX XX') = SUM(CASE WHEN player_name = 'XX XX' THEN ball_control ELSE 0 END) / COUNT(CASE WHEN player_name = 'XX XX' THEN id ELSE NULL END)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1084,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "Among the players born before the year 1986, how many of them would remain in his position and defense while the team attacked?",
+      "evidence": "players born before the year 1986 refers to strftime('%Y', birthday)<'1986'; players who would remain in his position and defense while the team attacked refers to defensive_work_rate = 'high'; Should consider DISTINCT in the final result;",
+      "gold_sql": "SELECT COUNT(DISTINCT \"t1\".\"player_name\") FROM \"Player\" AS \"t1\" INNER JOIN \"Player_Attributes\" AS \"t2\" ON \"t1\".\"player_api_id\" = \"t2\".\"player_api_id\" WHERE STRFTIME('%Y', \"t1\".\"birthday\") < '1986' AND \"t2\".\"defensive_work_rate\" = 'high'",
+      "pred_sql": "SELECT COUNT(DISTINCT Player.player_api_id) FROM Player JOIN Player_Attributes ON Player.player_api_id = Player_Attributes.player_api_id WHERE STRFTIME('%Y', Player.birthday) < '1986' AND Player_Attributes.defensive_work_rate = 'high'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 28939,
+      "gold_elapsed_ms": 99,
+      "pred_elapsed_ms": 104,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Player.player_api_id)",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "strftime('%Y', Player.birthday) < '1986'",
+          "Player_Attributes.defensive_work_rate = 'high'"
+        ],
+        "evidence_predicates": [
+          "strftime('%Y', birthday)<'1986'",
+          "defensive_work_rate = 'high'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1094,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "How much higher in percentage is Ariel Borysiuk's overall rating than that of Paulin Puel?",
+      "evidence": "how much higher in percentage = MULTIPLY(DIVIDE(SUBTRACT(overall_rating WHERE player_name = 'Ariel Borysiuk', overall_rating WHERE player_name = 'Paulin Puel'), overall_rating WHERE player_name = 'Paulin Puel'), 100);",
+      "gold_sql": "SELECT\n  (\n    SUM(\n      CASE\n        WHEN `t1`.`player_name` = 'Ariel Borysiuk'\n        THEN `t2`.`overall_rating`\n        ELSE 0\n      END\n    ) * 1.0 - SUM(\n      CASE WHEN `t1`.`player_name` = 'Paulin Puel' THEN `t2`.`overall_rating` ELSE 0 END\n    )\n  ) * 100 / SUM(\n    CASE WHEN `t1`.`player_name` = 'Paulin Puel' THEN `t2`.`overall_rating` ELSE 0 END\n  )\nFROM `Player` AS `t1`\nINNER JOIN `Player_Attributes` AS `t2`\n  ON `t1`.`player_api_id` = `t2`.`player_api_id`",
+      "pred_sql": "WITH latest AS (SELECT p.player_name, pa.overall_rating FROM Player AS p JOIN Player_Attributes AS pa ON p.player_api_id = pa.player_api_id JOIN (SELECT pa2.player_api_id, MAX(pa2.date) AS max_date FROM Player_Attributes AS pa2 JOIN Player AS p2 ON p2.player_api_id = pa2.player_api_id WHERE p2.player_name IN ('Ariel Borysiuk', 'Paulin Puel') GROUP BY pa2.player_api_id) AS md ON pa.player_api_id = md.player_api_id AND pa.date = md.max_date WHERE p.player_name IN ('Ariel Borysiuk', 'Paulin Puel')) SELECT CAST((MAX(CASE WHEN player_name = 'Ariel Borysiuk' THEN overall_rating END) - MAX(CASE WHEN player_name = 'Paulin Puel' THEN overall_rating END)) AS REAL) / NULLIF(MAX(CASE WHEN player_name = 'Paulin Puel' THEN overall_rating END), 0) * 100 FROM latest",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 44420,
+      "gold_elapsed_ms": 141,
+      "pred_elapsed_ms": 237,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 2,
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "MULTIPLY(DIVIDE(SUBTRACT(overall_rating WHERE player_name = 'Ariel Borysiuk', overall_rating WHERE player_name = 'Paulin Puel'), overall_rating WHERE player_name = 'Paulin Puel'), 100);",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "Player.player_name = 'Ariel Borysiuk'",
+          "Player.player_name = 'Paulin Puel'"
+        ],
+        "evidence_formula": "MULTIPLY(DIVIDE(SUBTRACT(overall_rating WHERE player_name = 'Ariel Borysiuk', overall_rating WHERE player_name = 'Paulin Puel'), overall_rating WHERE player_name = 'Paulin Puel'), 100);",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1114,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What was the average overall rating for Marko Arnautovic from 2007/2/22 to 2016/4/21?",
+      "evidence": "average overall rating refers to avg(overall_rating); Marko Arnautovic refers to player_name = 'Marko Arnautovic'; from 2007/2/22 to 2016/4/21 refers to the first 10 characters of date BETWEEN '2007-02-22' and '2016-04-21'",
+      "gold_sql": "SELECT\n  CAST(SUM(`t2`.`overall_rating`) AS DOUBLE) / COUNT(`t2`.`id`)\nFROM `Player` AS `t1`\nINNER JOIN `Player_Attributes` AS `t2`\n  ON `t1`.`player_fifa_api_id` = `t2`.`player_fifa_api_id`\nWHERE\n  `t1`.`player_name` = 'Marko Arnautovic'\n  AND SUBSTR(`t2`.`date`, 1, 10) BETWEEN '2007-02-22' AND '2016-04-21'",
+      "pred_sql": "SELECT AVG(overall_rating) FROM Player_Attributes JOIN Player ON Player_Attributes.player_api_id = Player.player_api_id WHERE Player.player_name = 'Marko Arnautovic' AND SUBSTRING(Player_Attributes.date, 1, 10) BETWEEN '2007-02-22' AND '2016-04-21'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 15222,
+      "gold_elapsed_ms": 139,
+      "pred_elapsed_ms": 134,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(Player_Attributes.overall_rating)",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player_Attributes.player_api_id = Player.player_api_id"
+        ],
+        "filters": [
+          "Player.player_name = 'Marko Arnautovic'",
+          "SUBSTR(Player_Attributes.date, 1, 10) BETWEEN '2007-02-22' AND '2016-04-21'"
+        ],
+        "evidence_predicates": [
+          "avg(overall_rating)",
+          "Player.player_name = 'Marko Arnautovic'",
+          "SUBSTR(Player_Attributes.date, 1, 10) BETWEEN '2007-02-22' AND '2016-04-21'"
+        ],
+        "evidence_formula": "avg(overall_rating)",
+        "aggregation": "AVG",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1115,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What percentage is Landon Donovan's overall rating higher than Jordan Bowery on 2013/7/12?",
+      "evidence": "Landon Donovan's refers to player_name = 'Landon Donovan'; Jordan Bowery refers to player_name = 'Jordan Bowery'; percentage refers to DIVIDE(SUBTRACT(player_name = 'Landon Donovan' overall_rating; player_name = 'Jordan Bowery' overall_rating), player_name = 'Landon Donovan' overall_rating)*100",
+      "gold_sql": "SELECT\n  (\n    SUM(\n      CASE\n        WHEN `t1`.`player_name` = 'Landon Donovan'\n        THEN `t2`.`overall_rating`\n        ELSE 0\n      END\n    ) * 1.0 - SUM(\n      CASE WHEN `t1`.`player_name` = 'Jordan Bowery' THEN `t2`.`overall_rating` ELSE 0 END\n    )\n  ) * 100 / SUM(\n    CASE\n      WHEN `t1`.`player_name` = 'Landon Donovan'\n      THEN `t2`.`overall_rating`\n      ELSE 0\n    END\n  ) AS `LvsJ_percent`\nFROM `Player` AS `t1`\nINNER JOIN `Player_Attributes` AS `t2`\n  ON `t1`.`player_fifa_api_id` = `t2`.`player_fifa_api_id`\nWHERE\n  SUBSTR(`t2`.`date`, 1, 10) = '2013-07-12'",
+      "pred_sql": "SELECT (CAST((SELECT pa.overall_rating FROM Player AS p JOIN Player_Attributes AS pa ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Landon Donovan' AND pa.date = '2013/7/12' LIMIT 1) - (SELECT pa.overall_rating FROM Player AS p JOIN Player_Attributes AS pa ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Jordan Bowery' AND pa.date = '2013/7/12' LIMIT 1) AS REAL) / NULLIF((SELECT pa.overall_rating FROM Player AS p JOIN Player_Attributes AS pa ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Landon Donovan' AND pa.date = '2013/7/12' LIMIT 1), 0)) * 100",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 25433,
+      "gold_elapsed_ms": 91,
+      "pred_elapsed_ms": 231,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUBTRACT(player_name = 'Landon Donovan' overall_rating; player_name = 'Jordan Bowery' overall_rating), player_name = 'Landon Donovan' overall_rating)*100",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player_Attributes.player_api_id = Player.player_api_id"
+        ],
+        "filters": [
+          "Player.player_name = 'Landon Donovan'",
+          "Player.player_name = 'Jordan Bowery'",
+          "Player_Attributes.date = '2013/7/12'"
+        ],
+        "evidence_predicates": [
+          "Player.player_name = 'Landon Donovan'",
+          "Player.player_name = 'Jordan Bowery'",
+          "Player_Attributes.date = '2013/7/12'"
+        ],
+        "evidence_formula": "DIVIDE(SUBTRACT(player_name = 'Landon Donovan' overall_rating; player_name = 'Jordan Bowery' overall_rating), player_name = 'Landon Donovan' overall_rating)*100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1139,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What was the final score for the match on September 24, 2008, in the Belgian Jupiler League between the home team and the away team?",
+      "evidence": "September 24, 2008 refers to date like '2008-09-24%'; in the Belgian Jupiler League refers to League.name = 'Belgium Jupiler League'; final score for home team refers to home_team_goal; final score for away team refers to away_team_goal",
+      "gold_sql": "SELECT\n  `t2`.`home_team_goal`,\n  `t2`.`away_team_goal`\nFROM `League` AS `t1`\nINNER JOIN `Match` AS `t2`\n  ON `t1`.`id` = `t2`.`league_id`\nWHERE\n  `t1`.`name` = 'Belgium Jupiler League' AND `t2`.`date` LIKE '2008-09-24%'",
+      "pred_sql": "SELECT m.home_team_goal, m.away_team_goal FROM Match AS m INNER JOIN League AS l ON m.league_id = l.id WHERE m.date LIKE '2008-09-24%' AND l.name = 'Belgium Jupiler League'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 10967,
+      "gold_elapsed_ms": 76,
+      "pred_elapsed_ms": 100,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Match.home_team_goal, Match.away_team_goal",
+        "tables": [
+          "Match",
+          "League"
+        ],
+        "join_path": [
+          "Match.league_id = League.id"
+        ],
+        "filters": [
+          "Match.date LIKE '2008-09-24%'",
+          "League.name = 'Belgium Jupiler League'"
+        ],
+        "evidence_predicates": [
+          "September 24, 2008 refers to date like '2008-09-24%'",
+          "in the Belgian Jupiler League refers to League.name = 'Belgium Jupiler League'",
+          "final score for home team refers to home_team_goal",
+          "final score for away team refers to away_team_goal"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 880,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Paul di Resta was in the No. 853 race, what percent faster did he finish in the 853rd race than the next race for the fastest lap speed?",
+      "evidence": "Paul di Resta refers to the full name of the driver; Full name of the driver refers to drivers.forename ='Paul' and drivers.surname = 'di Resta'; race number refers to raceId; percentage = DIVIDE(SUBTRACT(fastestLapSpeed(raceId = 853), (fastestLapSpeed (raceId = 854)) * 100 , (fastestLapSpeed(raceId = 853))",
+      "gold_sql": "SELECT\n  (\n    SUM(CASE WHEN `T2`.`raceId` = 853 THEN `T2`.`fastestLapSpeed` ELSE 0 END) - SUM(CASE WHEN `T2`.`raceId` = 854 THEN `T2`.`fastestLapSpeed` ELSE 0 END)\n  ) * 100 / SUM(CASE WHEN `T2`.`raceId` = 853 THEN `T2`.`fastestLapSpeed` ELSE 0 END)\nFROM `drivers` AS `T1`\nINNER JOIN `results` AS `T2`\n  ON `T2`.`driverId` = `T1`.`driverId`\nWHERE\n  `T1`.`forename` = 'Paul' AND `T1`.`surname` = 'di Resta'",
+      "pred_sql": "SELECT ((MAX(CASE WHEN r.raceId = 853 THEN CAST(r.fastestLapSpeed AS REAL) ELSE NULL END) - (MAX(CASE WHEN r.raceId = 854 THEN CAST(r.fastestLapSpeed AS REAL) ELSE NULL END) * 100)) / NULLIF(MAX(CASE WHEN r.raceId = 853 THEN CAST(r.fastestLapSpeed AS REAL) ELSE NULL END), 0)) AS percent_faster FROM results AS r JOIN drivers AS d ON r.driverId = d.driverId WHERE d.forename = 'Paul' AND d.surname = 'di Resta' AND r.raceId IN (853, 854)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 24080,
+      "gold_elapsed_ms": 11,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUBTRACT(fastestLapSpeed(raceId = 853), (fastestLapSpeed (raceId = 854)) * 100 , (fastestLapSpeed(raceId = 853))",
+        "tables": [
+          "drivers",
+          "results"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "drivers.forename = 'Paul'",
+          "drivers.surname = 'di Resta'",
+          "results.raceId IN (853, 854)"
+        ],
+        "evidence_predicates": [
+          "fastestLapSpeed(raceId = 853) = results.fastestLapSpeed AND results.raceId = 853 AND results.driverId = drivers.driverId",
+          "fastestLapSpeed(raceId = 854) = results.fastestLapSpeed AND results.raceId = 854 AND results.driverId = drivers.driverId",
+          "drivers.forename = 'Paul'",
+          "drivers.surname = 'di Resta'"
+        ],
+        "evidence_formula": "DIVIDE(SUBTRACT(fastestLapSpeed(raceId = 853), (fastestLapSpeed (raceId = 854)) * 100 , (fastestLapSpeed(raceId = 853))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 896,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Calculate the percentage whereby Hamilton was not at the 1st track of the the f1 circuit since 2010.",
+      "evidence": "percentage = DIVIDE(COUNT(raceId) where surname = 'Hamilton' and position>1), (COUNT(raceId) where surname = 'Hamilton'); since 2010 refers to year >= 2010",
+      "gold_sql": "SELECT\n  CAST(COUNT(CASE WHEN `T2`.`position` <> 1 THEN `T2`.`position` END) AS DOUBLE) * 100 / COUNT(`T2`.`driverStandingsId`)\nFROM `races` AS `T1`\nINNER JOIN `driverStandings` AS `T2`\n  ON `T2`.`raceId` = `T1`.`raceId`\nINNER JOIN `drivers` AS `T3`\n  ON `T3`.`driverId` = `T2`.`driverId`\nWHERE\n  `T3`.`surname` = 'Hamilton' AND `T1`.`year` >= 2010",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN r.position > 1 THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(r.raceId), 0) FROM results AS r JOIN drivers AS d ON r.driverId = d.driverId JOIN races AS rc ON r.raceId = rc.raceId WHERE d.surname = 'Hamilton' AND rc.year >= 2010",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 21181,
+      "gold_elapsed_ms": 51,
+      "pred_elapsed_ms": 6,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(raceId) where surname = 'Hamilton' and position>1), (COUNT(raceId) where surname = 'Hamilton')",
+        "tables": [
+          "results",
+          "drivers",
+          "races"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId",
+          "results.raceId = races.raceId"
+        ],
+        "filters": [
+          "drivers.surname = 'Hamilton'",
+          "races.year >= 2010"
+        ],
+        "evidence_predicates": [
+          "surname = 'Hamilton' and position>1",
+          "surname = 'Hamilton'"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(raceId) where surname = 'Hamilton' and position>1), (COUNT(raceId) where surname = 'Hamilton')",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 944,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "How much faster in percentage is the champion than the driver who finished the race last in the 2008 Australian Grand Prix?",
+      "evidence": "how much faster in percentage = divide(subtract(incremental time, champion time), last_driver time) * 100; last driver finished time = incremental time + champion time; only champion's finished time is represented by 'HH:MM:SS.mmm'; finished the game refers to time is not null",
+      "gold_sql": "WITH `time_in_seconds` AS (\n  SELECT\n    `T1`.`positionOrder`,\n    CASE\n      WHEN `T1`.`positionOrder` = 1\n      THEN (\n        CAST(SUBSTR(`T1`.`time`, 1, 1) AS DOUBLE) * 3600\n      ) + (\n        CAST(SUBSTR(`T1`.`time`, 3, 2) AS DOUBLE) * 60\n      ) + CAST(SUBSTR(`T1`.`time`, 6) AS DOUBLE)\n      ELSE CAST(SUBSTR(`T1`.`time`, 2) AS DOUBLE)\n    END AS `time_seconds`\n  FROM `results` AS `T1`\n  INNER JOIN `races` AS `T2`\n    ON `T1`.`raceId` = `T2`.`raceId`\n  WHERE\n    `T2`.`name` = 'Australian Grand Prix'\n    AND NOT `T1`.`time` IS NULL\n    AND `T2`.`year` = 2008\n), `champion_time` AS (\n  SELECT\n    `time_seconds`\n  FROM `time_in_seconds`\n  WHERE\n    `positionOrder` = 1\n), `last_driver_incremental` AS (\n  SELECT\n    `time_seconds`\n  FROM `time_in_seconds`\n  WHERE\n    `positionOrder` = (\n      SELECT\n        MAX(`positionOrder`)\n      FROM `time_in_seconds`\n    )\n)\nSELECT\n  (\n    CAST((\n      SELECT\n        `time_seconds`\n      FROM `last_driver_incremental`\n    ) AS DOUBLE) * 100\n  ) / (\n    SELECT\n      `time_seconds` + (\n        SELECT\n          `time_seconds`\n        FROM `last_driver_incremental`\n      )\n    FROM `champion_time`\n  )",
+      "pred_sql": "SELECT CAST(((last_ms - champ_ms) - champ_ms) AS REAL) / NULLIF(last_ms, 0) * 100 FROM (SELECT r.milliseconds AS champ_ms FROM results AS r JOIN races AS ra ON r.raceId = ra.raceId WHERE ra.year = 2008 AND ra.name = 'Australian Grand Prix' AND r.position = 1 AND NOT r.time IS NULL) AS c, (SELECT r2.milliseconds AS last_ms FROM results AS r2 JOIN races AS ra2 ON r2.raceId = ra2.raceId WHERE ra2.year = 2008 AND ra2.name = 'Australian Grand Prix' AND NOT r2.time IS NULL AND r2.positionOrder = (SELECT MAX(rr.positionOrder) FROM results AS rr WHERE rr.raceId = r2.raceId AND NOT rr.time IS NULL)) AS l",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 40968,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 5373,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "divide(subtract(incremental time, champion time), last_driver time) * 100",
+        "tables": [
+          "races",
+          "results AS champ",
+          "results AS last"
+        ],
+        "join_path": [
+          "champ.raceId = races.raceId",
+          "last.raceId = races.raceId"
+        ],
+        "filters": [
+          "races.year = 2008",
+          "races.name = 'Australian Grand Prix'",
+          "champ.position = 1",
+          "champ.time IS NOT NULL",
+          "last.time IS NOT NULL",
+          "last.positionOrder = (SELECT MAX(r.positionOrder) FROM results r WHERE r.raceId = races.raceId AND r.time IS NOT NULL)"
+        ],
+        "evidence_predicates": [
+          "last driver finished time = incremental time + champion time",
+          "only champion's finished time is represented by 'HH:MM:SS.mmm'",
+          "finished the game refers to time is not null"
+        ],
+        "evidence_formula": "divide(subtract(incremental time, champion time), last_driver time) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 954,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Please calculate the race completion percentage of Japanese drivers from 2007 to 2009.",
+      "evidence": "from 2007 to 2009 refers to year between 2007 and 2009; race completion refers to time is not null; percentage = Divide(COUNT(DriverID where time is not null and year between 2007 and 2009),Count (DriverID where year between 2007 and 2009))*100; ",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN NOT `T1`.`time` IS NULL THEN 1 ELSE 0 END) AS DOUBLE) * 100 / COUNT(`T1`.`raceId`)\nFROM `results` AS `T1`\nINNER JOIN `races` AS `T2`\n  ON `T1`.`raceId` = `T2`.`raceId`\nINNER JOIN `drivers` AS `T3`\n  ON `T1`.`driverId` = `T3`.`driverId`\nWHERE\n  `T3`.`nationality` = 'Japanese' AND `T2`.`year` BETWEEN 2007 AND 2009",
+      "pred_sql": "SELECT CAST(COUNT(CASE WHEN NOT r.time IS NULL THEN r.driverId END) AS REAL) / NULLIF(COUNT(r.driverId), 0) * 100 FROM results AS r JOIN drivers AS d ON r.driverId = d.driverId JOIN races AS ra ON r.raceId = ra.raceId WHERE d.nationality = 'Japanese' AND ra.year BETWEEN 2007 AND 2009",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 20639,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 8,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Divide(COUNT(DriverID where time is not null and year between 2007 and 2009),Count (DriverID where year between 2007 and 2009))*100;",
+        "tables": [
+          "results",
+          "drivers",
+          "races"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId",
+          "results.raceId = races.raceId"
+        ],
+        "filters": [
+          "drivers.nationality = 'Japanese'",
+          "races.year BETWEEN 2007 AND 2009"
+        ],
+        "evidence_predicates": [
+          "results.time IS NOT NULL",
+          "races.year BETWEEN 2007 AND 2009"
+        ],
+        "evidence_formula": "Divide(COUNT(DriverID where time is not null and year between 2007 and 2009),Count (DriverID where year between 2007 and 2009))*100;",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 955,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "What is the average time in seconds of champion for each year, before year 1975?",
+      "evidence": "only champion's finished time is represented by 'HH:MM:SS.mmm'; finished the game refers to time is not null; before year 1975 refers to year < 1975;",
+      "gold_sql": "WITH time_in_seconds AS (SELECT T2.year, T2.raceId, T1.positionOrder, CASE WHEN T1.positionOrder = 1 THEN (CAST(SUBSTR(T1.time, 1, 1) AS FLOAT) * 3600) + (CAST(SUBSTR(T1.time, 3, 2) AS FLOAT) * 60) + CAST(SUBSTR(T1.time, 6, 2) AS FLOAT) + CAST(SUBSTR(T1.time, 9) AS FLOAT) / 1000 ELSE 0 END AS time_seconds FROM results AS T1 INNER JOIN races AS T2 ON T1.raceId = T2.raceId WHERE NOT T1.time IS NULL), champion_time AS (SELECT year, raceId, time_seconds FROM time_in_seconds WHERE positionOrder = 1) SELECT year, AVG(time_seconds) FROM champion_time WHERE year < 1975 GROUP BY year HAVING NOT AVG(time_seconds) IS NULL",
+      "pred_sql": "SELECT races.year, AVG(CAST(SUBSTRING(results.time, 1, 2) AS INTEGER) * 3600 + CAST(SUBSTRING(results.time, 4, 2) AS INTEGER) * 60 + CAST(SUBSTRING(results.time, 7, 2) AS INTEGER) + CAST(SUBSTRING(results.time, 10) AS REAL) / 1000.0) AS avg_seconds FROM driverStandings JOIN races ON driverStandings.raceId = races.raceId JOIN drivers ON driverStandings.driverId = drivers.driverId JOIN results ON results.raceId = races.raceId AND results.driverId = drivers.driverId WHERE races.year < 1975 AND driverStandings.position = 1 AND NOT results.time IS NULL AND races.round = (SELECT MAX(round) FROM races AS r2 WHERE r2.year = races.year) GROUP BY races.year ORDER BY races.year ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 25,
+      "pred_row_count": 16,
+      "gen_ms": 23657,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 16,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(CAST(substr(results.time, 1, 2) AS INTEGER) * 3600 + CAST(substr(results.time, 4, 2) AS INTEGER) * 60 + CAST(substr(results.time, 7, 2) AS INTEGER) + CAST(substr(results.time, 10) AS REAL) / 1000.0)",
+        "tables": [
+          "driverStandings",
+          "races",
+          "results",
+          "drivers"
+        ],
+        "join_path": [
+          "driverStandings.raceId = races.raceId",
+          "driverStandings.driverId = drivers.driverId",
+          "results.raceId = races.raceId",
+          "results.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "races.year < 1975",
+          "driverStandings.position = 1",
+          "results.time IS NOT NULL",
+          "races.round = (SELECT MAX(round) FROM races r2 WHERE r2.year = races.year)"
+        ],
+        "evidence_predicates": [
+          "only champion's finished time is represented by 'HH:MM:SS.mmm'",
+          "finished the game refers to time is not null",
+          "before year 1975 refers to year < 1975"
+        ],
+        "evidence_formula": null,
+        "aggregation": "AVG",
+        "group_by": "races.year",
+        "having": null,
+        "order_by": "races.year ASC",
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 962,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "From 2000 to 2005, what percentage of drivers who were born before 1985 and the lap numbers were over 50?",
+      "evidence": "born before 1985 refers to year(dob)<1985; in 2000 to 2005 refers to year between 2000 and 2005; percentage = Divide(COUNT(driverId where year (dob) <1985 and laps >50),COUNT(DriverID where year between 2000 and 2005) *100;",
+      "gold_sql": "SELECT CAST(CAST(SUM(CASE WHEN STRFTIME('%Y', \"T3\".\"dob\") < '1985' AND \"T1\".\"laps\" > 50 THEN 1 ELSE 0 END) AS REAL) * 100 AS REAL) / COUNT(*) FROM \"results\" AS \"T1\" INNER JOIN \"races\" AS \"T2\" ON \"T1\".\"raceId\" = \"T2\".\"raceId\" INNER JOIN \"drivers\" AS \"T3\" ON \"T1\".\"driverId\" = \"T3\".\"driverId\" WHERE \"T2\".\"year\" BETWEEN 2000 AND 2005",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN SUBSTRING(drivers.dob, 1, 4) < '1985' AND results.laps > 50 THEN 1 ELSE 0 END) AS REAL) / (COUNT(results.driverId) * 100) FROM results JOIN drivers ON results.driverId = drivers.driverId JOIN races ON results.raceId = races.raceId WHERE races.year BETWEEN 2000 AND 2005",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 26233,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 5,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Divide(COUNT(driverId where year (dob) <1985 and laps >50),COUNT(DriverID where year between 2000 and 2005) *100;",
+        "tables": [
+          "drivers",
+          "results",
+          "races"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId",
+          "results.raceId = races.raceId"
+        ],
+        "filters": [
+          "races.year BETWEEN 2000 AND 2005",
+          "results.laps > 50",
+          "year(drivers.dob) < 1985"
+        ],
+        "evidence_predicates": [
+          "year(drivers.dob) < 1985",
+          "results.laps > 50",
+          "races.year BETWEEN 2000 AND 2005"
+        ],
+        "evidence_formula": "Divide(COUNT(driverId where year (dob) <1985 and laps >50),COUNT(DriverID where year between 2000 and 2005) *100;",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 988,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "List down top 3 German drivers who has the shortest average pit stop duration and were born between 1980-1985.",
+      "evidence": "Full name of the driver refers to drivers.forename and drivers.surname; born between 1980-1985 refers to 1980<= year(dob) <=1985; Average pitstop duration refers to Divide(SUM(duration),COUNT(duration)); shortest average refers to Min(avg(duration));",
+      "gold_sql": "SELECT \"T2\".\"forename\", \"T2\".\"surname\" FROM \"pitStops\" AS \"T1\" INNER JOIN \"drivers\" AS \"T2\" ON \"T1\".\"driverId\" = \"T2\".\"driverId\" WHERE \"T2\".\"nationality\" = 'German' AND STRFTIME('%Y', \"T2\".\"dob\") BETWEEN '1980' AND '1985' GROUP BY \"T2\".\"forename\", \"T2\".\"surname\" ORDER BY AVG(\"T1\".\"duration\") LIMIT 3",
+      "pred_sql": "SELECT drivers.forename, drivers.surname FROM drivers INNER JOIN pitStops ON pitStops.driverId = drivers.driverId WHERE drivers.nationality = 'German' AND CAST(STRFTIME('%Y', drivers.dob) AS INTEGER) BETWEEN 1980 AND 1985 AND NOT pitStops.duration IS NULL GROUP BY drivers.driverId ORDER BY CAST(SUM(CAST(pitStops.duration AS REAL)) AS REAL) / COUNT(pitStops.duration) ASC NULLS LAST LIMIT 3",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 16971,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 2,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "drivers.forename || ' ' || drivers.surname AS full_name, DIVIDE(SUM(pitStops.duration), COUNT(pitStops.duration)) AS avg_duration",
+        "tables": [
+          "drivers",
+          "pitStops"
+        ],
+        "join_path": [
+          "pitStops.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "drivers.nationality = 'German'",
+          "1980 <= year(drivers.dob) AND year(drivers.dob) <= 1985"
+        ],
+        "evidence_predicates": [
+          "pitStops.duration IS NOT NULL"
+        ],
+        "evidence_formula": "DIVIDE(SUM(duration),COUNT(duration))",
+        "aggregation": "AVG",
+        "group_by": "drivers.driverId, drivers.forename, drivers.surname",
+        "having": null,
+        "order_by": "DIVIDE(SUM(pitStops.duration),COUNT(pitStops.duration)) ASC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 990,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "What is the constructor reference name of the champion in the 2009 Singapore Grand Prix? Please give its website.",
+      "evidence": "the time of the champion shows in the format of \"minutes: seconds.millionsecond\" in which Max(time); constructor reference name refers to constructorRef; website refers to url",
+      "gold_sql": "SELECT\n  `T3`.`constructorRef`,\n  `T3`.`url`\nFROM `results` AS `T1`\nINNER JOIN `races` AS `T2`\n  ON `T1`.`raceId` = `T2`.`raceId`\nINNER JOIN `constructors` AS `T3`\n  ON `T1`.`constructorId` = `T3`.`constructorId`\nWHERE\n  `T2`.`name` = 'Singapore Grand Prix'\n  AND `T2`.`year` = 2009\n  AND `T1`.`time` LIKE '_:%:__.___'",
+      "pred_sql": "SELECT c.constructorRef, c.url, MAX(rsl.time) FROM results AS rsl INNER JOIN races AS r ON rsl.raceId = r.raceId INNER JOIN constructors AS c ON rsl.constructorId = c.constructorId WHERE r.year = 2009 AND r.name = 'Singapore Grand Prix' AND rsl.position = 1 GROUP BY c.constructorId, c.constructorRef, c.url",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 24752,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 6,
+        "groups": 2,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "constructors.constructorRef, constructors.url",
+        "tables": [
+          "results",
+          "races",
+          "constructors"
+        ],
+        "join_path": [
+          "results.raceId = races.raceId",
+          "results.constructorId = constructors.constructorId"
+        ],
+        "filters": [
+          "races.year = 2009",
+          "races.name = 'Singapore Grand Prix'",
+          "results.position = 1"
+        ],
+        "evidence_predicates": [
+          "constructor reference name refers to constructors.constructorRef",
+          "website refers to constructors.url",
+          "the time of the champion shows in the format of \"minutes: seconds.millionsecond\""
+        ],
+        "evidence_formula": "Max(time)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 994,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Which constructor scored most points from Monaco Grand Prix between 1980 and 2010? List the score, name and nationality of this team.",
+      "evidence": "Monaco Grand Priz refers to the race; race in year between 1980 and 2010",
+      "gold_sql": "SELECT\n  SUM(`T1`.`points`),\n  `T2`.`name`,\n  `T2`.`nationality`\nFROM `constructorResults` AS `T1`\nINNER JOIN `constructors` AS `T2`\n  ON `T1`.`constructorId` = `T2`.`constructorId`\nINNER JOIN `races` AS `T3`\n  ON `T3`.`raceid` = `T1`.`raceid`\nWHERE\n  `T3`.`name` = 'Monaco Grand Prix' AND `T3`.`year` BETWEEN 1980 AND 2010\nGROUP BY\n  `T2`.`name`\nORDER BY\n  SUM(`T1`.`points`) DESC\nLIMIT 1",
+      "pred_sql": "SELECT SUM(cr.points) AS total_points, c.name, c.nationality FROM constructorResults AS cr JOIN races AS r ON cr.raceId = r.raceId JOIN constructors AS c ON cr.constructorId = c.constructorId WHERE r.name = 'Monaco Grand Prix' AND r.year BETWEEN 1980 AND 2010 GROUP BY c.constructorId, c.name, c.nationality ORDER BY total_points DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7576,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 3,
+        "executed": 3,
+        "groups": 1,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(constructorResults.points) AS total_points, constructors.name, constructors.nationality",
+        "tables": [
+          "constructorResults",
+          "races",
+          "constructors"
+        ],
+        "join_path": [
+          "constructorResults.raceId = races.raceId",
+          "constructorResults.constructorId = constructors.constructorId"
+        ],
+        "filters": [
+          "races.name = 'Monaco Grand Prix'",
+          "races.year BETWEEN 1980 AND 2010"
+        ],
+        "evidence_predicates": [
+          "races.name = 'Monaco Grand Prix'",
+          "races.year BETWEEN 1980 AND 2010"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "constructors.constructorId, constructors.name, constructors.nationality",
+        "having": null,
+        "order_by": "SUM(constructorResults.points) DESC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1001,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "What is full name of the racer who ranked 1st in the 3rd qualifying race held in the Marina Bay Street Circuit in 2008?",
+      "evidence": "Ranked 1st in the 3rd qualifying race refer to MIN(q3); 2008 is the year of race; full name of racer = forename, surname",
+      "gold_sql": "SELECT\n  `T2`.`forename`,\n  `T2`.`surname`\nFROM `qualifying` AS `T1`\nINNER JOIN `drivers` AS `T2`\n  ON `T1`.`driverId` = `T2`.`driverId`\nINNER JOIN `races` AS `T3`\n  ON `T1`.`raceid` = `T3`.`raceid`\nWHERE\n  NOT `q3` IS NULL\n  AND `T3`.`year` = 2008\n  AND `T3`.`circuitId` IN (\n    SELECT\n      `circuitId`\n    FROM `circuits`\n    WHERE\n      `name` = 'Marina Bay Street Circuit'\n  )\nORDER BY\n  CAST(SUBSTR(`q3`, 1, INSTR(`q3`, ':') - 1) AS SIGNED) * 60 + CAST(SUBSTR(`q3`, INSTR(`q3`, ':') + 1, INSTR(`q3`, '.') - INSTR(`q3`, ':') - 1) AS DOUBLE) + CAST(SUBSTR(`q3`, INSTR(`q3`, '.') + 1) AS DOUBLE) / 1000 ASC\nLIMIT 1",
+      "pred_sql": "SELECT d.forename, d.surname FROM qualifying AS q JOIN races AS r ON q.raceId = r.raceId JOIN circuits AS c ON r.circuitId = c.circuitId JOIN drivers AS d ON q.driverId = d.driverId WHERE r.year = 2008 AND c.name = 'Marina Bay Street Circuit' AND NOT q.q3 IS NULL AND q.q3 = (SELECT MIN(q3) FROM qualifying AS q2 JOIN races AS r2 ON q2.raceId = r2.raceId JOIN circuits AS c2 ON r2.circuitId = c2.circuitId WHERE r2.year = 2008 AND c2.name = 'Marina Bay Street Circuit' AND NOT q2.q3 IS NULL)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 18984,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "drivers.forename || ' ' || drivers.surname",
+        "tables": [
+          "qualifying",
+          "races",
+          "circuits",
+          "drivers"
+        ],
+        "join_path": [
+          "qualifying.raceId = races.raceId",
+          "races.circuitId = circuits.circuitId",
+          "qualifying.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "races.year = 2008",
+          "circuits.name = 'Marina Bay Street Circuit'",
+          "qualifying.q3 IS NOT NULL",
+          "qualifying.q3 = (SELECT MIN(q3) FROM qualifying q2 JOIN races r2 ON q2.raceId = r2.raceId JOIN circuits c2 ON r2.circuitId = c2.circuitId WHERE r2.year = 2008 AND c2.name = 'Marina Bay Street Circuit' AND q2.q3 IS NOT NULL)"
+        ],
+        "evidence_predicates": [
+          "MIN(q3)",
+          "races.year = 2008",
+          "circuits.name = 'Marina Bay Street Circuit'"
+        ],
+        "evidence_formula": "MIN(q3)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1011,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Which top 20 driver created the shortest lap time ever record in a Formula_1 race? Please give them full names.",
+      "evidence": "shortest lap time refers to MIN(time); the time format for the shortest lap time is 'MM:SS.mmm' or 'M:SS.mmm'; full name of the driver refers to forename, surname",
+      "gold_sql": "WITH lap_times_in_seconds AS (SELECT driverId, (CASE WHEN SUBSTR(time, 1, INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, 1, INSTR(time, ':') - 1) AS FLOAT) * 60 ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) AS FLOAT) ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, '.') + 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, '.') + 1) AS FLOAT) / 1000 ELSE 0 END) AS time_in_seconds FROM lapTimes) SELECT T2.forename, T2.surname, T1.driverId FROM (SELECT driverId, MIN(time_in_seconds) AS min_time_in_seconds FROM lap_times_in_seconds GROUP BY driverId) AS T1 INNER JOIN drivers AS T2 ON T1.driverId = T2.driverId ORDER BY T1.min_time_in_seconds ASC LIMIT 20",
+      "pred_sql": "SELECT DISTINCT d.forename, d.surname FROM lapTimes AS lt JOIN drivers AS d ON lt.driverId = d.driverId WHERE lt.time = (SELECT MIN(time) FROM lapTimes)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 20,
+      "pred_row_count": 1,
+      "gen_ms": 104140,
+      "gold_elapsed_ms": 422,
+      "pred_elapsed_ms": 59,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 6,
+        "groups": 1,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DISTINCT drivers.forename || ' ' || drivers.surname",
+        "tables": [
+          "lapTimes",
+          "drivers"
+        ],
+        "join_path": [
+          "lapTimes.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "lapTimes.time = (SELECT MIN(time) FROM lapTimes)"
+        ],
+        "evidence_predicates": [
+          "shortest lap time refers to MIN(time)",
+          "the time format for the shortest lap time is 'MM:SS.mmm' or 'M:SS.mmm'",
+          "full name of the driver refers to forename, surname"
+        ],
+        "evidence_formula": "MIN(time)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1014,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Please list the lap records for the circuits in Italy.",
+      "evidence": "lap record means the fastest time recorded which refers to time",
+      "gold_sql": "WITH `fastest_lap_times` AS (\n  SELECT\n    `T1`.`raceId`,\n    `T1`.`FastestLapTime`,\n    (\n      CAST(SUBSTR(`T1`.`FastestLapTime`, 1, INSTR(`T1`.`FastestLapTime`, ':') - 1) AS DOUBLE) * 60\n    ) + (\n      CAST(SUBSTR(\n        `T1`.`FastestLapTime`,\n        INSTR(`T1`.`FastestLapTime`, ':') + 1,\n        INSTR(`T1`.`FastestLapTime`, '.') - INSTR(`T1`.`FastestLapTime`, ':') - 1\n      ) AS DOUBLE)\n    ) + (\n      CAST(SUBSTR(`T1`.`FastestLapTime`, INSTR(`T1`.`FastestLapTime`, '.') + 1) AS DOUBLE) / 1000\n    ) AS `time_in_seconds`\n  FROM `results` AS `T1`\n  WHERE\n    NOT `T1`.`FastestLapTime` IS NULL\n)\nSELECT\n  `T1`.`FastestLapTime` AS `lap_record`\nFROM `results` AS `T1`\nINNER JOIN `races` AS `T2`\n  ON `T1`.`raceId` = `T2`.`raceId`\nINNER JOIN `circuits` AS `T3`\n  ON `T2`.`circuitId` = `T3`.`circuitId`\nINNER JOIN (\n  SELECT\n    MIN(`fastest_lap_times`.`time_in_seconds`) AS `min_time_in_seconds`\n  FROM `fastest_lap_times`\n  INNER JOIN `races` AS `T2`\n    ON `fastest_lap_times`.`raceId` = `T2`.`raceId`\n  INNER JOIN `circuits` AS `T3`\n    ON `T2`.`circuitId` = `T3`.`circuitId`\n  WHERE\n    `T3`.`country` = 'Italy'\n) AS `T4`\n  ON (\n    CAST(SUBSTR(`T1`.`FastestLapTime`, 1, INSTR(`T1`.`FastestLapTime`, ':') - 1) AS DOUBLE) * 60\n  ) + (\n    CAST(SUBSTR(\n      `T1`.`FastestLapTime`,\n      INSTR(`T1`.`FastestLapTime`, ':') + 1,\n      INSTR(`T1`.`FastestLapTime`, '.') - INSTR(`T1`.`FastestLapTime`, ':') - 1\n    ) AS DOUBLE)\n  ) + (\n    CAST(SUBSTR(`T1`.`FastestLapTime`, INSTR(`T1`.`FastestLapTime`, '.') + 1) AS DOUBLE) / 1000\n  ) = `T4`.`min_time_in_seconds`\nLIMIT 1",
+      "pred_sql": "SELECT c.name, MIN(lt.milliseconds) AS lap_record_milliseconds FROM circuits AS c JOIN races AS r ON r.circuitId = c.circuitId JOIN lapTimes AS lt ON lt.raceId = r.raceId WHERE c.country = 'Italy' AND NOT lt.milliseconds IS NULL GROUP BY c.circuitId, c.name ORDER BY c.name ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 2,
+      "gen_ms": 14648,
+      "gold_elapsed_ms": 1616,
+      "pred_elapsed_ms": 63,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 6,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "circuits.name, MIN(lapTimes.milliseconds)",
+        "tables": [
+          "circuits",
+          "races",
+          "lapTimes"
+        ],
+        "join_path": [
+          "races.circuitId = circuits.circuitId",
+          "lapTimes.raceId = races.raceId"
+        ],
+        "filters": [
+          "circuits.country = 'Italy'",
+          "lapTimes.milliseconds IS NOT NULL"
+        ],
+        "evidence_predicates": [
+          "lap record means the fastest time recorded which refers to time",
+          "fastest time per circuit -> use MIN(lapTimes.milliseconds)"
+        ],
+        "evidence_formula": null,
+        "aggregation": "MIN",
+        "group_by": "circuits.circuitId, circuits.name",
+        "having": null,
+        "order_by": "circuits.name ASC",
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 724,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "Please list the superhero names of all the superheroes that have blue eyes and blond hair.",
+      "evidence": "blue eyes refers to colour = 'Blue' and eye_colour_id = colour.id; blond hair refers to colour = 'Blond' and hair_colour_id = colour.id; super power of \"Agility\" refers to power_name = 'Agility'",
+      "gold_sql": "SELECT\n  `T1`.`superhero_name`\nFROM `superhero` AS `T1`\nINNER JOIN `colour` AS `T2`\n  ON `T1`.`eye_colour_id` = `T2`.`id`\nINNER JOIN `colour` AS `T3`\n  ON `T1`.`hair_colour_id` = `T3`.`id`\nWHERE\n  `T2`.`colour` = 'Blue' AND `T3`.`colour` = 'Blond'",
+      "pred_sql": "SELECT DISTINCT s.superhero_name FROM superhero AS s INNER JOIN colour AS ec ON s.eye_colour_id = ec.id INNER JOIN colour AS hc ON s.hair_colour_id = hc.id WHERE ec.colour = 'Blue' AND hc.colour = 'Blond'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 90,
+      "pred_row_count": 90,
+      "gen_ms": 14214,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "superhero.superhero_name",
+        "tables": [
+          "superhero",
+          "colour"
+        ],
+        "join_path": [
+          "superhero.eye_colour_id = colour.id",
+          "superhero.hair_colour_id = colour.id"
+        ],
+        "filters": [
+          "superhero.eye_colour_id = (SELECT id FROM colour WHERE colour = 'Blue')",
+          "superhero.hair_colour_id = (SELECT id FROM colour WHERE colour = 'Blond')"
+        ],
+        "evidence_predicates": [
+          "blue eyes refers to colour = 'Blue' and eye_colour_id = colour.id",
+          "blond hair refers to colour = 'Blond' and hair_colour_id = colour.id"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    }
+  ]
+}

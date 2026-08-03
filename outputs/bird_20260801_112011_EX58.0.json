@@ -1,0 +1,2713 @@
+{
+  "run_config": {
+    "model": "gpt-5-mini",
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 50,
+    "difficulty": "moderate"
+  },
+  "metrics": {
+    "total": 50,
+    "EX": 58.0,
+    "F1": 61.22,
+    "VES": 52.14,
+    "gold_errors": 1,
+    "EX_winnable": 59.18,
+    "error_categories": {
+      "correct": 29,
+      "disjoint": 13,
+      "zero_rows": 2,
+      "arity_mismatch": 3,
+      "superset": 1,
+      "subset": 1,
+      "gold_error": 1
+    },
+    "by_difficulty": {
+      "moderate": {
+        "count": 50,
+        "EX": 58.0,
+        "F1": 61.22,
+        "VES": 52.14
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1472,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "In 2012, who had the least consumption in LAM?",
+      "evidence": "Year 2012 can be presented as Between 201201 And 201212; The first 4 strings of the Date values in the yearmonth table can represent year.",
+      "gold_sql": "SELECT\n  `T1`.`CustomerID`\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T1`.`Segment` = 'LAM' AND SUBSTR(`T2`.`Date`, 1, 4) = '2012'\nGROUP BY\n  `T1`.`CustomerID`\nORDER BY\n  SUM(`T2`.`Consumption`) ASC\nLIMIT 1",
+      "pred_sql": "SELECT c.CustomerID FROM customers AS c INNER JOIN yearmonth AS y ON c.CustomerID = y.CustomerID WHERE c.Segment = 'LAM' AND y.Date BETWEEN '201201' AND '201212' GROUP BY c.CustomerID ORDER BY SUM(y.Consumption) ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 13497,
+      "gold_elapsed_ms": 53,
+      "pred_elapsed_ms": 162,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "customers.CustomerID",
+        "tables": [
+          "customers",
+          "yearmonth"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Segment = 'LAM'",
+          "yearmonth.Date BETWEEN '201201' AND '201212'"
+        ],
+        "evidence_predicates": [
+          "Date BETWEEN '201201' AND '201212'",
+          "customers.Segment = 'LAM'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "customers.CustomerID",
+        "having": "SUM(yearmonth.Consumption) = (SELECT MIN(total) FROM (SELECT SUM(yearmonth.Consumption) AS total FROM yearmonth JOIN customers ON yearmonth.CustomerID = customers.CustomerID WHERE customers.Segment = 'LAM' AND yearmonth.Date BETWEEN '201201' AND '201212' GROUP BY yearmonth.CustomerID) AS t)",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1473,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "What was the average monthly consumption of customers in SME for the year 2013?",
+      "evidence": "Average Monthly consumption = AVG(Consumption) / 12; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
+      "gold_sql": "SELECT\n  AVG(`T2`.`Consumption`) / 12\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  SUBSTR(`T2`.`Date`, 1, 4) = '2013' AND `T1`.`Segment` = 'SME'",
+      "pred_sql": "SELECT AVG(t2.Consumption) / 12 FROM customers AS t1 INNER JOIN yearmonth AS t2 ON t1.CustomerID = t2.CustomerID WHERE t1.Segment = 'SME' AND t2.Date BETWEEN '201301' AND '201312'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 12751,
+      "gold_elapsed_ms": 56,
+      "pred_elapsed_ms": 203,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(Consumption) / 12",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Segment = 'SME'",
+          "yearmonth.Date BETWEEN '201301' AND '201312'"
+        ],
+        "evidence_predicates": [
+          "yearmonth.Date BETWEEN '201301' AND '201312'",
+          "customers.Segment = 'SME'"
+        ],
+        "evidence_formula": "AVG(Consumption) / 12",
+        "aggregation": "AVG",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1479,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "Which year recorded the most consumption of gas paid in CZK?",
+      "evidence": "The first 4 strings of the Date values in the yearmonth table can represent year.",
+      "gold_sql": "SELECT\n  SUBSTR(`T2`.`Date`, 1, 4)\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T1`.`Currency` = 'CZK'\nGROUP BY\n  SUBSTR(`T2`.`Date`, 1, 4)\nORDER BY\n  SUM(`T2`.`Consumption`) DESC\nLIMIT 1",
+      "pred_sql": "SELECT SUBSTRING(yearmonth.Date, 1, 4) AS Year FROM yearmonth INNER JOIN customers ON yearmonth.CustomerID = customers.CustomerID WHERE customers.Currency = 'CZK' GROUP BY SUBSTRING(yearmonth.Date, 1, 4) ORDER BY SUM(yearmonth.Consumption) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8481,
+      "gold_elapsed_ms": 177,
+      "pred_elapsed_ms": 179,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBSTR(yearmonth.Date, 1, 4)",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'CZK'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "SUBSTR(yearmonth.Date, 1, 4)",
+        "having": null,
+        "order_by": "SUM(yearmonth.Consumption) DESC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1480,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "What was the gas consumption peak month for SME customers in 2013?",
+      "evidence": "Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
+      "gold_sql": "SELECT\n  SUBSTR(`T2`.`Date`, 5, 2)\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  SUBSTR(`T2`.`Date`, 1, 4) = '2013' AND `T1`.`Segment` = 'SME'\nGROUP BY\n  SUBSTR(`T2`.`Date`, 5, 2)\nORDER BY\n  SUM(`T2`.`Consumption`) DESC\nLIMIT 1",
+      "pred_sql": "SELECT SUBSTRING(ym.Date, 1, 6) AS PeakMonth FROM yearmonth AS ym INNER JOIN customers AS c ON ym.CustomerID = c.CustomerID WHERE c.Segment = 'SME' AND SUBSTRING(ym.Date, 1, 6) BETWEEN '201301' AND '201312' GROUP BY SUBSTRING(ym.Date, 1, 6) ORDER BY SUM(ym.Consumption) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9743,
+      "gold_elapsed_ms": 131,
+      "pred_elapsed_ms": 140,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBSTR(yearmonth.Date, 1, 6)",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Segment = 'SME'",
+          "SUBSTR(yearmonth.Date, 1, 6) BETWEEN '201301' AND '201312'"
+        ],
+        "evidence_predicates": [
+          "SUBSTR(yearmonth.Date, 1, 6) BETWEEN '201301' AND '201312'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "SUBSTR(yearmonth.Date, 1, 6)",
+        "having": null,
+        "order_by": "SUM(yearmonth.Consumption) DESC",
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1490,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "How many percent of LAM customer consumed more than 46.73?",
+      "evidence": "Percentage of LAM customer consumed more than 46.73 = (Total no. of LAM customers who consumed more than 46.73 / Total no. of LAM customers) * 100.",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T2`.`Consumption` > 46.73 THEN 1 ELSE 0 END) AS DOUBLE) * 100 / COUNT(`T1`.`CustomerID`)\nFROM `customers` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T1`.`Segment` = 'LAM'",
+      "pred_sql": "SELECT CAST((SELECT COUNT(DISTINCT ym.CustomerID) FROM yearmonth AS ym JOIN customers AS c ON ym.CustomerID = c.CustomerID WHERE c.Segment = 'LAM' AND ym.Consumption > 46.73) AS REAL) / NULLIF((SELECT COUNT(DISTINCT CustomerID) FROM customers WHERE Segment = 'LAM'), 0) * 100",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 79041,
+      "gold_elapsed_ms": 62,
+      "pred_elapsed_ms": 80,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 4,
+        "groups": 1,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "(Total no. of LAM customers who consumed more than 46.73 / Total no. of LAM customers) * 100.",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Segment = 'LAM'",
+          "yearmonth.Consumption > 46.73"
+        ],
+        "evidence_predicates": [
+          "COUNT(DISTINCT yearmonth.CustomerID) WHERE customers.Segment = 'LAM' AND yearmonth.Consumption > 46.73",
+          "COUNT(DISTINCT customers.CustomerID) WHERE customers.Segment = 'LAM'"
+        ],
+        "evidence_formula": "(Total no. of LAM customers who consumed more than 46.73 / Total no. of LAM customers) * 100.",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1501,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "Please list the countries of the gas stations with transactions taken place in June, 2013.",
+      "evidence": "June 2013 refers to '201306'; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month;",
+      "gold_sql": "SELECT DISTINCT\n  `T2`.`Country`\nFROM `transactions_1k` AS `T1`\nINNER JOIN `gasstations` AS `T2`\n  ON `T1`.`GasStationID` = `T2`.`GasStationID`\nINNER JOIN `yearmonth` AS `T3`\n  ON `T1`.`CustomerID` = `T3`.`CustomerID`\nWHERE\n  `T3`.`Date` = '201306'",
+      "pred_sql": "SELECT DISTINCT g.Country FROM gasstations AS g JOIN transactions_1k AS t ON t.GasStationID = g.GasStationID WHERE STRFTIME('%Y%m', t.Date) = '201306'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 2,
+      "pred_row_count": 0,
+      "gen_ms": 6256,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DISTINCT gasstations.Country",
+        "tables": [
+          "gasstations",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "strftime('%Y%m', transactions_1k.Date) = '201306'"
+        ],
+        "evidence_predicates": [
+          "strftime('%Y%m', transactions_1k.Date) = '201306'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1506,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "Please list the product descriptions of the transactions taken place in the gas stations in the Czech Republic.",
+      "evidence": "Czech Republic can be represented as the Country value in the gasstations table is 'CZE'; ",
+      "gold_sql": "SELECT DISTINCT\n  `T3`.`Description`\nFROM `transactions_1k` AS `T1`\nINNER JOIN `gasstations` AS `T2`\n  ON `T1`.`GasStationID` = `T2`.`GasStationID`\nINNER JOIN `products` AS `T3`\n  ON `T1`.`ProductID` = `T3`.`ProductID`\nWHERE\n  `T2`.`Country` = 'CZE'",
+      "pred_sql": "SELECT DISTINCT p.Description FROM transactions_1k AS t INNER JOIN gasstations AS g ON t.GasStationID = g.GasStationID INNER JOIN products AS p ON t.ProductID = p.ProductID WHERE g.Country = 'CZE'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 21,
+      "pred_row_count": 21,
+      "gen_ms": 7675,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "products.Description",
+        "tables": [
+          "transactions_1k",
+          "gasstations",
+          "products"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID",
+          "transactions_1k.ProductID = products.ProductID"
+        ],
+        "filters": [
+          "gasstations.Country = 'CZE'"
+        ],
+        "evidence_predicates": [
+          "gasstations.Country = 'CZE'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1509,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "Among the transactions made in the gas stations in the Czech Republic, how many of them are taken place after 2012/1/1?",
+      "evidence": "Czech Republic can be represented as the Country value in the gasstations table is 'CZE'",
+      "gold_sql": "SELECT COUNT(\"T1\".\"TransactionID\") FROM \"transactions_1k\" AS \"T1\" INNER JOIN \"gasstations\" AS \"T2\" ON \"T1\".\"GasStationID\" = \"T2\".\"GasStationID\" WHERE \"T2\".\"Country\" = 'CZE' AND STRFTIME('%Y', \"T1\".\"Date\") >= '2012'",
+      "pred_sql": "SELECT COUNT(t1.TransactionID) FROM transactions_1k AS t1 INNER JOIN gasstations AS g ON t1.GasStationID = g.GasStationID WHERE g.Country = 'CZE' AND t1.Date > '2012-01-01'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7905,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(transactions_1k.TransactionID)",
+        "tables": [
+          "transactions_1k",
+          "gasstations"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "gasstations.Country = 'CZE'",
+          "transactions_1k.Date > '2012-01-01'"
+        ],
+        "evidence_predicates": [
+          "gasstations.Country = 'CZE'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1521,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "For all the transactions happened during 8:00-9:00 in 2012/8/26, how many happened in CZE?",
+      "evidence": "Czech Republic can be represented as the Country value in the gasstations table is 'CZE'; '2012/8/26' can be represented by '2012-08-26'; during 8:00-9:00 can be represented as Time BETWEEN '08:00:00' AND '09:00:00'",
+      "gold_sql": "SELECT\n  COUNT(`T1`.`TransactionID`)\nFROM `transactions_1k` AS `T1`\nINNER JOIN `gasstations` AS `T2`\n  ON `T1`.`GasStationID` = `T2`.`GasStationID`\nWHERE\n  `T1`.`Date` = '2012-08-26'\n  AND `T1`.`Time` BETWEEN '08:00:00' AND '09:00:00'\n  AND `T2`.`Country` = 'CZE'",
+      "pred_sql": "SELECT COUNT(*) FROM transactions_1k AS t INNER JOIN gasstations AS g ON t.GasStationID = g.GasStationID WHERE t.Date = '2012-08-26' AND t.Time BETWEEN '08:00:00' AND '09:00:00' AND g.Country = 'CZE'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6633,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "transactions_1k",
+          "gasstations"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "transactions_1k.Date = '2012-08-26'",
+          "transactions_1k.Time BETWEEN '08:00:00' AND '09:00:00'",
+          "gasstations.Country = 'CZE'"
+        ],
+        "evidence_predicates": [
+          "Czech Republic can be represented as the Country value in the gasstations table is 'CZE'; '2012/8/26' can be represented by '2012-08-26'; during 8:00-9:00 can be represented as Time BETWEEN '08:00:00' AND '09:00:00'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1529,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "What is the amount spent by customer \"38508\" at the gas stations? How much had the customer spent in January 2012?",
+      "evidence": "January 2012 refers to the Date value = '201201'",
+      "gold_sql": "SELECT\n  SUM(`T1`.`Price` ),\n  SUM(CASE WHEN `T3`.`Date` = '201201' THEN `T1`.`Price` ELSE 0 END)\nFROM `transactions_1k` AS `T1`\nINNER JOIN `gasstations` AS `T2`\n  ON `T1`.`GasStationID` = `T2`.`GasStationID`\nINNER JOIN `yearmonth` AS `T3`\n  ON `T1`.`CustomerID` = `T3`.`CustomerID`\nWHERE\n  `T1`.`CustomerID` = '38508'",
+      "pred_sql": "SELECT SUM(t1.Price * t1.Amount) AS total_spent, SUM(CASE WHEN STRFTIME('%Y%m', t1.Date) = '201201' THEN t1.Price * t1.Amount ELSE 0 END) AS jan2012_spent FROM transactions_1k AS t1 WHERE t1.CustomerID = 38508 AND NOT t1.GasStationID IS NULL",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 12803,
+      "gold_elapsed_ms": 53,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(transactions_1k.Price * transactions_1k.Amount), SUM(CASE WHEN strftime('%Y%m', transactions_1k.Date) = '201201' THEN transactions_1k.Price * transactions_1k.Amount ELSE 0 END)",
+        "tables": [
+          "transactions_1k"
+        ],
+        "join_path": [],
+        "filters": [
+          "transactions_1k.CustomerID = 38508",
+          "transactions_1k.GasStationID IS NOT NULL"
+        ],
+        "evidence_predicates": [
+          "strftime('%Y%m', transactions_1k.Date) = '201201'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1531,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "Who is the top spending customer and how much is the average price per single item purchased by this customer? What currency was being used?",
+      "evidence": "average price per single item = Total(price) / Total(amount)",
+      "gold_sql": "SELECT\n  `T2`.`CustomerID`,\n  SUM(`T2`.`Price` / `T2`.`Amount`),\n  `T1`.`Currency`\nFROM `customers` AS `T1`\nINNER JOIN `transactions_1k` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T2`.`CustomerID` = (\n    SELECT\n      `CustomerID`\n    FROM `yearmonth`\n    ORDER BY\n      `Consumption` DESC\n    LIMIT 1\n  )\nGROUP BY\n  `T2`.`CustomerID`,\n  `T1`.`Currency`",
+      "pred_sql": "SELECT c.CustomerID, c.Currency, CAST(SUM(t.Price) AS REAL) / NULLIF(SUM(t.Amount), 0) FROM customers AS c JOIN transactions_1k AS t ON t.CustomerID = c.CustomerID GROUP BY c.CustomerID, c.Currency ORDER BY SUM(t.Price) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 17106,
+      "gold_elapsed_ms": 83,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 4,
+        "groups": 1,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "customers.CustomerID, customers.Currency, Total(price) / Total(amount)",
+        "tables": [
+          "customers",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "Total(price) / Total(amount)",
+        "aggregation": null,
+        "group_by": "customers.CustomerID, customers.Currency",
+        "having": null,
+        "order_by": "SUM(transactions_1k.Price) DESC",
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1533,
+      "db_id": "debit_card_specializing",
+      "difficulty": "moderate",
+      "question": "For all the people who paid more than 29.00 per unit of product id No.5. Give their consumption status in the August of 2012.",
+      "evidence": "August of 2012 refers to the Date value = '201208' ; Price per unit of product = Price / Amount;",
+      "gold_sql": "SELECT\n  `T2`.`Consumption`\nFROM `transactions_1k` AS `T1`\nINNER JOIN `yearmonth` AS `T2`\n  ON `T1`.`CustomerID` = `T2`.`CustomerID`\nWHERE\n  `T1`.`Price` / `T1`.`Amount` > 29.00\n  AND `T1`.`ProductID` = 5\n  AND `T2`.`Date` = '201208'",
+      "pred_sql": "SELECT DISTINCT y.CustomerID, y.Consumption FROM transactions_1k AS t INNER JOIN yearmonth AS y ON t.CustomerID = y.CustomerID WHERE t.ProductID = 5 AND t.Price / NULLIF(t.Amount, 0) > 29.00 AND y.Date = '201208'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 10,
+      "pred_row_count": 9,
+      "gen_ms": 11550,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "yearmonth.CustomerID, yearmonth.Consumption",
+        "tables": [
+          "transactions_1k",
+          "yearmonth"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = yearmonth.CustomerID"
+        ],
+        "filters": [
+          "transactions_1k.ProductID = 5",
+          "transactions_1k.Price / transactions_1k.Amount > 29.00",
+          "yearmonth.Date = '201208'"
+        ],
+        "evidence_predicates": [
+          "Date = '201208'",
+          "Price per unit of product = Price / Amount"
+        ],
+        "evidence_formula": "Price / Amount",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1317,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among the students from the Student_Club who attended the event \"Women's Soccer\", how many of them want a T-shirt that's in medium size?",
+      "evidence": "Women's Soccer is an event name; T-shirt that is in medium size refers to t_shirt_size = 'Medium'",
+      "gold_sql": "SELECT\n  COUNT(`T1`.`event_id`)\nFROM `event` AS `T1`\nINNER JOIN `attendance` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `member` AS `T3`\n  ON `T2`.`link_to_member` = `T3`.`member_id`\nWHERE\n  `T1`.`event_name` = 'Women''s Soccer' AND `T3`.`t_shirt_size` = 'Medium'",
+      "pred_sql": "SELECT COUNT(DISTINCT t3.member_id) FROM attendance AS t1 INNER JOIN event AS t2 ON t1.link_to_event = t2.event_id INNER JOIN member AS t3 ON t1.link_to_member = t3.member_id WHERE t2.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 10362,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT member.member_id)",
+        "tables": [
+          "attendance",
+          "event",
+          "member"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id",
+          "attendance.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "event.event_name = 'Women''s Soccer'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'Women''s Soccer'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1322,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among the events attended by more than 10 members of the Student_Club, how many of them are meetings?",
+      "evidence": "meetings events refers to type = 'Meeting'; attended by more than 10 members refers to COUNT(event_id) > 10",
+      "gold_sql": "SELECT COUNT(DISTINCT T1.event_id) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.type = 'Meeting' GROUP BY T1.event_id HAVING COUNT(T2.link_to_event) > 10",
+      "pred_sql": "SELECT COUNT(*) FROM (SELECT a.link_to_event AS event_id, e.type FROM attendance AS a JOIN event AS e ON a.link_to_event = e.event_id GROUP BY a.link_to_event HAVING COUNT(a.link_to_member) > 10) AS t WHERE t.type = 'Meeting'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 1,
+      "gen_ms": 12448,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT event.event_id)",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.type = 'Meeting'",
+          "event.event_id IN (SELECT attendance.link_to_event FROM attendance GROUP BY attendance.link_to_event HAVING COUNT(attendance.link_to_member) > 10)"
+        ],
+        "evidence_predicates": [
+          "type = 'Meeting'",
+          "COUNT(event_id) > 10"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1323,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List all the names of events that had an attendance of over 20 students but were not fundraisers.",
+      "evidence": "name of events refers to event_name; attendance of over 20 students COUNT(event_id) > 20.",
+      "gold_sql": "SELECT `T1`.`event_name` FROM `event` AS `T1` INNER JOIN `attendance` AS `T2` ON `T1`.`event_id` = `T2`.`link_to_event` GROUP BY `T1`.`event_id` HAVING COUNT(`T2`.`link_to_event`) > 20 AND NOT EXISTS (SELECT 1 FROM `event` AS `E` WHERE `E`.`event_id` = `T1`.`event_id` AND `E`.`type` = 'Fundraiser')",
+      "pred_sql": "SELECT event.event_name FROM event INNER JOIN attendance ON attendance.link_to_event = event.event_id WHERE event.type <> 'Fundraising' GROUP BY event.event_name HAVING COUNT(event.event_id) > 20",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.9411764705882353,
+      "ves_reward": 0.0,
+      "gold_row_count": 8,
+      "pred_row_count": 9,
+      "gen_ms": 12968,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 3,
+        "groups": 2,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.type <> 'Fundraising'"
+        ],
+        "evidence_predicates": [
+          "COUNT(event_id) > 20"
+        ],
+        "evidence_formula": "COUNT(event_id) > 20",
+        "aggregation": null,
+        "group_by": "event.event_name",
+        "having": "COUNT(event.event_id) > 20",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "superset"
+    },
+    {
+      "question_id": 1338,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Was each expense in October Meeting on October 8, 2019 approved?",
+      "evidence": "event_name = 'October Meeting' where event_date = '2019-10-08'; approved = True means expenses was approved; approved = False means expenses was not approved",
+      "gold_sql": "SELECT\n  `T3`.`approved`\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `expense` AS `T3`\n  ON `T2`.`budget_id` = `T3`.`link_to_budget`\nWHERE\n  `T1`.`event_name` = 'October Meeting' AND `T1`.`event_date` LIKE '2019-10-08%'",
+      "pred_sql": "SELECT CASE WHEN COUNT(e.expense_id) = 0 THEN 0 WHEN SUM(CASE WHEN e.approved = '1' THEN 0 ELSE 1 END) = 0 THEN 1 ELSE 0 END FROM expense AS e INNER JOIN budget AS b ON e.link_to_budget = b.budget_id INNER JOIN event AS ev ON b.link_to_event = ev.event_id WHERE ev.event_name = 'October Meeting' AND ev.event_date = '2019-10-08'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 3,
+      "pred_row_count": 1,
+      "gen_ms": 12270,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense.expense_id, expense.expense_description, expense.approved",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'October Meeting'",
+          "event.event_date = '2019-10-08'"
+        ],
+        "evidence_predicates": [
+          "event_name = 'October Meeting' where event_date = '2019-10-08'",
+          "approved = True means expenses was approved; approved = False means expenses was not approved"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1340,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Calculate the difference of the total amount spent in all events by the Student_Club in year 2019 and 2020.",
+      "evidence": "The first 4 strings of the event_date values in the event table can represent year; The difference of the total amount spent = SUBTRACT(spent where YEAR(event_date) = 2019, spent where YEAR(event_date) = 2020)",
+      "gold_sql": "SELECT\n  SUM(CASE WHEN SUBSTR(`T1`.`event_date`, 1, 4) = '2019' THEN `T2`.`spent` ELSE 0 END) - SUM(CASE WHEN SUBSTR(`T1`.`event_date`, 1, 4) = '2020' THEN `T2`.`spent` ELSE 0 END) AS `num`\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`",
+      "pred_sql": "SELECT SUM(CASE WHEN SUBSTRING(e.event_date, 1, 4) = '2019' THEN b.spent ELSE 0 END) - SUM(CASE WHEN SUBSTRING(e.event_date, 1, 4) = '2020' THEN b.spent ELSE 0 END) AS difference_2019_minus_2020 FROM budget AS b INNER JOIN event AS e ON b.link_to_event = e.event_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 11384,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(spent where YEAR(event_date) = 2019, spent where YEAR(event_date) = 2020)",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": null,
+        "evidence_predicates": [
+          "YEAR(event.event_date) = 2019",
+          "YEAR(event.event_date) = 2020"
+        ],
+        "evidence_formula": "SUBTRACT(spent where YEAR(event_date) = 2019, spent where YEAR(event_date) = 2020)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1350,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "What is the status of the event which bought \"Post Cards, Posters\" on 2019/8/20?",
+      "evidence": "'Post Cards, Posters' is an expense description; on 2019/8/20 refers to expense_date = '2019-8-20'; status of event refers to event_status",
+      "gold_sql": "SELECT\n  `T1`.`event_status`\nFROM `budget` AS `T1`\nINNER JOIN `expense` AS `T2`\n  ON `T1`.`budget_id` = `T2`.`link_to_budget`\nWHERE\n  `T2`.`expense_description` = 'Post Cards, Posters'\n  AND `T2`.`expense_date` = '2019-08-20'",
+      "pred_sql": "SELECT budget.event_status FROM budget INNER JOIN expense ON expense.link_to_budget = budget.budget_id WHERE expense.expense_description = 'Post Cards, Posters' AND expense.expense_date = '2019-08-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7516,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "budget.event_status",
+        "tables": [
+          "expense",
+          "budget"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id"
+        ],
+        "filters": [
+          "expense.expense_description = 'Post Cards, Posters'",
+          "expense.expense_date = '2019-8-20'"
+        ],
+        "evidence_predicates": [
+          "expense.expense_description = 'Post Cards, Posters'",
+          "expense.expense_date = '2019-8-20'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1352,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "For all the club members from \"Business\" major, how many of them wear medium size t-shirt?",
+      "evidence": "'Business' is a major name; wear medium size t-shirt refers to t_shirt_size = 'Medium'",
+      "gold_sql": "SELECT\n  COUNT(`T1`.`member_id`)\nFROM `member` AS `T1`\nINNER JOIN `major` AS `T2`\n  ON `T1`.`link_to_major` = `T2`.`major_id`\nWHERE\n  `T2`.`major_name` = 'Business' AND `T1`.`t_shirt_size` = 'Medium'",
+      "pred_sql": "SELECT COUNT(m.member_id) FROM member AS m INNER JOIN major AS mj ON m.link_to_major = mj.major_id WHERE mj.major_name = 'Business' AND m.t_shirt_size = 'Medium'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5233,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(member.member_id)",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Business'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_predicates": [
+          "'Business' is a major name; wear medium size t-shirt refers to t_shirt_size = 'Medium'",
+          "major.major_name = 'Business'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1375,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List all the members of the \"School of Applied Sciences, Technology and Education\" department.",
+      "evidence": "list all members means to list all the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT\n  `T1`.`first_name`,\n  `T1`.`last_name`\nFROM `member` AS `T1`\nINNER JOIN `major` AS `T2`\n  ON `T1`.`link_to_major` = `T2`.`major_id`\nWHERE\n  `T2`.`department` = 'School of Applied Sciences, Technology and Education'",
+      "pred_sql": "SELECT DISTINCT m.first_name, m.last_name FROM member AS m INNER JOIN major AS j ON m.link_to_major = j.major_id WHERE j.department = 'School of Applied Sciences, Technology and Education'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 5,
+      "pred_row_count": 5,
+      "gen_ms": 6145,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.department = 'School of Applied Sciences, Technology and Education'"
+        ],
+        "evidence_predicates": [
+          "list all members means to list all the full name; full name refers to first_name, last_name;"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1376,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among all the closed events, which event has the highest spend-to-budget ratio?",
+      "evidence": "closed events refers to event_name where status = 'Closed'; highest spend-to budget ratio refers to MAX(DIVIDE(spent, amount))",
+      "gold_sql": "SELECT\n  `T2`.`event_name`\nFROM `budget` AS `T1`\nINNER JOIN `event` AS `T2`\n  ON `T1`.`link_to_event` = `T2`.`event_id`\nWHERE\n  `T2`.`status` = 'Closed'\nORDER BY\n  `T1`.`spent` / `T1`.`amount` DESC\nLIMIT 1",
+      "pred_sql": "SELECT t1.event_name FROM event AS t1 INNER JOIN budget AS t2 ON t2.link_to_event = t1.event_id WHERE t1.status = 'Closed' GROUP BY t1.event_id, t1.event_name ORDER BY MAX(t2.spent / t2.amount) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 10666,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.status = 'Closed'"
+        ],
+        "evidence_predicates": [
+          "event.status = 'Closed'",
+          "MAX(DIVIDE(spent, amount))"
+        ],
+        "evidence_formula": "MAX(DIVIDE(spent, amount))",
+        "aggregation": null,
+        "group_by": "event.event_id, event.event_name",
+        "having": null,
+        "order_by": "MAX(DIVIDE(spent, amount)) DESC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1381,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List the name of students that have attended more than 7 events.",
+      "evidence": "name of students means the full name; full name refers to first_name, last_name; attended more than 7 events refers to COUNT(link_to_event) > 7",
+      "gold_sql": "SELECT\n  `T1`.`first_name`,\n  `T1`.`last_name`\nFROM `member` AS `T1`\nINNER JOIN `attendance` AS `T2`\n  ON `T1`.`member_id` = `T2`.`link_to_member`\nGROUP BY\n  `T2`.`link_to_member`\nHAVING\n  COUNT(`T2`.`link_to_event`) > 7",
+      "pred_sql": "SELECT m.first_name, m.last_name FROM attendance AS a INNER JOIN member AS m ON a.link_to_member = m.member_id GROUP BY m.member_id, m.first_name, m.last_name HAVING COUNT(a.link_to_event) > 7",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 29,
+      "pred_row_count": 29,
+      "gen_ms": 9296,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name",
+        "tables": [
+          "member",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_member = member.member_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "full name refers to first_name, last_name",
+          "COUNT(link_to_event) > 7"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": "member.member_id, member.first_name, member.last_name",
+        "having": "COUNT(attendance.link_to_event) > 7",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1387,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Which student has been entrusted to manage the budget for the Yearly Kickoff?",
+      "evidence": "name of students means the full name; full name refers to first_name, last_name;'Yearly Kickoff' is an event name;",
+      "gold_sql": "SELECT\n  `T4`.`first_name`,\n  `T4`.`last_name`\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `expense` AS `T3`\n  ON `T2`.`budget_id` = `T3`.`link_to_budget`\nINNER JOIN `member` AS `T4`\n  ON `T3`.`link_to_member` = `T4`.`member_id`\nWHERE\n  `T1`.`event_name` = 'Yearly Kickoff'",
+      "pred_sql": "SELECT DISTINCT m.first_name, m.last_name FROM event AS e INNER JOIN budget AS b ON b.link_to_event = e.event_id INNER JOIN expense AS ex ON ex.link_to_budget = b.budget_id INNER JOIN member AS m ON ex.link_to_member = m.member_id WHERE e.event_name = 'Yearly Kickoff'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 4,
+      "pred_row_count": 2,
+      "gen_ms": 11755,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name",
+        "tables": [
+          "event",
+          "budget",
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id",
+          "expense.link_to_budget = budget.budget_id",
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "event.event_name = 'Yearly Kickoff'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1390,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Based on the total cost for all event, what is the percentage of cost for Yearly Kickoff event?",
+      "evidence": "percentage = DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T1`.`event_name` = 'Yearly Kickoff' THEN `T3`.`cost` ELSE 0 END) AS DOUBLE) * 100 / SUM(`T3`.`cost`)\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `expense` AS `T3`\n  ON `T2`.`budget_id` = `T3`.`link_to_budget`",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN e.event_name = 'Yearly Kickoff' THEN ex.cost ELSE 0 END) AS REAL) * 100 / NULLIF(SUM(ex.cost), 0) FROM expense AS ex JOIN budget AS b ON ex.link_to_budget = b.budget_id JOIN event AS e ON b.link_to_event = e.event_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9994,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "event.event_name = 'Yearly Kickoff'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1398,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Name the event with the highest amount spent on advertisement.",
+      "evidence": "Name of event refers to event_name; highest amount spent on advertisement refers to MAX(spent) where category = 'Advertisement'",
+      "gold_sql": "SELECT\n  `T2`.`event_name`\nFROM `budget` AS `T1`\nINNER JOIN `event` AS `T2`\n  ON `T1`.`link_to_event` = `T2`.`event_id`\nWHERE\n  `T1`.`category` = 'Advertisement'\nORDER BY\n  `T1`.`spent` DESC\nLIMIT 1",
+      "pred_sql": "SELECT e.event_name FROM event AS e INNER JOIN budget AS b ON b.link_to_event = e.event_id WHERE b.category = 'Advertisement' GROUP BY e.event_id ORDER BY MAX(b.spent) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 11162,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "budget.category = 'Advertisement'"
+        ],
+        "evidence_predicates": [
+          "budget.category = 'Advertisement'"
+        ],
+        "evidence_formula": "MAX(spent) where category = 'Advertisement'",
+        "aggregation": "MAX",
+        "group_by": "event.event_id, event.event_name",
+        "having": "MAX(budget.spent) = (SELECT MAX(max_spent) FROM (SELECT MAX(spent) AS max_spent FROM budget WHERE category = 'Advertisement' GROUP BY link_to_event))",
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1399,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Did Maya Mclean attend the 'Women's Soccer' event?",
+      "evidence": "Maya Mclean is the full name; full name refers to first_name, last_name; 'Women's Soccer' is an event_name",
+      "gold_sql": "SELECT\n  CASE WHEN `T3`.`event_name` = 'Women''s Soccer' THEN 'YES' END AS `result`\nFROM `member` AS `T1`\nINNER JOIN `attendance` AS `T2`\n  ON `T1`.`member_id` = `T2`.`link_to_member`\nINNER JOIN `event` AS `T3`\n  ON `T2`.`link_to_event` = `T3`.`event_id`\nWHERE\n  `T1`.`first_name` = 'Maya' AND `T1`.`last_name` = 'Mclean'",
+      "pred_sql": "SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attendance AS a INNER JOIN member AS m ON a.link_to_member = m.member_id INNER JOIN event AS e ON a.link_to_event = e.event_id WHERE m.first_name = 'Maya' AND m.last_name = 'Mclean' AND e.event_name = 'Women''s Soccer'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 14,
+      "pred_row_count": 1,
+      "gen_ms": 9606,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(attendance.link_to_event)",
+        "tables": [
+          "attendance",
+          "member",
+          "event"
+        ],
+        "join_path": [
+          "attendance.link_to_member = member.member_id",
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "member.first_name = 'Maya'",
+          "member.last_name = 'Mclean'",
+          "event.event_name = 'Women''s Soccer'"
+        ],
+        "evidence_predicates": [
+          "member.first_name = 'Maya'",
+          "member.last_name = 'Mclean'",
+          "event.event_name = 'Women''s Soccer'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1401,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Indicate the cost of posters for 'September Speaker' event.",
+      "evidence": "'Posters' is the expense description; 'September Speaker' is an event name",
+      "gold_sql": "SELECT\n  `T3`.`cost`\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nINNER JOIN `expense` AS `T3`\n  ON `T2`.`budget_id` = `T3`.`link_to_budget`\nWHERE\n  `T1`.`event_name` = 'September Speaker'\n  AND `T3`.`expense_description` = 'Posters'",
+      "pred_sql": "SELECT SUM(e.cost) AS posters_cost FROM expense AS e INNER JOIN budget AS b ON e.link_to_budget = b.budget_id INNER JOIN event AS ev ON b.link_to_event = ev.event_id WHERE e.expense_description = 'Posters' AND ev.event_name = 'September Speaker'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9110,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(expense.cost)",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "expense.expense_description = 'Posters'",
+          "event.event_name = 'September Speaker'"
+        ],
+        "evidence_predicates": [
+          "expense.expense_description = 'Posters'",
+          "event.event_name = 'September Speaker'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1403,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Indicate the name of the closed event whose cost has exceeded the budget the most.",
+      "evidence": "closed events refers to event_name where status = 'Closed'; exceed the budget the most refers to MIN(remaining) where remaining < 0",
+      "gold_sql": "SELECT\n  `T2`.`event_name`\nFROM `budget` AS `T1`\nINNER JOIN `event` AS `T2`\n  ON `T2`.`event_id` = `T1`.`link_to_event`\nWHERE\n  `T1`.`event_status` = 'Closed' AND `T1`.`remaining` < 0\nORDER BY\n  `T1`.`remaining`\nLIMIT 1",
+      "pred_sql": "SELECT e.event_name FROM event AS e INNER JOIN budget AS b ON b.link_to_event = e.event_id WHERE e.status = 'Closed' GROUP BY e.event_id, e.event_name HAVING MIN(b.remaining) < 0 ORDER BY MIN(b.remaining) ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9152,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.status = 'Closed'"
+        ],
+        "evidence_predicates": [
+          "status = 'Closed'",
+          "MIN(remaining) where remaining < 0"
+        ],
+        "evidence_formula": "MIN(remaining) where remaining < 0",
+        "aggregation": "MIN",
+        "group_by": "event.event_id, event.event_name",
+        "having": "MIN(budget.remaining) < 0",
+        "order_by": "MIN(budget.remaining) ASC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1404,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Identify the type of expenses and their total value approved for 'October Meeting' event.",
+      "evidence": "total value refers to SUM(cost); 'October Meeting' is an event name;",
+      "gold_sql": "SELECT `T1`.`type`, SUM(`T3`.`cost`) AS `total_cost` FROM `event` AS `T1` INNER JOIN `budget` AS `T2` ON `T1`.`event_id` = `T2`.`link_to_event` INNER JOIN `expense` AS `T3` ON `T2`.`budget_id` = `T3`.`link_to_budget` WHERE `T1`.`event_name` = 'October Meeting' GROUP BY `T1`.`type`",
+      "pred_sql": "SELECT expense.expense_description, SUM(cost) FROM expense INNER JOIN budget ON expense.link_to_budget = budget.budget_id INNER JOIN event ON budget.link_to_event = event.event_id WHERE event.event_name = 'October Meeting' AND expense.approved = '1' GROUP BY expense.expense_description",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 13133,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense.expense_description, SUM(expense.cost)",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'October Meeting'",
+          "expense.approved = 'true'"
+        ],
+        "evidence_predicates": [
+          "total value refers to SUM(cost)",
+          "'October Meeting' is an event name"
+        ],
+        "evidence_formula": "SUM(cost)",
+        "aggregation": "SUM",
+        "group_by": "expense.expense_description",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1405,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Calculate the amount budgeted for 'April Speaker' event. List all the budgeted categories for said event in an ascending order based on their amount budgeted.",
+      "evidence": "'April Speaker' is an event name; amount budgeted refers to SUM(amount); budget categories refers to category",
+      "gold_sql": "SELECT T2.category, SUM(T2.amount) FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'April Speaker' GROUP BY T2.category ORDER BY SUM(T2.amount) ASC",
+      "pred_sql": "SELECT budget.category, SUM(budget.amount) AS total_amount FROM budget INNER JOIN event ON budget.link_to_event = event.event_id WHERE event.event_name = 'April Speaker' GROUP BY budget.category ORDER BY total_amount ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 4,
+      "pred_row_count": 4,
+      "gen_ms": 7252,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "budget.category, SUM(budget.amount)",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'April Speaker'"
+        ],
+        "evidence_predicates": [
+          "'April Speaker' is an event name",
+          "amount budgeted refers to SUM(amount)",
+          "budget categories refers to category"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "budget.category",
+        "having": null,
+        "order_by": "SUM(budget.amount) ASC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1426,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List the last name of members with a major in environmental engineering and include its department and college name.",
+      "evidence": "'Environmental Engineering' is the major_name;",
+      "gold_sql": "SELECT\n  `T2`.`last_name`,\n  `T1`.`department`,\n  `T1`.`college`\nFROM `major` AS `T1`\nINNER JOIN `member` AS `T2`\n  ON `T1`.`major_id` = `T2`.`link_to_major`\nWHERE\n  `T2`.`position` = 'Member' AND `T1`.`major_name` = 'Environmental Engineering'",
+      "pred_sql": "SELECT DISTINCT m.last_name, mj.department, mj.college FROM member AS m INNER JOIN major AS mj ON m.link_to_major = mj.major_id WHERE mj.major_name = 'Environmental Engineering'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 6429,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.last_name, major.department, major.college",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Environmental Engineering'"
+        ],
+        "evidence_predicates": [
+          "major.major_name = 'Environmental Engineering'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1427,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "What are the budget category of the events located at MU 215 and a guest speaker type with a 0 budget spent?",
+      "evidence": "budget category refers to category; events located at refers to location; type = 'Guest Speaker'; 0 budget spent refers to spent = 0; ",
+      "gold_sql": "SELECT DISTINCT\n  `T2`.`category`,\n  `T1`.`type`\nFROM `event` AS `T1`\nINNER JOIN `budget` AS `T2`\n  ON `T1`.`event_id` = `T2`.`link_to_event`\nWHERE\n  `T1`.`location` = 'MU 215' AND `T2`.`spent` = 0 AND `T1`.`type` = 'Guest Speaker'",
+      "pred_sql": "SELECT DISTINCT b.category FROM budget AS b INNER JOIN event AS e ON b.link_to_event = e.event_id WHERE e.location = 'MU 215' AND e.type = 'Guest Speaker' AND b.spent = 0",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 4,
+      "gen_ms": 7977,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "budget.category",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.location = 'MU 215'",
+          "event.type = 'Guest Speaker'",
+          "budget.spent = 0"
+        ],
+        "evidence_predicates": [
+          "event.type = 'Guest Speaker'",
+          "budget.spent = 0",
+          "event.location = 'MU 215'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1432,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among the members with t-shirt size of medium, what is the percentage of the amount 50 received by the Student_Club?",
+      "evidence": "t_shirt_size = 'Medium' where position = 'Member'; percentage = DIVIDE(COUNT(amount = 50), COUNT(member_id)) * 100",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `T2`.`amount` = 50 THEN 1.0 ELSE 0 END) AS DOUBLE) * 100 / COUNT(`T2`.`income_id`)\nFROM `member` AS `T1`\nINNER JOIN `income` AS `T2`\n  ON `T1`.`member_id` = `T2`.`link_to_member`\nWHERE\n  `T1`.`position` = 'Member' AND `T1`.`t_shirt_size` = 'Medium'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN i.amount = 50 THEN 1 ELSE 0 END) AS REAL) / COUNT(m.member_id) * 100 FROM member AS m INNER JOIN income AS i ON i.link_to_member = m.member_id WHERE m.t_shirt_size = 'Medium' AND m.position = 'Member'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 16987,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(amount = 50), COUNT(member_id)) * 100",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.t_shirt_size = 'Medium'",
+          "member.position = 'Member'"
+        ],
+        "evidence_predicates": [
+          "amount = 50"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(amount = 50), COUNT(member_id)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1435,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List the names of closed event as \"game\" that was closed from 3/15/2019 to 3/20/2020.",
+      "evidence": "name of events refers event_name; game event that was closed refers to type = 'Game' where status = 'Closed'; event_date BETWEEN '2019-03-15' and '2020-03-20'; ",
+      "gold_sql": "SELECT DISTINCT\n  `event_name`\nFROM `event`\nWHERE\n  `type` = 'Game'\n  AND DATE(SUBSTR(`event_date`, 1, 10)) BETWEEN '2019-03-15' AND '2020-03-20'\n  AND `status` = 'Closed'",
+      "pred_sql": "SELECT event_name FROM event WHERE type = 'Game' AND status = 'Closed' AND event_date BETWEEN '2019-03-15' AND '2020-03-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 2,
+      "pred_row_count": 3,
+      "gen_ms": 7352,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event"
+        ],
+        "join_path": [],
+        "filters": [
+          "type = 'Game'",
+          "status = 'Closed'",
+          "event_date BETWEEN '2019-03-15' AND '2020-03-20'"
+        ],
+        "evidence_predicates": [
+          "name of events refers event_name",
+          "game event that was closed refers to type = 'Game' where status = 'Closed'",
+          "event_date BETWEEN '2019-03-15' and '2020-03-20'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1149,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "Are there more in-patient or outpatient who were male? What is the deviation in percentage?",
+      "evidence": "male refers to SEX = 'M'; in-patient refers to Admission = '+'; outpatient refers to Admission = '-'; percentage = DIVIDE(COUNT(ID) where SEX = 'M' and Admission = '+', COUNT(ID) where SEX  = 'M' and Admission = '-')",
+      "gold_sql": "SELECT\n  CAST(SUM(CASE WHEN `Admission` = '+' THEN 1 ELSE 0 END) AS DOUBLE) * 100 / SUM(CASE WHEN `Admission` = '-' THEN 1 ELSE 0 END)\nFROM `Patient`\nWHERE\n  `SEX` = 'M'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN SEX = 'M' AND Admission = '+' THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(CASE WHEN SEX = 'M' AND Admission = '-' THEN 1 ELSE 0 END), 0) FROM Patient",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 20328,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(ID) where SEX = 'M' and Admission = '+', COUNT(ID) where SEX = 'M' and Admission = '-')",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "SEX = 'M'"
+        ],
+        "evidence_predicates": [
+          "SEX = 'M'",
+          "Admission = '+'",
+          "Admission = '-'",
+          "COUNT(ID) where SEX = 'M' and Admission = '+'",
+          "COUNT(ID) where SEX = 'M' and Admission = '-'"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(ID) where SEX = 'M' and Admission = '+', COUNT(ID) where SEX = 'M' and Admission = '-')",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1150,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "What is the percentage of female patient were born after 1930?",
+      "evidence": "female refers to Sex = 'F'; patient who were born after 1930 refers to year(Birthday) > '1930'; calculation = DIVIDE(COUNT(ID) where year(Birthday) > '1930' and SEX = 'F'), (COUNT(ID) where SEX = 'F')",
+      "gold_sql": "SELECT CAST(CAST(SUM(CASE WHEN STRFTIME('%Y', \"Birthday\") > '1930' THEN 1 ELSE 0 END) AS REAL) * 100 AS REAL) / COUNT(*) FROM \"Patient\" WHERE \"SEX\" = 'F'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN STRFTIME('%Y', Birthday) > '1930' AND SEX = 'F' THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(CASE WHEN SEX = 'F' THEN 1 ELSE 0 END), 0) FROM Patient",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 13599,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(ID) where year(Birthday) > '1930' and SEX = 'F'), (COUNT(ID) where SEX = 'F')",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "Patient.SEX = 'F'",
+          "year(Patient.Birthday) > '1930'"
+        ],
+        "evidence_predicates": [
+          "COUNT(ID) where year(Birthday) > '1930' and SEX = 'F'",
+          "COUNT(ID) where SEX = 'F'"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(ID) where year(Birthday) > '1930' and SEX = 'F'), (COUNT(ID) where SEX = 'F')",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1152,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "What is the ratio of outpatient to inpatient followed up treatment among all the 'SLE' diagnosed patient?",
+      "evidence": "'SLE' diagnosed patient means Diagnosis = 'SLE'; inpatient refers to Admission = '+'; outpatient refers to Admission = '-'; calculation =  DIVIDE(COUNT(ID) where Diagnosis = 'SLE' and Admission = '+', COUNT(ID) where Diagnosis = 'SLE' and Admission = '-')",
+      "gold_sql": "SELECT\n  SUM(CASE WHEN `Admission` = '+' THEN 1 ELSE 0 END) / SUM(CASE WHEN `Admission` = '-' THEN 1 ELSE 0 END)\nFROM `Patient`\nWHERE\n  `Diagnosis` = 'SLE'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN Diagnosis = 'SLE' AND Admission = '+' THEN 1 ELSE 0 END) AS REAL) / NULLIF(SUM(CASE WHEN Diagnosis = 'SLE' AND Admission = '-' THEN 1 ELSE 0 END), 0) FROM Patient",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 17108,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(ID) where Diagnosis = 'SLE' and Admission = '-', COUNT(ID) where Diagnosis = 'SLE' and Admission = '+')",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "Diagnosis = 'SLE'"
+        ],
+        "evidence_predicates": [
+          "Diagnosis = 'SLE' and Admission = '-'",
+          "Diagnosis = 'SLE' and Admission = '+'"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(ID) where Diagnosis = 'SLE' and Admission = '+', COUNT(ID) where Diagnosis = 'SLE' and Admission = '-')",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1156,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "State the ID and age of patient with positive degree of coagulation.",
+      "evidence": "age refers to SUBTRACT(year(current_timestamp), year(Birthday)); positive degree of coagulation refers to RVVT = '+';",
+      "gold_sql": "SELECT DISTINCT \"T1\".\"ID\", STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', \"T1\".\"Birthday\") FROM \"Patient\" AS \"T1\" INNER JOIN \"Examination\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T2\".\"RVVT\" = '+'",
+      "pred_sql": "SELECT p.ID, (STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', p.Birthday)) FROM Patient AS p INNER JOIN Examination AS e ON e.ID = p.ID WHERE e.RVVT = '+'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 7,
+      "pred_row_count": 7,
+      "gen_ms": 9691,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "Patient.ID, SUBTRACT(year(current_timestamp), year(Patient.Birthday))",
+        "tables": [
+          "Patient",
+          "Examination"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Examination.RVVT = '+'"
+        ],
+        "evidence_predicates": [
+          "RVVT = '+'"
+        ],
+        "evidence_formula": "SUBTRACT(year(current_timestamp), year(Birthday))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1162,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "How many female patients who came at the hospital in 1997 was immediately followed at the outpatient clinic?",
+      "evidence": "female refers to sex = 'F'; came at the hospital in 1997 refers to year(Description) = '1997'; immediately followed at the outpatient clinic refers to Admission = '-'",
+      "gold_sql": "SELECT COUNT(*) FROM \"Patient\" WHERE STRFTIME('%Y', \"Description\") = '1997' AND \"SEX\" = 'F' AND \"Admission\" = '-'",
+      "pred_sql": "SELECT COUNT(p.ID) FROM Patient AS p WHERE p.SEX = 'F' AND p.Admission = '-' AND STRFTIME('%Y', p.Description) = '1997'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9759,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(Patient.ID)",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "SEX = 'F'",
+          "year(Description) = '1997'",
+          "Admission = '-'"
+        ],
+        "evidence_predicates": [
+          "SEX = 'F'",
+          "year(Description) = '1997'",
+          "Admission = '-'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1164,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "How many of the patients with the most serious thrombosis cases examined in 1997 are women?",
+      "evidence": "the most serious thrombosis refers to Thrombosis = '1' (the most severe one); women refers to sex = 'F'",
+      "gold_sql": "SELECT COUNT(*) FROM \"Patient\" AS \"T1\" INNER JOIN \"Examination\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" WHERE \"T1\".\"SEX\" = 'F' AND STRFTIME('%Y', \"T2\".\"Examination Date\") = '1997' AND \"T2\".\"Thrombosis\" = 1",
+      "pred_sql": "SELECT COUNT(DISTINCT Patient.ID) FROM Examination INNER JOIN Patient ON Examination.ID = Patient.ID WHERE Examination.Thrombosis = 1 AND Examination.\"Examination Date\" >= '1997-01-01' AND Examination.\"Examination Date\" < '1998-01-01' AND Patient.SEX = 'F'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 10252,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Examination",
+          "Patient"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Examination.Thrombosis = 1",
+          "Examination.Examination Date >= '1997-01-01'",
+          "Examination.Examination Date < '1998-01-01'",
+          "Patient.SEX = 'F'"
+        ],
+        "evidence_predicates": [
+          "Thrombosis = 1",
+          "SEX = 'F'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1175,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "How old was the patient who had the highest hemoglobin count at the time of the examination, and what is the doctor's diagnosis?",
+      "evidence": "How old the patient refers to SUBTRACT(year(`Examination Date`), year(Birthday)); the highest hemoglobin count refers to MAX(HGB)",
+      "gold_sql": "SELECT STRFTIME('%Y', \"T2\".\"Date\") - STRFTIME('%Y', \"T1\".\"Birthday\"), \"T1\".\"Diagnosis\" FROM \"Patient\" AS \"T1\" INNER JOIN \"Laboratory\" AS \"T2\" ON \"T1\".\"ID\" = \"T2\".\"ID\" ORDER BY \"T2\".\"HGB\" DESC LIMIT 1",
+      "pred_sql": "SELECT CAST(STRFTIME('%Y', E.\"Examination Date\") AS INTEGER) - CAST(STRFTIME('%Y', P.Birthday) AS INTEGER) AS age, E.Diagnosis FROM Examination AS E JOIN Patient AS P ON E.ID = P.ID JOIN Laboratory AS L ON L.ID = P.ID AND L.Date = E.\"Examination Date\" WHERE L.HGB = (SELECT MAX(L2.HGB) FROM Laboratory AS L2 JOIN Examination AS E2 ON L2.ID = E2.ID AND L2.Date = E2.\"Examination Date\")",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 20110,
+      "gold_elapsed_ms": 6,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 4,
+        "groups": 1,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "SUBTRACT(year(`Examination Date`), year(Birthday)), Examination.Diagnosis",
+        "tables": [
+          "Examination",
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID",
+          "Laboratory.ID = Patient.ID",
+          "Laboratory.Date = Examination.Examination Date"
+        ],
+        "filters": [
+          "Laboratory.HGB = (SELECT MAX(L2.HGB) FROM Laboratory L2 JOIN Examination E2 ON L2.ID = E2.ID AND L2.Date = E2.Examination Date)"
+        ],
+        "evidence_predicates": [
+          "MAX(HGB)",
+          "SUBTRACT(year(`Examination Date`), year(Birthday))"
+        ],
+        "evidence_formula": "SUBTRACT(year(`Examination Date`), year(Birthday)); MAX(HGB)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1179,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "For the patient who was diagnosed with SLE on 1994/2/19, what was his/her anti-Cardiolipin antibody concentration status on 1993/11/12?",
+      "evidence": "diagnosed with SLE refers to Diagnosis = 'SLE'; 1994/2/19 refers to Description = '1994-02-19'; anti-Cardiolipin refers to aCL IgM; 1993/11/12 refers to Examination Date = '1993/11/12'",
+      "gold_sql": "SELECT\n  `aCL IgA`,\n  `aCL IgG`,\n  `aCL IgM`\nFROM `Examination`\nWHERE\n  `ID` IN (\n    SELECT\n      `ID`\n    FROM `Patient`\n    WHERE\n      `Diagnosis` = 'SLE' AND `Description` = '1994-02-19'\n  )\n  AND `Examination Date` = '1993-11-12'",
+      "pred_sql": "SELECT e.\"aCL IgM\" FROM Examination AS e JOIN Patient AS p ON e.ID = p.ID WHERE (p.Diagnosis = 'SLE' OR e.Diagnosis = 'SLE') AND p.Description = '1994-02-19' AND e.\"Examination Date\" IN ('1993/11/12', '1993-11-12')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9772,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Examination.aCL IgM",
+        "tables": [
+          "Patient",
+          "Examination"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.Diagnosis = 'SLE'",
+          "Patient.Description = '1994-02-19'",
+          "Examination.Examination Date = '1993/11/12'"
+        ],
+        "evidence_predicates": [
+          "diagnosed with SLE refers to Diagnosis = 'SLE'",
+          "1994/2/19 refers to Description = '1994-02-19'",
+          "anti-Cardiolipin refers to aCL IgM",
+          "1993/11/12 refers to Examination Date = '1993/11/12'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1187,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "How many patients who were examined between 1987/7/6 and 1996/1/31 had a GPT level greater than 30 and an ALB level less than 4? List them by their ID.",
+      "evidence": "examined between 1987/7/6 and 1996/1/31 refers to Date BETWEEN '1987-07-06' AND '1996-01-31'; GPT level greater than 30 refers to GPT > 30; ALB level less than 4 ALB < 4",
+      "gold_sql": "SELECT DISTINCT\n  `ID`\nFROM `Laboratory`\nWHERE\n  `Date` BETWEEN '1987-07-06' AND '1996-01-31' AND `GPT` > 30 AND `ALB` < 4",
+      "pred_sql": "SELECT DISTINCT p.ID FROM Patient AS p INNER JOIN Examination AS e ON e.ID = p.ID INNER JOIN Laboratory AS l ON l.ID = p.ID WHERE e.\"Examination Date\" BETWEEN '1987-07-06' AND '1996-01-31' AND l.GPT > 30 AND l.ALB < 4 ORDER BY p.ID ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 63,
+      "pred_row_count": 2,
+      "gen_ms": 11355,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID",
+        "tables": [
+          "Patient",
+          "Examination",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID",
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Examination.Examination Date BETWEEN '1987-07-06' AND '1996-01-31'",
+          "Laboratory.GPT > 30",
+          "Laboratory.ALB < 4"
+        ],
+        "evidence_predicates": [
+          "Date BETWEEN '1987-07-06' AND '1996-01-31'",
+          "GPT > 30",
+          "ALB < 4"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": "Patient.ID",
+        "having": null,
+        "order_by": "Patient.ID ASC",
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1195,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "What is the average blood albumin level for female patients with a PLT greater than 400 who have been diagnosed with SLE?",
+      "evidence": "average blood albumin level refers to AVG(ALB); female refers to SEX = 'F'; PLT greater than 400 refers to PLT > 400; diagnosed with SLE refers to Diagnosis= 'SLE'",
+      "gold_sql": "SELECT\n  AVG(`T2`.`ALB`)\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T2`.`PLT` > 400 AND `T1`.`Diagnosis` = 'SLE' AND `T1`.`SEX` = 'F'",
+      "pred_sql": "SELECT AVG(Laboratory.ALB) FROM Laboratory INNER JOIN Patient ON Laboratory.ID = Patient.ID WHERE Patient.SEX = 'F' AND Laboratory.PLT > 400 AND Patient.Diagnosis = 'SLE'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8414,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(Laboratory.ALB)",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.SEX = 'F'",
+          "Laboratory.PLT > 400",
+          "Patient.Diagnosis = 'SLE'"
+        ],
+        "evidence_predicates": [
+          "average blood albumin level refers to AVG(ALB)",
+          "female refers to SEX = 'F'",
+          "PLT greater than 400 refers to PLT > 400",
+          "diagnosed with SLE refers to Diagnosis= 'SLE'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "AVG",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1201,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "What percentage of patients who were born in 1980 and were diagnosed with RA are women?",
+      "evidence": "born in 1980 refers to YEAR(BIRTHDAY) = '1980'; 'RA' refers to Diagnosis='RA' ; women refers to SEX = 'F'; calculation = DIVIDE(SUM(SEX = 'F'), COUNT(SEX)) * 100",
+      "gold_sql": "SELECT CAST(CAST(SUM(CASE WHEN \"SEX\" = 'F' THEN 1 ELSE 0 END) AS REAL) * 100 AS REAL) / COUNT(\"ID\") FROM \"Patient\" WHERE \"Diagnosis\" = 'RA' AND STRFTIME('%Y', \"Birthday\") = '1980'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN SEX = 'F' THEN 1 ELSE 0 END) AS REAL) / COUNT(SEX) * 100 FROM Patient WHERE STRFTIME('%Y', Birthday) = '1980' AND Diagnosis = 'RA'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 17120,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": true,
+      "query_plan": {
+        "target": "DIVIDE(SUM(SEX = 'F'), COUNT(SEX)) * 100",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "YEAR(Birthday) = '1980'",
+          "Diagnosis = 'RA'"
+        ],
+        "evidence_predicates": [
+          "SEX = 'F'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(SEX = 'F'), COUNT(SEX)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1205,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "Was the patient with the number 57266's uric acid within a normal range?",
+      "evidence": "uric acid within a normal range refers to UA > 8.0 and SEX = 'M'OR UA > 6.5 and SEX = 'F'",
+      "gold_sql": "SELECT\n  CASE\n    WHEN (\n      `T1`.`SEX` = 'F' AND `T2`.`UA` > 6.5\n    )\n    OR (\n      `T1`.`SEX` = 'M' AND `T2`.`UA` > 8.0\n    )\n    THEN TRUE\n    ELSE FALSE\n  END\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T1`.`ID` = 57266",
+      "pred_sql": "SELECT CASE WHEN EXISTS(SELECT 1 FROM Laboratory AS L JOIN Patient AS P ON L.ID = P.ID WHERE P.ID = 57266 AND ((L.UA > 8.0 AND P.SEX = 'M') OR (L.UA > 6.5 AND P.SEX = 'F'))) THEN 1 ELSE 0 END",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.6666666666666666,
+      "ves_reward": 0.0,
+      "gold_row_count": 67,
+      "pred_row_count": 1,
+      "gen_ms": 14930,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "uric acid within a normal range refers to UA > 8.0 and SEX = 'M'OR UA > 6.5 and SEX = 'F'",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.ID = 57266"
+        ],
+        "evidence_predicates": [
+          "uric acid within a normal range refers to UA > 8.0 and SEX = 'M'OR UA > 6.5 and SEX = 'F'",
+          "(Laboratory.UA > 8.0 AND Patient.SEX = 'M') OR (Laboratory.UA > 6.5 AND Patient.SEX = 'F')"
+        ],
+        "evidence_formula": "uric acid within a normal range refers to UA > 8.0 and SEX = 'M'OR UA > 6.5 and SEX = 'F'",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 1208,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "Provide IDs for male patients with ALT glutamic pylvic transaminase (GPT) that have history of ALT glutamic pylvic transaminase (GPT) exceed the normal range.",
+      "evidence": "male refers to SEX = 'M'; ALT glutamic pylvic transaminase (GPT) exceed the normal range refers to GPT > = 60",
+      "gold_sql": "SELECT DISTINCT\n  `T1`.`ID`\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T1`.`SEX` = 'M' AND `T2`.`GPT` >= 60",
+      "pred_sql": "SELECT DISTINCT Patient.ID FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE Patient.SEX = 'M' AND Laboratory.GPT >= 60",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 24,
+      "pred_row_count": 24,
+      "gen_ms": 6476,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DISTINCT Patient.ID",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.SEX = 'M'",
+          "Laboratory.GPT >= 60"
+        ],
+        "evidence_predicates": [
+          "Patient.SEX = 'M'",
+          "Laboratory.GPT >= 60"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1209,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "Please provide the diagnosis of patients with ALT glutamic pylvic transaminase beyond the normal range by ascending order of their date of birth.",
+      "evidence": "ALT glutamic pylvic transaminase beyond the normal range refers to GPT > 60; The larger the birthday value, the younger the person is, and vice versa; ",
+      "gold_sql": "SELECT `T1`.`Diagnosis`\nFROM `Patient` AS `T1`\nINNER JOIN `Laboratory` AS `T2`\n  ON `T1`.`ID` = `T2`.`ID`\nWHERE\n  `T2`.`GPT` > 60\nORDER BY\n  `T1`.`Birthday` ASC",
+      "pred_sql": "SELECT DISTINCT Patient.Diagnosis FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE Laboratory.GPT > 60 ORDER BY Patient.Birthday ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 871,
+      "pred_row_count": 38,
+      "gen_ms": 11385,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.Diagnosis",
+        "tables": [
+          "Laboratory",
+          "Patient"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.GPT > 60"
+        ],
+        "evidence_predicates": [
+          "GPT > 60",
+          "The larger the birthday value, the younger the person is, and vice versa"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "Patient.Birthday ASC",
+        "set_op": null
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1225,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "List and group all patients by sex for total bilirubin (T-BIL) level not within the normal range.",
+      "evidence": "total bilirubin (T-BIL) not within normal range refers to T-BIL > = 2.0",
+      "gold_sql": "SELECT T1.ID, T1.SEX FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.`T-BIL` >= 2.0 GROUP BY T1.SEX, T1.ID",
+      "pred_sql": "SELECT Patient.SEX, COUNT(DISTINCT Patient.ID) FROM Laboratory INNER JOIN Patient ON Laboratory.ID = Patient.ID WHERE Laboratory.\"T-BIL\" >= 2.0 GROUP BY Patient.SEX",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 10,
+      "pred_row_count": 2,
+      "gen_ms": 21684,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.T-BIL >= 2.0"
+        ],
+        "evidence_predicates": [
+          "Laboratory.T-BIL >= 2.0"
+        ],
+        "evidence_formula": "total bilirubin (T-BIL) not within normal range refers to T-BIL > = 2.0",
+        "aggregation": "COUNT",
+        "group_by": "Patient.SEX",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1227,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "moderate",
+      "question": "What is the average age of the male patient with high cholesterol?",
+      "evidence": "average age = DIVIDE(SUM(SUBTRACT(YEAR(NOW()), YEAR(birthday))), COUNT(ID)); male patient refers to sex = 'M'; high cholesterol refers to `T-CHO` > = 250;",
+      "gold_sql": "SELECT AVG(YEAR(CURRENT_DATE) - YEAR(T1.Birthday)) FROM Patient AS T1  INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID  WHERE T2.`T-CHO` >= 250 AND T1.SEX = 'M'",
+      "pred_sql": "SELECT CAST(SUM(CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', P.Birthday) AS INTEGER)) AS REAL) / COUNT(P.ID) FROM Patient AS P WHERE P.SEX = 'M' AND EXISTS(SELECT 1 FROM Laboratory AS L WHERE L.ID = P.ID AND L.\"T-CHO\" >= 250)",
+      "valid": true,
+      "gold_error": "no such function: YEAR",
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 0,
+      "pred_row_count": 0,
+      "gen_ms": 31318,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(SUBTRACT(YEAR(NOW()), YEAR(birthday))), COUNT(ID))",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.SEX = 'M'",
+          "Laboratory.`T-CHO` >= 250"
+        ],
+        "evidence_predicates": [
+          "male patient refers to sex = 'M'",
+          "high cholesterol refers to `T-CHO` > = 250"
+        ],
+        "evidence_formula": "DIVIDE(SUM(SUBTRACT(YEAR(NOW()), YEAR(birthday))), COUNT(ID))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "error_category": "gold_error"
+    }
+  ]
+}
