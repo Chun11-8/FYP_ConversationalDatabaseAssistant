@@ -16,6 +16,23 @@ from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.safety import BLOCKED as _BLOCKED, SQL_INJECTION as _SQL_INJECTION
 logger = logging.getLogger(__name__)
 
+
+def referenced_tables(sql: str, dialect: str = "postgres") -> List[str]:
+    """
+    Real table names a query reads from, excluding CTE names (which are defined
+    by the query itself, not by the schema). Empty list on a parse failure —
+    callers treat "no names" as "can't narrow", never as "no tables".
+    """
+    try:
+        ast = sqlglot.parse_one(sql, dialect=dialect)
+    except Exception:
+        return []
+    cte_names = {c.alias_or_name.lower()
+                 for c in ast.find_all(sqlglot.exp.CTE) if c.alias_or_name}
+    return sorted({t.name for t in ast.find_all(sqlglot.exp.Table)
+                   if t.name and t.name.lower() not in cte_names})
+
+
 # ─────────────────────────────────────────────
 # SQL Validator Agent
 # ─────────────────────────────────────────────

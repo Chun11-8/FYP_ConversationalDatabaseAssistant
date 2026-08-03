@@ -300,6 +300,8 @@ sql:
   unit_tests: true             # LLM-derived result checks before pairwise
   max_refine_rounds: 1         # ReAct refine rounds (challenging tier: 2)
   cache_shortcut: true         # skip generation on a near-identical cached question
+  fast_path: true              # resolve a repeat question BEFORE the graph runs
+  answer_reuse: true           # reuse the stored answer when re-executed rows match
 
 response:
   inline_row_limit: 10         # rows returned inline in markdown
@@ -465,7 +467,12 @@ Sends a user message and returns a structured response.
   "turn_id": 42,
   "cache_hit": false,
   "latency_ms": 1830,
-  "timings": { "retrieve_schema": 210, "generate_sql": 940, "execute_sql": 60 }
+  "timings": { "retrieve_schema": 210, "generate_sql": 940, "execute_sql": 60 },
+  "usage": {
+    "calls": 6, "input_tokens": 9840, "output_tokens": 512,
+    "est_cost_usd": 0.001783,
+    "by_stage": { "classify_intent": { "calls": 1, "input_tokens": 180, "output_tokens": 1, "est_cost_usd": 0.000027 } }
+  }
 }
 ```
 
@@ -482,6 +489,7 @@ Sends a user message and returns a structured response.
 | `cache_hit` | boolean | Answered via the semantic-cache shortcut |
 | `latency_ms` | integer | End-to-end turn latency |
 | `timings` | object | Per-stage wall-clock ms |
+| `usage` | object | LLM calls, token counts, and estimated USD cost for the turn, in total and per stage |
 
 An optional `api_key` may be included in the request body to use a per-request
 OpenAI key instead of the server default. An optional `model` field similarly
@@ -580,8 +588,10 @@ removes chunks for dropped ones.
 
 ### `GET /metrics-lite`
 
-Lightweight in-process counters — turn count, error count, cache-hit rate, and
-rolling latency — for quick operational visibility.
+Lightweight in-process counters — turn count, error count, cache-hit rate,
+rolling latency, and cumulative LLM cost (`llm_calls`, `llm_calls_per_turn`,
+`tokens_in`, `tokens_out`, `cost_usd`, `cost_usd_per_turn`) — for quick
+operational visibility. Reset on restart.
 
 ---
 
@@ -668,6 +678,31 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Join-minimality demotion | spurious joins silently dropping rows | GH#50 |
 | Evidence-target guidance | evidence formulas misread as filters instead of the SELECT target | GH#50 |
 | Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
+| Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
+
+### Cost & minimum execution (GH#57)
+
+A full first-time READ turn makes ~6 LLM calls (intent → linking → generation ×N
+→ formatting). Repeat questions no longer pay that. Every LLM call is now
+metered — `run()` returns a `usage` block and `GET /metrics-lite` accumulates
+tokens and estimated USD — so the saving is measured, not assumed.
+
+| Situation | LLM calls | What runs |
+|---|---|---|
+| First time asked | ~6 | Full pipeline |
+| Asked again, data changed | 1 | Cached SQL re-validated + re-executed, answer re-formatted |
+| Asked again, data unchanged | **0** | Cached SQL re-validated + re-executed, stored answer reused |
+
+The cached SQL is **always** re-validated against the current schema and
+re-executed against the live database — only the wording is reused, and only
+when the fresh rows hash identically to the stored ones, so stale data can never
+be served. A cached query that no longer validates (schema drift) unwinds to
+full retrieval and normal generation. Anaphoric follow-ups ("what about last
+year?") always take the full path, since they mean nothing until condensed
+against the conversation history.
+
+Set `sql.fast_path: false` and `sql.answer_reuse: false` to reproduce the
+previous behavior exactly.
 
 ---
 
@@ -685,10 +720,12 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~630 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | ~725 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |
+| #56 | Skeleton-similarity few-shot selection | ✅ Done | DAIL-SQL-style structural-shape blending |
+| #57 | Cost telemetry + minimum-execution routing | ✅ Done | Token/cost accounting, repeat-query fast path, answer reuse |
 | #12 | Knowledge Graph (LlamaIndex) | 🔮 Deferred | Not started |
 
 ---
@@ -699,6 +736,9 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 - [ ] Issue #6 — User isolation, roles, JWT auth (read-only DB role already landed)
 - [ ] GitHub Actions CI wired to the test suite
 - [ ] BIRD 3-tier A/B rerun to quantify the #48–50 accuracy techniques
+- [ ] BIRD rerun with `sql.fast_path` / `sql.answer_reuse` on vs. off — EX must be
+      unchanged (GH#57 is accuracy-neutral by design); the new `cost_usd` metric
+      shows the saving
 - [ ] Issue #12 — Knowledge Graph via LlamaIndex (deferred)
 
 ---

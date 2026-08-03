@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from backend.agents.usage import invoke_tracked
 from backend.agents.utils import PromptHarness
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ class SchemaLinkingAgent:
             HumanMessage(content=prompt),
         ]
         try:
-            raw = self.llm.invoke(messages).content
+            raw = invoke_tracked(self.llm, messages, "link_schema").content
         except Exception as exc:
             logger.warning(f"[LINK] LLM call failed: {exc}")
             return None

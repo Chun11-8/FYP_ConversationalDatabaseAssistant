@@ -73,6 +73,11 @@ _METRICS = {
     "latencies_ms": deque(maxlen=200),
     "stage_ms": defaultdict(int),
     "stage_n": defaultdict(int),
+    # GH#57 cost accounting
+    "llm_calls": 0,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "cost_usd": 0.0,
 }
 
 
@@ -86,6 +91,11 @@ def _record_turn(result: dict) -> None:
         for stage, ms in (result.get("timings") or {}).items():
             _METRICS["stage_ms"][stage] += int(ms)
             _METRICS["stage_n"][stage] += 1
+        usage = result.get("usage") or {}
+        _METRICS["llm_calls"] += int(usage.get("calls") or 0)
+        _METRICS["tokens_in"] += int(usage.get("input_tokens") or 0)
+        _METRICS["tokens_out"] += int(usage.get("output_tokens") or 0)
+        _METRICS["cost_usd"] += float(usage.get("est_cost_usd") or 0.0)
 
 # ── outputs directory — single source of truth shared with ResponseOptimizer ───
 _OUTPUTS_DIR = ResponseOptimizer._DEFAULT_OUTPUT_DIR
@@ -339,6 +349,14 @@ def metrics_lite() -> Dict[str, Any]:
             "latency_avg_ms": round(sum(lats) / n) if n else None,
             "latency_p95_ms": lats[max(0, int(n * 0.95) - 1)] if n else None,
             "avg_stage_ms": avg_stage,
+            "llm_calls": _METRICS["llm_calls"],
+            "llm_calls_per_turn": round(_METRICS["llm_calls"] / _METRICS["turns"], 2)
+            if _METRICS["turns"] else 0.0,
+            "tokens_in": _METRICS["tokens_in"],
+            "tokens_out": _METRICS["tokens_out"],
+            "cost_usd": round(_METRICS["cost_usd"], 6),
+            "cost_usd_per_turn": round(_METRICS["cost_usd"] / _METRICS["turns"], 6)
+            if _METRICS["turns"] else 0.0,
         }
 
 

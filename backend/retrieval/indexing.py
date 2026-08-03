@@ -172,6 +172,7 @@ def retrieve(
     store: str = None,
     oai_client: Optional[OpenAI] = None,
     store_conn=None,
+    embedding: Optional[list[float]] = None,
 ) -> dict:
     """
     Given a natural-language query, retrieve the most relevant table schemas
@@ -185,6 +186,9 @@ def retrieve(
         oai_client:    Reuse an existing OpenAI client (avoids re-init cost).
         store_conn:    Reuse an existing store connection (pgvector conn or
                        Pinecone index). If None, a new one is created.
+        embedding:     Reuse a vector already computed for this query (GH#57) —
+                       the caller must have produced it with the same
+                       EMBED_MODEL. None → embed here.
 
     Returns:
         {
@@ -196,10 +200,13 @@ def retrieve(
     store   = store or _default_store()
     backend = _get_backend(store)
 
-    # Embed the query
-    if oai_client is None:
-        oai_client = get_openai_client()
-    query_embedding = _embed_query(query, oai_client)
+    # Embed the query — unless the caller already has the vector.
+    if embedding is not None:
+        query_embedding = embedding
+    else:
+        if oai_client is None:
+            oai_client = get_openai_client()
+        query_embedding = _embed_query(query, oai_client)
 
     # ── pgvector retrieve ──────────────────────────────────────────────────
     if store == "pgvector":
