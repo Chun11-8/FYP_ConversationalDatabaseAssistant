@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { ChevronRight, ChevronDown, Key, Link, RefreshCw, Info } from 'lucide-react';
 import type { SchemaInfo, SchemaTable, SchemaColumn } from '../types';
 import { getSchema, getSchemaDiff, syncSchema } from '../api/client';
-import type { SchemaDiff, SchemaChange } from '../api/client';
+import type { SchemaDiff } from '../api/client';
 
 function ColumnRow({ col }: { col: SchemaColumn }) {
   const [showDesc, setShowDesc] = useState(false);
@@ -78,22 +78,37 @@ function TableRow({ table }: { table: SchemaTable }) {
   );
 }
 
-const CHANGE_META: Record<SchemaChange['action'], { label: string; cls: string }> = {
+const CHANGE_META: Partial<Record<string, { label: string; cls: string }>> = {
   add_table:     { label: '+ table',  cls: 'chg-add' },
   drop_table:    { label: '− table',  cls: 'chg-drop' },
   add_column:    { label: '+ column', cls: 'chg-add' },
   drop_column:   { label: '− column', cls: 'chg-drop' },
   modify_column: { label: '~ type',   cls: 'chg-mod' },
 };
+// `SchemaChange['action']` is a closed union in TypeScript, but that's a
+// compile-time promise only — the backend's own type is a plain unconstrained
+// `str` (backend/api/models.py), so a value outside the five known actions can
+// arrive over the wire at runtime and must degrade to a label, not throw.
+function changeMeta(action: string): { label: string; cls: string } {
+  return CHANGE_META[action] ?? { label: action, cls: 'chg-unknown' };
+}
 
-function IndexSyncPanel({ onSynced }: { onSynced: () => void }) {
+function IndexSyncPanel({
+  onSynced,
+  message,
+}: {
+  // Fires with the success message text; the caller (DatabaseTab) owns the
+  // message so it survives this panel's own unmount/remount when a sync
+  // triggers the parent's schema reload (see `message` prop below).
+  onSynced: (message: string) => void;
+  message: string | null;
+}) {
   const [diff, setDiff] = useState<SchemaDiff | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const check = useCallback(() => {
-    setBusy(true); setErr(null); setMsg(null);
+    setBusy(true); setErr(null);
     getSchemaDiff()
       .then(setDiff)
       .catch((e) => setErr(e instanceof Error ? e.message : 'Check failed'))
@@ -103,13 +118,13 @@ function IndexSyncPanel({ onSynced }: { onSynced: () => void }) {
   useEffect(() => { check(); }, [check]);
 
   const runSync = (full: boolean) => {
-    setBusy(true); setErr(null); setMsg(null);
+    setBusy(true); setErr(null);
     syncSchema(full)
       .then((r) => {
         const n = r.reembedded_tables.length, d = r.removed_tables.length;
-        setMsg(`Re-indexed ${n} table${n !== 1 ? 's' : ''}` +
-               (d ? `, removed ${d}` : '') + (full ? ' (full re-index)' : '') + '.');
-        onSynced();
+        const text = `Re-indexed ${n} table${n !== 1 ? 's' : ''}` +
+               (d ? `, removed ${d}` : '') + (full ? ' (full re-index)' : '') + '.';
+        onSynced(text);
         check();
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Sync failed'))
@@ -141,21 +156,22 @@ function IndexSyncPanel({ onSynced }: { onSynced: () => void }) {
       </p>
 
       {err && <div className="db-tab-error">{err}</div>}
-      {msg && <div className="sync-success">{msg}</div>}
+      {message && <div className="sync-success">{message}</div>}
 
       {diff && !diff.in_sync && (
         <div className="sync-changes">
-          {diff.changes.map((c, i) => (
-            <div key={i} className="sync-change">
-              <span className={`chg-badge ${CHANGE_META[c.action].cls}`}>
-                {CHANGE_META[c.action].label}
-              </span>
-              <span className="chg-target">
-                {c.table}{c.column ? `.${c.column}` : ''}
-                {c.detail ? ` (${c.detail})` : ''}
-              </span>
-            </div>
-          ))}
+          {diff.changes.map((c, i) => {
+            const meta = changeMeta(c.action);
+            return (
+              <div key={i} className="sync-change">
+                <span className={`chg-badge ${meta.cls}`}>{meta.label}</span>
+                <span className="chg-target">
+                  {c.table}{c.column ? `.${c.column}` : ''}
+                  {c.detail ? ` (${c.detail})` : ''}
+                </span>
+              </div>
+            );
+          })}
           {diff.unindexed_tables.map((t) => (
             <div key={`u-${t}`} className="sync-change">
               <span className="chg-badge chg-warn">unindexed</span>
@@ -184,6 +200,10 @@ export function DatabaseTab() {
   const [schema, setSchema] = useState<SchemaInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Owned here, not by IndexSyncPanel: a sync success triggers `load()`,
+  // which flips `loading` to true and unmounts IndexSyncPanel (rendered only
+  // when `!loading`) before its own locally-set message ever painted.
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -195,6 +215,11 @@ export function DatabaseTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleSynced = useCallback((message: string) => {
+    setSyncMessage(message);
+    load();
+  }, [load]);
 
   return (
     <div className="db-tab">
@@ -226,7 +251,9 @@ export function DatabaseTab() {
         </div>
       )}
 
-      {!loading && !error && <IndexSyncPanel onSynced={load} />}
+      {!loading && !error && (
+        <IndexSyncPanel onSynced={handleSynced} message={syncMessage} />
+      )}
 
       {schema && !loading && (
         <div className="schema-browser">

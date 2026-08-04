@@ -43,21 +43,70 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile());
   const [showKey, setShowKey] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // GH#58: a free-text entry alongside the curated list — the backend accepts
+  // any well-formed OpenAI model id, not just the ones in `models`.
+  const [customEntry, setCustomEntry] = useState(false);
+  const [customValue, setCustomValue] = useState('');
   const pickerRef = useRef<HTMLDivElement>(null);
+  const customInputRef = useRef<HTMLInputElement>(null);
 
   const toggleSidebar = () => setSidebarOpen((v) => !v);
+
+  const closePicker = () => {
+    setPickerOpen(false);
+    setCustomEntry(false);
+    setCustomValue('');
+  };
+
+  const submitCustomModel = () => {
+    const v = customValue.trim();
+    if (v) onModelChange(v);
+    closePicker();
+  };
 
   // Close the model picker on an outside click.
   useEffect(() => {
     if (!pickerOpen) return;
     const onClick = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
+        closePicker();
       }
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [pickerOpen]);
+
+  // Focus the custom-model field the moment it appears.
+  useEffect(() => {
+    if (customEntry) customInputRef.current?.focus();
+  }, [customEntry]);
+
+  // GH#58 finding #6: isMobile() was only read at render/click time, so
+  // resizing across the 768px breakpoint without a click left sidebarOpen
+  // stale — a desktop-open sidebar became an unclosable mobile overlay, or a
+  // mobile-closed sidebar stayed collapsed after growing to desktop width.
+  // Only resets state when the breakpoint is actually crossed, so it doesn't
+  // fight a manual toggle on ordinary resizes within the same mode.
+  const wasMobile = useRef(isMobile());
+  useEffect(() => {
+    let frame: number | null = null;
+    const onResize = () => {
+      if (frame !== null) return;   // coalesce bursts of resize events
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        const nowMobile = isMobile();
+        if (nowMobile !== wasMobile.current) {
+          wasMobile.current = nowMobile;
+          setSidebarOpen(!nowMobile);
+        }
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, []);
 
   return (
     <div className="app-layout">
@@ -119,18 +168,54 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
                 </button>
                 {pickerOpen && (
                   <div className="model-picker-menu" role="listbox">
-                    {models.map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        role="option"
-                        aria-selected={m === model}
-                        className={`model-picker-option${m === model ? ' model-picker-option--active' : ''}`}
-                        onClick={() => { onModelChange(m); setPickerOpen(false); }}
-                      >
-                        {m}
-                      </button>
-                    ))}
+                    {customEntry ? (
+                      <div className="model-picker-custom">
+                        <input
+                          ref={customInputRef}
+                          type="text"
+                          className="model-picker-custom-input"
+                          value={customValue}
+                          onChange={(e) => setCustomValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') submitCustomModel();
+                            else if (e.key === 'Escape') closePicker();
+                          }}
+                          placeholder="e.g. gpt-4.1 or ft:gpt-4o-mini-..."
+                          spellCheck={false}
+                          autoComplete="off"
+                        />
+                        <button
+                          type="button"
+                          className="model-picker-custom-confirm"
+                          onClick={submitCustomModel}
+                          disabled={!customValue.trim()}
+                        >
+                          Use
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {models.map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            role="option"
+                            aria-selected={m === model}
+                            className={`model-picker-option${m === model ? ' model-picker-option--active' : ''}`}
+                            onClick={() => { onModelChange(m); closePicker(); }}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="model-picker-option model-picker-option--custom"
+                          onClick={() => setCustomEntry(true)}
+                        >
+                          Custom…
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

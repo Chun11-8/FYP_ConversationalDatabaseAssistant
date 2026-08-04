@@ -197,7 +197,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
 │   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
-│   ├── tests/                          # 755 unit/integration tests (offline)
+│   ├── tests/                          # 762 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -296,9 +296,9 @@ Non-secret settings live here; edit as needed:
 ```yaml
 llm:
   model: gpt-4o-mini          # OpenAI model used for all LLM calls
-  selectable_models:          # models offered by the frontend's model picker
-    - gpt-4o-mini
-    - gpt-4o
+  selectable_models:          # curated list shown by the frontend's model picker —
+    - gpt-4o-mini              # a "Custom..." entry there also accepts any other
+    - gpt-4o                   # well-formed OpenAI model id
     - gpt-4.1-mini
   # pricing:                  # USD per 1M tokens, for the cost figures in
   #   gpt-4o-mini:            # /metrics-lite and each turn's `usage` block.
@@ -537,8 +537,12 @@ Sends a user message and returns a structured response.
 
 An optional `api_key` may be included in the request body to use a per-request
 OpenAI key instead of the server default. An optional `model` field similarly
-overrides the LLM model for that request only — it must be one of the models
-returned by `GET /models`; an unrecognized value returns `400`.
+overrides the LLM model for that request only. It need not be one of the
+models returned by `GET /models` — any well-formed OpenAI model id is accepted
+(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,63}$`, e.g. `gpt-4.1` or a fine-tuned id like
+`ft:gpt-4o-mini-2024-07-18:org::abc123`); malformed values return `400`. This
+is a shape check, not an allow-list — `GET /models` still curates the set the
+frontend's picker shows by default.
 
 ---
 
@@ -664,7 +668,7 @@ The React frontend provides a dark-minimal chat interface:
 | **Database tab** | Browse tables/columns with descriptions and value hints |
 | **Index Sync panel** | Detect schema/data changes and re-index (surgical or full) from the UI |
 | **Feedback** | Thumbs up/down per assistant turn |
-| **Model picker** | Sidebar row (above the OpenAI API Key section) to switch the per-request LLM model |
+| **Model picker** | Sidebar row (above the OpenAI API Key section) to switch the per-request LLM model, plus a "Custom…" entry to type any OpenAI model id not in the curated list |
 
 ---
 
@@ -766,7 +770,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~755 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | ~762 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |
