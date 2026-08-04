@@ -42,6 +42,30 @@ function loadStoredMessages(): Message[] {
   }
 }
 
+/**
+ * Persist the conversation, tolerating localStorage quota limits. `rows` can
+ * hold up to `response.csv_row_limit` records per turn — large enough that an
+ * uncaught QuotaExceededError here used to throw inside a useEffect and blank
+ * the whole app. On failure, retry once with row payloads stripped: the
+ * conversation text is what's worth restoring after a reload, not the last
+ * query's row cache.
+ */
+function persistMessages(messages: Message[]): void {
+  try {
+    localStorage.setItem(LS_MESSAGES, JSON.stringify(messages));
+  } catch {
+    try {
+      const slim = messages.map((m) =>
+        m.type === 'text' && m.rows ? { ...m, rows: null } : m,
+      );
+      localStorage.setItem(LS_MESSAGES, JSON.stringify(slim));
+    } catch {
+      // Quota exhausted even without rows, or storage unavailable — the
+      // session's in-memory state is still correct, only reload-restore is lost.
+    }
+  }
+}
+
 function App() {
   const [sessionId, setSessionId] = useState<string | null>(
     () => localStorage.getItem(LS_SESSION_ID),
@@ -84,7 +108,11 @@ function App() {
       .then(({ models, default: def }) => {
         setAvailableModels(models);
         setDefaultModel(def);
-        setModel((prev) => (prev && models.includes(prev) ? prev : def));
+        // GH#58: a persisted custom model (not in the curated `models` list)
+        // must survive a reload — only fall back to the default when nothing
+        // was chosen at all. `models.includes(prev)` here would silently
+        // discard every custom entry the moment the page refreshed.
+        setModel((prev) => prev || def);
       })
       .catch(() => { /* picker stays hidden; chat still works */ });
   }, []);
@@ -95,7 +123,7 @@ function App() {
   }, [sessionId]);
 
   useEffect(() => {
-    localStorage.setItem(LS_MESSAGES, JSON.stringify(messages));
+    persistMessages(messages);
   }, [messages]);
 
   const refreshSessions = useCallback(() => {
@@ -136,13 +164,20 @@ function App() {
 
     try {
       // Streaming first (live stage progress); plain POST as fallback (GH#39).
+      // The fallback is only safe when the stream never actually started: the
+      // backend records the turn (and bills the LLM calls) BEFORE it queues
+      // the terminal `done` event, so once a `stage` event has been seen the
+      // pipeline is already running server-side — retrying via /chat would
+      // re-run and double-bill it rather than recover a lost response.
       let result: ChatApiResponse;
+      let sawStage = false;
       try {
         result = await sendChatStream(
           sessionId, content, apiKey.trim() || undefined, modelOverride,
-          (e) => { if (e.type === 'stage') setStage(e.stage); },
+          (e) => { if (e.type === 'stage') { sawStage = true; setStage(e.stage); } },
         );
-      } catch {
+      } catch (streamErr) {
+        if (sawStage) throw streamErr;
         result = await sendChat(sessionId, content, apiKey.trim() || undefined, modelOverride);
       }
       const botMsg: TextMessage = {
@@ -241,8 +276,14 @@ function App() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `conversation_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.md`;
+    // Some browsers only honor .click() on an anchor that's actually in the
+    // DOM, and revoking the blob URL on the very next line raced the download
+    // starting. Append/remove around the click, and defer the revoke past the
+    // current task so the browser has a chance to begin reading the blob.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [messages]);
 
   return (
@@ -293,7 +334,13 @@ function App() {
                   'How many players are from Brazil?',
                   'What is the average age of goalkeepers?',
                 ].map((q) => (
-                  <button key={q} className="example-chip" onClick={() => handleSend(q)}>
+                  <button
+                    key={q}
+                    className="example-chip"
+                    onClick={() => handleSend(q)}
+                    disabled={!sessionId}
+                    title={sessionId ? undefined : 'Connecting…'}
+                  >
                     {q}
                   </button>
                 ))}

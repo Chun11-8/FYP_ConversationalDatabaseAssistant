@@ -8,7 +8,9 @@ llm:
   # intent_model: gpt-4o-mini
   # format_model: gpt-4o-mini
   # GH#52: models exposed to the frontend's per-request model picker. `model`
-  # above is always included even if omitted from this list.
+  # above is always included even if omitted from this list. GH#58: the picker
+  # also offers a free-text "Custom…" entry — any well-formed OpenAI model id
+  # is accepted, not just the ones listed here (see api/main.py::_validate_model).
   selectable_models:
     - gpt-4o-mini
     - gpt-4o

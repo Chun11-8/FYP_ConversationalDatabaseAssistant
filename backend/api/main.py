@@ -22,6 +22,7 @@ import contextvars
 import json
 import logging
 import queue
+import re
 import threading
 import uuid
 from collections import defaultdict, deque
@@ -186,12 +187,30 @@ def _get_agent() -> OrchestrationAgent:
     return _agent
 
 
+# GH#58: OpenAI model ids are lowercase-alnum with '.', '_', '-', ':' separators
+# (e.g. "gpt-4o-mini", "ft:gpt-4o-mini-2024-07-18:org::abc123"). This is a shape
+# check, not an allow-list — it exists to reject garbage/injection attempts, not
+# to restrict which real models a user may type.
+_MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,63}$")
+
+
 def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Optional[str]:
-    """Reject a model name outside the configured allow-list (GH#52)."""
+    """
+    Accept a model from the curated `selectable_models` list, OR any
+    well-formed model id (GH#58) — the frontend's picker offers a free-text
+    "Custom…" entry, matching the posture the eval CLIs already take
+    (backend/eval/bird.py::resolve_model warns on an unlisted model but never
+    blocks it). Reaching OrchestrationAgent.run() with an unusable model id
+    still fails safely there — it becomes an OpenAI API error surfaced to the
+    caller, not a silent misroute.
+    """
     if not req_model:
         return None
-    if req_model not in agent.selectable_models:
-        raise HTTPException(status_code=400, detail=f"Unknown model: {req_model!r}")
+    req_model = req_model.strip()
+    if req_model in agent.selectable_models:
+        return req_model
+    if not _MODEL_ID_RE.match(req_model):
+        raise HTTPException(status_code=400, detail=f"Invalid model id: {req_model!r}")
     return req_model
 
 

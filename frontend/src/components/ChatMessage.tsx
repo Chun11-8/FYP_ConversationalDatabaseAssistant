@@ -20,7 +20,13 @@ function RecordsPanel({ rows, total }: { rows: Record<string, unknown>[]; total:
 
   const headers = Object.keys(rows[0]);
   const visible = expanded ? rows : rows.slice(0, RECORDS_PREVIEW);
-  const hidden  = rows.length - RECORDS_PREVIEW;
+  // `rows` is only what the backend chose to send inline — large results are
+  // truncated before they leave the server, while `total` (message.row_count)
+  // is always the true count. The toggle must promise only what `rows` can
+  // actually reveal (rows.length), never `total` — promising more would open
+  // an "expanded" view still missing data with no further control to get it.
+  const hidden = rows.length - RECORDS_PREVIEW;
+  const truncated = rows.length < total;
 
   return (
     <div className="records-panel">
@@ -55,6 +61,12 @@ function RecordsPanel({ rows, total }: { rows: Record<string, unknown>[]; total:
           )}
         </button>
       )}
+      {truncated && (
+        <p className="records-truncated-hint">
+          Showing {rows.length.toLocaleString()} of {total.toLocaleString()} rows inline —
+          download the CSV below for the rest.
+        </p>
+      )}
     </div>
   );
 }
@@ -86,16 +98,19 @@ function IntentBadge({ intent }: { intent: string }) {
     WRITE_BLOCKED: { label: 'WRITE BLOCKED', cls: 'badge-blocked' },
     AMBIGUOUS:     { label: 'AMBIGUOUS',     cls: 'badge-ambiguous' },
   };
-  // The backend normalizes intent to one of the four labels, but never render an
-  // arbitrary-length API string: an unnormalized one used to blow up into a
-  // full-width all-caps banner. Truncate anything unexpected.
+  // The backend normalizes intent to one of the four labels (see
+  // _normalize_intent in db_agent.py), but this must never trust that and
+  // render an arbitrary-length API string directly: an unnormalized value
+  // used to blow up into a full-width all-caps banner. An unrecognized value
+  // renders as the fixed label "UNKNOWN" — never a fragment of the original
+  // string, which could itself be unbounded — with the real value available
+  // on hover via `title`.
   const known = map[intent.toUpperCase()];
-  // Show a truncated fragment of an unexpected value, never the whole string —
-  // an unnormalized one used to render as a full-width all-caps banner. The
-  // untruncated text stays available on hover.
   const entry = known ?? { label: 'UNKNOWN', cls: 'badge-general' };
   return (
-    <span className={`intent-badge ${entry.cls}`} title={known ? entry.label : intent}>
+    // `title` only adds information for the fallback case; on a known intent
+    // it would just repeat the visible label.
+    <span className={`intent-badge ${entry.cls}`} title={known ? undefined : intent}>
       {entry.label}
     </span>
   );

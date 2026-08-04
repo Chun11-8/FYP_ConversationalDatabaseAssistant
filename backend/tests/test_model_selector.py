@@ -204,11 +204,49 @@ class TestValidateModel:
         agent = MagicMock(selectable_models=["gpt-4o-mini", "gpt-4o"])
         assert api_main._validate_model("gpt-4o", agent) == "gpt-4o"
 
-    def test_unlisted_model_raises_400(self):
+    # GH#58: a well-formed model id outside `selectable_models` is now
+    # accepted — the frontend's picker offers free-text "Custom…" entry, and
+    # this is a shape check (reject garbage), not an allow-list (restrict
+    # models). Matches backend/eval/bird.py::resolve_model's warn-not-block
+    # posture for the exact same reason.
+    def test_unlisted_but_well_formed_model_is_accepted(self):
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        assert api_main._validate_model("gpt-4.1", agent) == "gpt-4.1"
+
+    def test_unlisted_fine_tuned_model_id_is_accepted(self):
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        ft_id = "ft:gpt-4o-mini-2024-07-18:my-org::abc123"
+        assert api_main._validate_model(ft_id, agent) == ft_id
+
+    def test_whitespace_only_model_raises_400(self):
         agent = MagicMock(selectable_models=["gpt-4o-mini"])
         with pytest.raises(api_main.HTTPException) as exc_info:
-            api_main._validate_model("not-a-real-model", agent)
+            api_main._validate_model("   ", agent)
         assert exc_info.value.status_code == 400
+
+    def test_malformed_model_raises_400(self):
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        with pytest.raises(api_main.HTTPException) as exc_info:
+            api_main._validate_model("gpt-4o; DROP TABLE users;--", agent)
+        assert exc_info.value.status_code == 400
+
+    def test_single_char_model_raises_400(self):
+        # Below _MODEL_ID_RE's minimum length — also guards against a
+        # one-character typo silently reaching OpenAI as a "real" model id.
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        with pytest.raises(api_main.HTTPException) as exc_info:
+            api_main._validate_model("x", agent)
+        assert exc_info.value.status_code == 400
+
+    def test_overlong_model_raises_400(self):
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        with pytest.raises(api_main.HTTPException) as exc_info:
+            api_main._validate_model("g" * 100, agent)
+        assert exc_info.value.status_code == 400
+
+    def test_model_is_stripped(self):
+        agent = MagicMock(selectable_models=["gpt-4o-mini"])
+        assert api_main._validate_model("  gpt-4o-mini  ", agent) == "gpt-4o-mini"
 
 
 class TestChatEndpointModelValidation:
@@ -216,13 +254,29 @@ class TestChatEndpointModelValidation:
     def _client(self) -> TestClient:
         return TestClient(api_main.app)
 
-    def test_chat_rejects_unlisted_model(self):
+    def test_chat_accepts_unlisted_well_formed_model(self):
+        fake = MagicMock()
+        fake.selectable_models = ["gpt-4o-mini"]
+        fake.default_model = "gpt-4o-mini"
+        fake.run.return_value = {
+            "response": "ok", "sql": None, "intent": "GENERAL", "validation": {},
+            "row_count": None, "rows": None, "csv_path": None, "turn_id": 1,
+            "cache_hit": False, "latency_ms": 1, "timings": {}, "usage": {},
+        }
+        with patch.object(api_main, "_get_agent", return_value=fake):
+            r = self._client().post("/chat", json={
+                "session_id": "s1", "message": "hi", "model": "gpt-4.1",
+            })
+        assert r.status_code == 200
+        fake.run.assert_called_once()
+
+    def test_chat_rejects_malformed_model(self):
         fake = MagicMock()
         fake.selectable_models = ["gpt-4o-mini"]
         fake.default_model = "gpt-4o-mini"
         with patch.object(api_main, "_get_agent", return_value=fake):
             r = self._client().post("/chat", json={
-                "session_id": "s1", "message": "hi", "model": "bogus-model",
+                "session_id": "s1", "message": "hi", "model": "bogus model!!",
             })
         assert r.status_code == 400
         fake.run.assert_not_called()
@@ -243,13 +297,13 @@ class TestChatEndpointModelValidation:
         assert r.status_code == 200
         assert fake.run.call_args.kwargs["model"] == "gpt-4o"
 
-    def test_chat_stream_rejects_unlisted_model_before_thread_starts(self):
+    def test_chat_stream_rejects_malformed_model_before_thread_starts(self):
         fake = MagicMock()
         fake.selectable_models = ["gpt-4o-mini"]
         fake.default_model = "gpt-4o-mini"
         with patch.object(api_main, "_get_agent", return_value=fake):
             r = self._client().post("/chat/stream", json={
-                "session_id": "s1", "message": "hi", "model": "bogus-model",
+                "session_id": "s1", "message": "hi", "model": "bogus model!!",
             })
         assert r.status_code == 400
         fake.run.assert_not_called()

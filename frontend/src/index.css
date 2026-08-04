@@ -328,6 +328,17 @@ body, html, #root {
   border-color: var(--border-strong);
 }
 
+.example-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.example-chip:disabled:hover {
+  background-color: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
 /* ── Chat Area ───────────────────────────────────────────────────────────── */
 .chat-scroll {
   flex: 1;
@@ -480,7 +491,12 @@ body, html, #root {
 /* ── Markdown Body ───────────────────────────────────────────────────────── */
 .markdown-body {
   color: var(--text-primary);
-  font-size: 0.9375rem;
+  /* Match .message-bot .message-content's 1rem — that rule only sets the
+     size on the wrapper, and this direct rule on the child was overriding it
+     right back down to 0.9375rem, so the readability bump never reached the
+     assistant's actual response text (user bubbles, which have no
+     .markdown-body wrapper, were already rendering at 1rem). */
+  font-size: 1rem;
   line-height: 1.75;
 }
 
@@ -654,6 +670,13 @@ body, html, #root {
 .records-toggle:hover {
   background-color: rgba(255,255,255,0.04);
   color: var(--text-primary);
+}
+
+.records-truncated-hint {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 /* ── SQL Panel ───────────────────────────────────────────────────────────── */
@@ -967,6 +990,54 @@ body, html, #root {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* GH#58: "Custom…" entry, separated from the curated list above it. */
+.model-picker-option--custom {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 0.125rem;
+  padding-top: 0.5rem;
+  font-style: italic;
+}
+
+.model-picker-custom {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.25rem;
+}
+
+.model-picker-custom-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+}
+
+.model-picker-custom-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.model-picker-custom-confirm {
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+
+.model-picker-custom-confirm:hover { background: var(--accent-hover); }
+.model-picker-custom-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .sidebar-spacer { flex: 1; }
 
 .api-key-section {
@@ -1341,6 +1412,7 @@ body, html, #root {
 .chg-drop { background: rgba(239,68,68,0.15);  color: #fca5a5; }
 .chg-mod  { background: rgba(99,102,241,0.15); color: #a5b4fc; }
 .chg-warn { background: rgba(234,179,8,0.15);  color: #fde68a; }
+.chg-unknown { background: var(--bg-surface); color: var(--text-secondary); }
 .chg-target { font-family: var(--font-mono); color: var(--text-secondary); }
 .sync-actions { display: flex; gap: 0.5rem; margin-top: 0.625rem; }
 .sync-btn {
