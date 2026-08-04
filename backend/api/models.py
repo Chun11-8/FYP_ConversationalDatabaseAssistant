@@ -35,6 +35,7 @@ class ChatResponse(BaseModel):
     cache_hit: bool = False   # answered from the semantic cache (no generation)
     latency_ms: Optional[int] = None            # total turn wall-clock (GH#42)
     timings: Optional[Dict[str, int]] = None    # per-stage ms (GH#42)
+    usage: Optional[Dict[str, Any]] = None      # tokens + est. cost (GH#57)
 
 
 class FeedbackRequest(BaseModel):

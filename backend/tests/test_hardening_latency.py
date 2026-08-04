@@ -201,7 +201,9 @@ class TestCacheShortcut:
         a = _bare_agent()
         state = {"validation": {"valid": False}, "cache_hit": True,
                  "fallback_level": 0}
-        assert a.route_after_validation(state) == "link_schema"
+        # GH#57: unwinds through retrieval, since the cache path may have used a
+        # narrow by-name schema that regeneration can't work from.
+        assert a.route_after_validation(state) == "retrieve_schema"
 
     def test_link_schema_clears_flag(self):
         a = _bare_agent(_schema_linking=False)
@@ -260,19 +262,30 @@ class TestModelRoutingAndPrefetch:
         assert a._db_name == "mydb"
 
     def test_prefetched_embedding_consumed(self):
+        """run() consumes the prefetch future and hands the vector over in state
+        (GH#57) — retrieve_schema must reuse it rather than embedding again."""
         a = _bare_agent(_fk_max_hops=2, _fk_max_expansion=5,
                         _max_schema_tokens=4000, _db_name="d")
         a.semantic_cache = MagicMock()
         a.semantic_cache.retrieve_few_shots.return_value = []
-        fut: Future = Future()
-        fut.set_result([0.5] * 3)
-        dbm._tls.embed_future = fut
+        a.semantic_cache.best_match.return_value = None   # not a cache-hit test
         with patch.object(dbm, "retrieve", side_effect=RuntimeError("stop")):
             out = a.retrieve_schema({"user_query": "q",
                                      "conversation_history": [],
+                                     "query_embedding": [0.5] * 3,
                                      "fallback_level": 0})
         assert out["query_embedding"] == [0.5] * 3
-        a.semantic_cache.embed.assert_not_called()   # future used, not recomputed
+        a.semantic_cache.embed.assert_not_called()   # state vector used
+
+    def test_run_consumes_prefetch_future(self):
+        fut: Future = Future()
+        fut.set_result([0.5] * 3)
+        dbm._tls.embed_future = fut
+        try:
+            assert dbm.OrchestrationAgent._consume_prefetched_embedding() == [0.5] * 3
+            assert dbm._tls.embed_future is None   # left clean for the next turn
+        finally:
+            dbm._tls.embed_future = None
 
 
 # ── GH#45 step 4: DISTINCT post-pass ──────────────────────────────────────────

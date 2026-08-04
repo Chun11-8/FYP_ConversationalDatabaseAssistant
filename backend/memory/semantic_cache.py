@@ -185,6 +185,24 @@ class SemanticCache:
                             created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
                         );
                     """)
+                    # GH#57 in-place migrations for installs created before
+                    # cost accounting (query_interactions) and answer reuse
+                    # (query_sql_pairs) existed.
+                    for stmt in (
+                        "ALTER TABLE query_interactions "
+                        "ADD COLUMN IF NOT EXISTS model TEXT",
+                        "ALTER TABLE query_interactions "
+                        "ADD COLUMN IF NOT EXISTS tokens_in INTEGER",
+                        "ALTER TABLE query_interactions "
+                        "ADD COLUMN IF NOT EXISTS tokens_out INTEGER",
+                        "ALTER TABLE query_interactions "
+                        "ADD COLUMN IF NOT EXISTS cost_usd REAL",
+                        "ALTER TABLE query_sql_pairs "
+                        "ADD COLUMN IF NOT EXISTS rows_fingerprint TEXT",
+                        "ALTER TABLE query_sql_pairs "
+                        "ADD COLUMN IF NOT EXISTS response TEXT",
+                    ):
+                        cur.execute(stmt + ";")
         finally:
             conn.close()
 
@@ -197,6 +215,8 @@ class SemanticCache:
         group_id: Optional[str] = None,
         confidence: float = 1.0,
         embedding: Optional[List[float]] = None,
+        rows_fingerprint: Optional[str] = None,
+        response: Optional[str] = None,
     ) -> None:
         """
         Store a (question → SQL) pair, deduplicating near-identical questions.
@@ -206,6 +226,10 @@ class SemanticCache:
 
         ``embedding`` may be supplied to reuse a vector already computed this turn
         and avoid a redundant embedding call.
+
+        ``rows_fingerprint``/``response`` back the GH#57 answer-reuse fast path:
+        a later hit whose re-executed rows hash identically can return the stored
+        wording without an LLM call.
         """
         if not self._enabled:
             return
@@ -239,19 +263,23 @@ class SemanticCache:
                             """
                             UPDATE query_sql_pairs
                             SET sql = %s, embedding = %s::vector, user_query = %s,
-                                confidence = %s, created_at = now()
+                                confidence = %s, created_at = now(),
+                                rows_fingerprint = %s, response = %s
                             WHERE id = %s;
                             """,
-                            (sql, lit, user_query, confidence, row[0]),
+                            (sql, lit, user_query, confidence,
+                             rows_fingerprint, response, row[0]),
                         )
                     else:
                         cur.execute(
                             """
                             INSERT INTO query_sql_pairs
-                                (group_id, user_query, sql, embedding, confidence, status)
-                            VALUES (%s, %s, %s, %s::vector, %s, 'active');
+                                (group_id, user_query, sql, embedding, confidence,
+                                 status, rows_fingerprint, response)
+                            VALUES (%s, %s, %s, %s::vector, %s, 'active', %s, %s);
                             """,
-                            (group_id, user_query, sql, lit, confidence),
+                            (group_id, user_query, sql, lit, confidence,
+                             rows_fingerprint, response),
                         )
         except Exception as exc:
             logger.warning("SemanticCache.save_pair failed: %s", exc)
@@ -269,6 +297,10 @@ class SemanticCache:
         row_count: Optional[int],
         latency_ms: Optional[int],
         group_id: Optional[str] = None,
+        model: Optional[str] = None,
+        tokens_in: Optional[int] = None,
+        tokens_out: Optional[int] = None,
+        cost_usd: Optional[float] = None,
     ) -> None:
         """Append a row to the query_interactions audit log (best-effort)."""
         if not self._enabled:
@@ -281,11 +313,14 @@ class SemanticCache:
                         """
                         INSERT INTO query_interactions
                             (session_id, group_id, user_query, sql, response,
-                             intent, valid, row_count, latency_ms)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                             intent, valid, row_count, latency_ms,
+                             model, tokens_in, tokens_out, cost_usd)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s);
                         """,
                         (session_id, group_id, user_query, sql, response,
-                         intent, valid, row_count, latency_ms),
+                         intent, valid, row_count, latency_ms,
+                         model, tokens_in, tokens_out, cost_usd),
                     )
         except Exception as exc:
             logger.warning("SemanticCache.log_interaction failed: %s", exc)
@@ -396,7 +431,8 @@ class SemanticCache:
                 cur.execute(
                     f"""
                     SELECT user_query, sql, confidence,
-                           embedding <=> %s::vector AS distance
+                           embedding <=> %s::vector AS distance,
+                           rows_fingerprint, response
                     FROM query_sql_pairs
                     WHERE status = 'active' AND {group_clause}
                     ORDER BY distance ASC
@@ -412,7 +448,11 @@ class SemanticCache:
             conn.close()
 
         return [
-            {"user_query": r[0], "sql": r[1], "confidence": r[2], "distance": r[3]}
+            {"user_query": r[0], "sql": r[1], "confidence": r[2], "distance": r[3],
+             # GH#57 answer-reuse columns; tolerate short rows so tests and any
+             # pre-migration row still yield a usable pair.
+             "rows_fingerprint": r[4] if len(r) > 4 else None,
+             "response": r[5] if len(r) > 5 else None}
             for r in rows
         ]
 

@@ -13,6 +13,13 @@ llm:
     - gpt-4o-mini
     - gpt-4o
     - gpt-4.1-mini
+  # GH#57 cost accounting: USD per 1M tokens, merged over the built-in table in
+  # backend/agents/usage.py. A model absent here still has its tokens counted,
+  # it just contributes no dollar figure. Update when OpenAI changes prices.
+  # pricing:
+  #   gpt-4o-mini:
+  #     input: 0.15
+  #     output: 0.60
 
 db:
   dialect: postgres
@@ -64,6 +71,15 @@ sql:
   # linking+generation (cached SQL still re-validates). 0.03 ≈ near-exact text.
   cache_shortcut: true
   cache_hit_threshold: 0.03
+  # GH#57 cost routing. fast_path: a repeat question is resolved against the
+  # cache BEFORE the graph runs, so it also skips intent classification and
+  # follow-up condensation (anaphoric follow-ups always take the full path).
+  # answer_reuse: the cached SQL is still re-validated and re-executed, but if
+  # the fresh rows hash identical to the stored ones the stored answer is
+  # returned verbatim — zero LLM calls. Never serves stale data. Both false
+  # reproduces pre-GH#57 behavior exactly.
+  fast_path: true
+  answer_reuse: true
   # DAIL-SQL-style few-shot selection: blend structural-shape overlap
   # (aggregation type, GROUP BY, joins, superlative shape) with embedding
   # distance when picking few-shot examples, instead of pure embedding

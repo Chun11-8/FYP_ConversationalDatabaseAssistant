@@ -5,6 +5,7 @@ Coordinates: Intent Classification → RAG Schema Retrieval → SQL Generation �
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import threading
@@ -15,10 +16,12 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 from backend.agents.sql_code_agent import SQLCodeAgent
-from backend.agents.sql_validator_agent import SQLValidatorAgent
+from backend.agents.sql_validator_agent import SQLValidatorAgent, referenced_tables
 from backend.agents.schema_linking_agent import SchemaLinkingAgent
 from backend.agents.safety import enforce_limit
 from backend.agents.trace import trace, set_pipeline_trace
+from backend.agents.usage import invoke_tracked
+from backend.agents import usage as usage_tracking
 from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
@@ -40,6 +43,28 @@ _tls: threading.local = threading.local()
 # LLM call (GH#38): both are I/O-bound and independent.
 from concurrent.futures import ThreadPoolExecutor
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
+
+
+def rows_fingerprint(rows: List[Dict[str, Any]]) -> frozenset:
+    """Order-insensitive identity of a result set (execution voting groups by this)."""
+    return frozenset(
+        tuple("" if v is None else str(v) for v in r.values()) for r in rows
+    )
+
+
+def rows_digest(rows: Any) -> Optional[str]:
+    """
+    Same identity as ``rows_fingerprint`` but as a stable hex string, so it can be
+    stored alongside a cached answer and compared on a later run (GH#57).
+    None for anything that isn't a row list.
+    """
+    if not isinstance(rows, list):
+        return None
+    h = hashlib.sha256()
+    for row in sorted(rows_fingerprint(rows)):
+        h.update(repr(row).encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
 
 
 def _emit(event: str, payload: Any) -> None:
@@ -119,6 +144,12 @@ class AgentState(TypedDict):
     standalone_query: Optional[str]  # condensed follow-up (GH#40); None = use user_query
     previous_sql: Optional[str]      # last validated SQL for this session (GH#40)
     cache_hit: bool                  # answered via semantic-cache shortcut (GH#38)
+    cached_response: Optional[str]      # GH#57 answer reuse
+    cached_fingerprint: Optional[str]   # GH#57 answer reuse
+    rows_fingerprint: Optional[str]     # GH#57 hash of THIS turn's result rows
+    cache_rejected: bool                # cached SQL failed validation this turn
+    cache_probed: bool                  # run() already searched the cache
+    cache_pair: Optional[dict]          # what that search found (None = miss)
     vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
@@ -213,6 +244,13 @@ class OrchestrationAgent:
         self._clarify = bool(_sql.get("clarify_on_ambiguous", True))
         # GH#42: console banner tracing is config-gated (default on).
         set_pipeline_trace(config.get("logging", {}).get("pipeline_trace", True))
+        self._dialect = config.get("db", {}).get("dialect", "postgres")
+        # GH#57: repeat-query fast path + reuse of a stored answer when the
+        # re-executed rows are unchanged. Both false → pre-GH#57 behavior.
+        self._fast_path = bool(_sql.get("fast_path", True))
+        self._answer_reuse = bool(_sql.get("answer_reuse", True))
+        # GH#57: per-1M-token prices for cost accounting.
+        usage_tracking.set_pricing(config["llm"].get("pricing"))
         # Model routing: intent classification is a one-token decision — allow a
         # cheaper/faster model; same for the response formatter. Absent → the
         # main LLM object is REUSED (identical behavior, no extra client).
@@ -291,7 +329,8 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            result = self._get_intent_llm().invoke(messages).content.strip().upper()
+            result = invoke_tracked(self._get_intent_llm(), messages,
+                                    "classify_intent").content.strip().upper()
         except Exception as e:
             logger.warning(f"[INTENT] LLM call failed, defaulting to AMBIGUOUS: {e}")
             result = "AMBIGUOUS"
@@ -345,7 +384,8 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            standalone = self._get_intent_llm().invoke(messages).content.strip()
+            standalone = invoke_tracked(self._get_intent_llm(), messages,
+                                        "condense_query").content.strip()
         except Exception as exc:
             logger.warning(f"[CONDENSE] failed: {exc}")
             return state
@@ -367,7 +407,8 @@ class OrchestrationAgent:
         tables: List[str] = []
         try:
             r = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
-                         top_k_tables=3, store="pgvector")
+                         top_k_tables=3, store="pgvector",
+                         embedding=state.get("query_embedding"))
             tables = [t["table_name"] for t in r.get("tables", [])][:3]
         except Exception:
             pass
@@ -393,19 +434,40 @@ class OrchestrationAgent:
         trace("─" * 70)
 
         # Embed the query once and reuse it for both cache read (now) and cache
-        # write (after execution). run() prefetches this concurrently with the
-        # intent LLM call (GH#38) — consume the future when present.
+        # write (after execution). run() prefetches it concurrently with the
+        # intent LLM call (GH#38) and hands it over in state — but only the RAW
+        # query was embedded, so a condensed follow-up still needs its own.
+        if state.get("cache_rejected"):
+            # Re-entered after a stale cached SQL failed validation: drop the
+            # hit before anything downstream can route on it again.
+            state = {**state, "cache_hit": False, "best_sql": "",
+                     "cached_response": None, "cached_fingerprint": None}
+
         search_q = state.get("standalone_query") or state["user_query"]
-        future = getattr(_tls, "embed_future", None)
-        if future is not None and search_q == state["user_query"]:
-            _tls.embed_future = None
-            try:
-                query_embedding = future.result(timeout=10)
-            except Exception:
-                query_embedding = self.semantic_cache.embed(search_q)
-        else:
-            _tls.embed_future = None
+        query_embedding = state.get("query_embedding")
+        if query_embedding is None or search_q != state["user_query"]:
             query_embedding = self.semantic_cache.embed(search_q)
+
+        # GH#57: look for the cache hit BEFORE the RAG stage. Validation only
+        # needs the schema of the tables the cached SQL actually reads, and
+        # those can be fetched by name — no embedding search, no FK expansion,
+        # no value grounding, no few-shot query. If the by-name fetch comes back
+        # empty we fall through to full retrieval and re-apply the hit below,
+        # so a hit is never *lost*, only made cheaper when possible.
+        hit = self._probed_or_lookup(state, search_q, query_embedding)
+        if hit:
+            narrow_ctx = self._schema_for_sql(hit["sql"])
+            if narrow_ctx:
+                trace(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
+                      f"skipping retrieval, linking and generation")
+                logger.info(f"[CACHE] shortcut hit d={hit['distance']:.4f} (pre-RAG)")
+                return {**state, "schema_context": narrow_ctx,
+                        "few_shot_examples": [],
+                        "query_embedding": query_embedding,
+                        "best_sql": hit["sql"], "cache_hit": True,
+                        "cached_response": hit.get("response"),
+                        "cached_fingerprint": hit.get("rows_fingerprint")}
+
         few_shots = self._retrieve_few_shots(search_q, query_embedding)
 
         if few_shots:
@@ -417,7 +479,8 @@ class OrchestrationAgent:
 
         try:
             db_name = getattr(self, "_db_name", "FYP")
-            schema_chunks = retrieve(search_q, db_name, top_k_tables=5, store="pgvector")
+            schema_chunks = retrieve(search_q, db_name, top_k_tables=5,
+                                     store="pgvector", embedding=query_embedding)
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
             schema_chunks = expand_fk_tables(
                 schema_chunks, db_name,
@@ -462,18 +525,18 @@ class OrchestrationAgent:
             # Cache-hit shortcut (GH#38): a near-identical past question with a
             # validated SQL skips linking + generation entirely. The cached SQL
             # still re-validates against the CURRENT schema (drift-safe), and a
-            # validation failure falls back to normal generation.
-            if getattr(self, "_cache_shortcut", False) and query_embedding is not None:
-                hit = self.semantic_cache.best_match(query_embedding)
-                threshold = getattr(self, "_cache_hit_threshold", 0.03)
-                if hit and hit.get("distance") is not None and hit["distance"] <= threshold:
-                    trace(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
-                          f"skipping linking + generation")
-                    logger.info(f"[CACHE] shortcut hit d={hit['distance']:.4f}")
-                    return {**state, "schema_context": schema_context,
-                            "few_shot_examples": few_shots,
-                            "query_embedding": query_embedding,
-                            "best_sql": hit["sql"], "cache_hit": True}
+            # validation failure falls back to normal generation. Reached only
+            # when the cheap by-name schema fetch above came back empty.
+            if hit:
+                trace(f"  ⚡ Cache hit (distance={hit['distance']:.4f}) — "
+                      f"skipping linking + generation")
+                logger.info(f"[CACHE] shortcut hit d={hit['distance']:.4f}")
+                return {**state, "schema_context": schema_context,
+                        "few_shot_examples": few_shots,
+                        "query_embedding": query_embedding,
+                        "best_sql": hit["sql"], "cache_hit": True,
+                        "cached_response": hit.get("response"),
+                        "cached_fingerprint": hit.get("rows_fingerprint")}
 
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding}
@@ -482,6 +545,99 @@ class OrchestrationAgent:
             logger.warning(f"[RAG] retrieval failed: {e}")
             return {**state, "schema_context": "", "few_shot_examples": few_shots,
                     "query_embedding": query_embedding, "fallback_level": 1}
+
+    def _fast_path_state(self, hit: dict) -> Optional[Dict[str, Any]]:
+        """
+        Turn a pre-graph cache hit into seed state that enters at validate_sql,
+        skipping intent classification and follow-up condensation on top of the
+        linking and generation the in-graph cache shortcut already skipped
+        (GH#57).
+
+        Skipping classification is safe because pairs are only ever stored for
+        successful, validated READ turns (see _update_cache) — a near-exact
+        match to one cannot be a write attempt or a general-knowledge question.
+        (run() does not even look the pair up for an anaphoric follow-up:
+        "what about last year?" means nothing until condensed against history.)
+
+        None when the cheap by-name schema fetch can't cover the cached SQL —
+        the graph then runs normally and re-applies the hit after full retrieval.
+        """
+        schema_context = self._schema_for_sql(hit["sql"])
+        if not schema_context:
+            # Can't validate cheaply — let the graph run and re-apply the hit
+            # after full retrieval (retrieve_schema reuses this embedding).
+            return None
+        trace(f"  ⚡ Fast path (distance={hit['distance']:.4f}) — "
+              f"skipping intent classification and generation")
+        logger.info(f"[CACHE] fast path d={hit['distance']:.4f}")
+        return {
+            "best_sql": hit["sql"],
+            "schema_context": schema_context,
+            "cached_response": hit.get("response"),
+            "cached_fingerprint": hit.get("rows_fingerprint"),
+        }
+
+    @staticmethod
+    def _consume_prefetched_embedding() -> Optional[List[float]]:
+        """Take the run()-prefetched embedding, leaving nothing for a later reader."""
+        future = getattr(_tls, "embed_future", None)
+        _tls.embed_future = None
+        if future is None:
+            return None
+        try:
+            return future.result(timeout=10)
+        except Exception:
+            return None
+
+    def _probed_or_lookup(self, state: AgentState, search_q: str,
+                          embedding: Optional[List[float]]) -> Optional[dict]:
+        """
+        The cached pair for this turn, without paying for a second vector search.
+        run() already looked one up for the raw question; that answer is reused
+        unless the query has since been condensed (different text, different
+        vector) or the cached SQL just failed validation.
+        """
+        if state.get("cache_rejected"):
+            return None
+        if state.get("cache_probed") and search_q == state["user_query"]:
+            return state.get("cache_pair")
+        return self._cache_lookup(embedding)
+
+    def _cache_lookup(self, embedding: Optional[List[float]]) -> Optional[dict]:
+        """
+        The cached pair for this query, or None when the shortcut is disabled,
+        the cache is empty, or nothing is close enough. Never raises.
+        """
+        if not getattr(self, "_cache_shortcut", False) or embedding is None:
+            return None
+        try:
+            hit = self.semantic_cache.best_match(embedding)
+        except Exception as exc:
+            logger.warning(f"[CACHE] lookup failed: {exc}")
+            return None
+        if not isinstance(hit, dict) or not isinstance(hit.get("sql"), str):
+            return None
+        distance = hit.get("distance")
+        if not isinstance(distance, (int, float)):
+            return None
+        threshold = getattr(self, "_cache_hit_threshold", 0.03)
+        return hit if distance <= threshold else None
+
+    def _schema_for_sql(self, sql: str) -> str:
+        """
+        Schema context covering just the tables ``sql`` reads, fetched by name.
+        "" when the SQL can't be parsed or the tables aren't indexed — the
+        caller then falls back to full retrieval.
+        """
+        tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
+        if not tables:
+            return ""
+        chunks = fetch_table_chunks(tables, getattr(self, "_db_name", "FYP"))
+        # A partial fetch would hand strict-semantic validation an incomplete
+        # schema and fail a perfectly good cached query — take all or nothing.
+        if len(chunks) < len(tables):
+            return ""
+        return "\n\n".join(c["content"] for c in chunks)
 
     def _retrieve_few_shots(
         self, user_query: str, embedding: Optional[List[float]] = None
@@ -688,10 +844,7 @@ class OrchestrationAgent:
                 rows = execute_query(run_sql, timeout_ms=timeout_ms)
                 if not isinstance(rows, list):
                     continue
-                fp = frozenset(
-                    tuple("" if v is None else str(v) for v in r.values())
-                    for r in rows
-                )
+                fp = rows_fingerprint(rows)
                 executed += 1
                 groups.setdefault(fp, []).append(sql)
                 if fp not in group_rows:
@@ -790,7 +943,7 @@ class OrchestrationAgent:
             HumanMessage(content=f"Question: {query}\n\n{blocks}"),
         ]
         try:
-            out = self._get_llm().invoke(messages).content
+            out = invoke_tracked(self._get_llm(), messages, "unit_test_screen").content
             m = re.search(r"PASS:\s*([\d,\s]+)", out)
             if not m:
                 return fps
@@ -832,7 +985,8 @@ class OrchestrationAgent:
                             + self._describe_group(2, b, groups, group_rows)
                         )),
                     ]
-                    out = self._get_llm().invoke(messages).content.strip()
+                    out = invoke_tracked(self._get_llm(), messages,
+                                         "pairwise_select").content.strip()
                     m = re.search(r"[12]", out)
                     if m:
                         wins[a if m.group() == "1" else b] += 1
@@ -857,6 +1011,11 @@ class OrchestrationAgent:
         if result.get("error"):
             trace(f"    error       : {result['error']}")
         logger.info(f"[VALIDATE] {result}")
+        if state.get("cache_hit") and not result.get("valid"):
+            # Stale cached SQL: the turn now needs the FULL schema context that
+            # the cheap by-name fetch deliberately skipped, so it unwinds to
+            # retrieve_schema — which must not hand back the same bad pair.
+            return {**state, "validation": result, "cache_rejected": True}
         return {**state, "validation": result}
 
     def execute_sql(self, state: AgentState) -> AgentState:
@@ -991,7 +1150,7 @@ class OrchestrationAgent:
             HumanMessage(content=user_content),
         ]
         try:
-            answer = self._get_llm().invoke(messages).content
+            answer = invoke_tracked(self._get_llm(), messages, "handle_general").content
         except Exception as e:
             logger.warning(f"[GENERAL] LLM synthesis failed: {e}")
             answer = "I'm temporarily unable to answer. Please try again in a moment."
@@ -1028,9 +1187,17 @@ class OrchestrationAgent:
         trace("\n" + "─" * 70)
         trace("📝  NODE: format_response")
         trace("─" * 70)
+        rows_hash = rows_digest(state.get("execution_result"))
         if state.get("error"):
             response = f"I encountered an error executing the query: {state['error']}"
             csv_path = None
+        elif self._can_reuse_answer(state, rows_hash):
+            # GH#57: the cached SQL was re-validated and re-executed above and
+            # returned exactly the same rows, so the stored wording still holds
+            # — the whole turn costs zero LLM calls.
+            trace("  ♻️  Rows unchanged since the cached answer — reusing it")
+            logger.info("[CACHE] answer reused (rows unchanged)")
+            response, csv_path = state["cached_response"], None
         else:
             response, csv_path = self._get_optimizer().format(
                 query=state["user_query"],
@@ -1050,7 +1217,17 @@ class OrchestrationAgent:
             response=response,
             valid=bool(sql_valid),
         )
-        return {**state, "response": response, "csv_path": csv_path, "turn_id": turn_id}
+        return {**state, "response": response, "csv_path": csv_path,
+                "turn_id": turn_id, "rows_fingerprint": rows_hash}
+
+    def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:
+        """A stored answer is reusable only if THESE rows are byte-identical to it."""
+        return bool(
+            getattr(self, "_answer_reuse", True)
+            and state.get("cached_response")
+            and rows_hash
+            and state.get("cached_fingerprint") == rows_hash
+        )
 
     def fallback_handler(self, state: AgentState) -> AgentState:
         """Tiered fallback: broader schema search → ask for clarification."""
@@ -1063,8 +1240,11 @@ class OrchestrationAgent:
 
         if level == 1:
             # Broaden schema scan
-            schema_chunks = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
-                                     top_k_tables=10, store="pgvector")
+            # Same search text retrieval used, so the reused vector matches it.
+            search_q = state.get("standalone_query") or state["user_query"]
+            schema_chunks = retrieve(search_q, getattr(self, "_db_name", "FYP"),
+                                     top_k_tables=10, store="pgvector",
+                                     embedding=state.get("query_embedding"))
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
@@ -1111,7 +1291,7 @@ class OrchestrationAgent:
         if v.get("valid"):
             return "execute_sql"
         if state.get("cache_hit"):
-            return "link_schema"      # stale cached SQL → normal generation
+            return "retrieve_schema"  # stale cached SQL → full retrieval, then generation
         if state.get("fallback_level", 0) < 2:
             return "fallback_handler"
         return "format_response"  # give up gracefully
@@ -1140,6 +1320,11 @@ class OrchestrationAgent:
             return "refine_sql"
         return "format_response"
 
+    def route_entry(self, state: AgentState) -> str:
+        """Enter at validation when run() already resolved the SQL from cache."""
+        return "validate_sql" if state.get("cache_hit") and state.get("best_sql") \
+            else "classify_intent"
+
     # ── Graph Builder ───────────────────────────
 
     def _build_graph(self) -> Any:
@@ -1159,7 +1344,13 @@ class OrchestrationAgent:
         g.add_node("handle_write_blocked", _staged("handle_write_blocked", self.handle_write_blocked))
         g.add_node("fallback_handler", _staged("fallback_handler", self.fallback_handler))
 
-        g.set_entry_point("classify_intent")
+        # GH#57: run() pre-resolves a repeat question against the semantic cache
+        # and marks the state; that skips intent classification and condensation
+        # on top of the linking/generation the cache shortcut already skipped.
+        g.set_conditional_entry_point(self.route_entry, {
+            "classify_intent": "classify_intent",
+            "validate_sql": "validate_sql",
+        })
 
         g.add_conditional_edges("classify_intent", self.route_by_intent, {
             "retrieve_schema": "condense_query",   # READ path condenses follow-ups first
@@ -1185,7 +1376,7 @@ class OrchestrationAgent:
             "execute_sql": "execute_sql",
             "fallback_handler": "fallback_handler",
             "format_response": "format_response",
-            "link_schema": "link_schema",   # stale cache hit → regenerate
+            "retrieve_schema": "retrieve_schema",   # stale cache hit → regenerate
         })
 
         # ReAct: after execution, refine once on error/empty result, else format.
@@ -1287,17 +1478,25 @@ class OrchestrationAgent:
             previous_sql = self.memory.get_last_sql(session_id)
         except Exception:
             previous_sql = None
+
+        # Consumed here (not in retrieve_schema) so the fast-path probe can use
+        # it; the value rides into the graph via state so nothing re-embeds.
+        query_embedding = self._consume_prefetched_embedding()
+        cache_probed = bool(getattr(self, "_fast_path", True)) and \
+            not self._looks_anaphoric(user_query, history)
+        cache_pair = self._cache_lookup(query_embedding) if cache_probed else None
+        fast = self._fast_path_state(cache_pair) if cache_pair else None
         initial_state: AgentState = {
             "session_id": session_id,
             "user_query": user_query,
             "conversation_history": history,
-            "intent": "",
-            "schema_context": "",
+            "intent": "READ" if fast else "",
+            "schema_context": fast["schema_context"] if fast else "",
             "query_plan": None,
             "few_shot_examples": [],
-            "query_embedding": None,
+            "query_embedding": query_embedding,
             "generated_sqls": [],
-            "best_sql": "",
+            "best_sql": fast["best_sql"] if fast else "",
             "validation": {},
             "execution_result": None,
             "response": "",
@@ -1305,7 +1504,13 @@ class OrchestrationAgent:
             "csv_path": None,
             "standalone_query": None,
             "previous_sql": previous_sql,
-            "cache_hit": False,
+            "cache_hit": bool(fast),
+            "cached_response": fast["cached_response"] if fast else None,
+            "cached_fingerprint": fast["cached_fingerprint"] if fast else None,
+            "rows_fingerprint": None,
+            "cache_rejected": False,
+            "cache_probed": cache_probed,
+            "cache_pair": cache_pair,
             "vote_rows": None,
             "vote_rows_sql": None,
             "fallback_level": 0,
@@ -1315,6 +1520,7 @@ class OrchestrationAgent:
             "error": None,
         }
         _tls.stage_cb = stage_callback
+        tracker = usage_tracking.start_request()
         t0 = time.perf_counter()
         try:
             final = self.graph.invoke(initial_state)
@@ -1354,10 +1560,12 @@ class OrchestrationAgent:
             "cache_hit":  bool(final.get("cache_hit")),
             "latency_ms": latency_ms,
             "timings":    final.get("timings") or {},
+            "usage":      tracker.as_dict(),
         }
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).
-        self._update_cache(session_id, user_query, final, row_count, latency_ms)
+        self._update_cache(session_id, user_query, final, row_count, latency_ms,
+                           usage=result["usage"])
         return result
 
     def _update_cache(
@@ -1367,16 +1575,22 @@ class OrchestrationAgent:
         final: Dict[str, Any],
         row_count: Optional[int],
         latency_ms: int,
+        usage: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Persist a successful query→SQL pair and log the interaction."""
         validation = final.get("validation", {})
         best_sql = final.get("best_sql")
+        fingerprint = final.get("rows_fingerprint")
         success = (
             validation.get("valid")
             and not final.get("error")
             and bool(best_sql)
             and isinstance(final.get("execution_result"), list)
-            and not final.get("cache_hit")   # a reused pair is already stored
+            # A reused pair is already stored — rewrite it only when the rows
+            # (and therefore the answer) have moved on, so the next hit can
+            # reuse the fresh wording instead of re-formatting forever.
+            and (not final.get("cache_hit")
+                 or fingerprint != final.get("cached_fingerprint"))
         )
         try:
             if success:
@@ -1384,6 +1598,8 @@ class OrchestrationAgent:
                     user_query=user_query,
                     sql=best_sql,
                     embedding=final.get("query_embedding"),
+                    rows_fingerprint=fingerprint,
+                    response=final.get("response") or None,
                 )
             self.semantic_cache.log_interaction(
                 session_id=session_id,
@@ -1394,6 +1610,10 @@ class OrchestrationAgent:
                 valid=validation.get("valid"),
                 row_count=row_count,
                 latency_ms=latency_ms,
+                model=getattr(self, "_model", None),
+                tokens_in=(usage or {}).get("input_tokens"),
+                tokens_out=(usage or {}).get("output_tokens"),
+                cost_usd=(usage or {}).get("est_cost_usd"),
             )
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"[CACHE] update failed: {e}")
@@ -1432,10 +1652,10 @@ class OrchestrationAgent:
         if prior_summary:
             prompt += f"Existing summary:\n{prior_summary}\n\n"
         prompt += f"New turns to fold in:\n{evicted_text}\n\nUpdated summary:"
-        return self.llm.invoke([
+        return invoke_tracked(self.llm, [
             SystemMessage(content="You faithfully compress conversation history."),
             HumanMessage(content=prompt),
-        ]).content.strip()
+        ], "summarize_history").content.strip()
 
     def _intent_system_prompt(self) -> str:
         return (

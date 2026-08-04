@@ -429,6 +429,34 @@ body, html, #root {
 .badge-blocked   { background: rgba(239,68,68,0.12);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.25); }
 .badge-ambiguous { background: rgba(234,179,8,0.12);  color: #fde68a; border: 1px solid rgba(234,179,8,0.25); }
 
+/* ── Meta Chips (cache hit, token/cost usage — GH#57) ────────────────────── */
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  cursor: default;
+}
+
+.meta-chip--cache {
+  background: rgba(234,179,8,0.12);
+  color: #fde68a;
+  border-color: rgba(234,179,8,0.25);
+}
+
+.meta-chip--free {
+  background: rgba(16,163,127,0.15);
+  color: #34d399;
+  border-color: rgba(16,163,127,0.3);
+  font-weight: 600;
+}
+
 /* ── Row Count Chip ──────────────────────────────────────────────────────── */
 .row-count-chip {
   display: inline-flex;

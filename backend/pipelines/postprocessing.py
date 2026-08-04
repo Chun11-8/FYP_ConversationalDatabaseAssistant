@@ -24,6 +24,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from backend.agents.safety import scan_output
+from backend.agents.usage import invoke_tracked
 
 logger = logging.getLogger(__name__)
 
@@ -118,14 +119,14 @@ class ResponseOptimizer:
 
         logger.info(f"[OPTIMIZER] GENERAL answer {len(text)} chars > {max_chars}; summarizing.")
         try:
-            summary = self.llm.invoke([
+            summary = invoke_tracked(self.llm, [
                 SystemMessage(content=(
                     "You are a concise technical writer. "
                     "Summarize the following answer to at most 400 words "
                     "while keeping all key facts, sources, and code examples."
                 )),
                 HumanMessage(content=text),
-            ]).content
+            ], "truncate_general").content
             return summary
         except Exception as exc:
             logger.warning(f"[OPTIMIZER] summarization failed: {exc}; hard-truncating.")
@@ -144,7 +145,7 @@ class ResponseOptimizer:
         """≤10 rows: ask LLM to summarise in natural language."""
         rows_text = "\n".join(str(r) for r in rows)
 
-        raw = self.llm.invoke([
+        raw = invoke_tracked(self.llm, [
             SystemMessage(content = self.RESPONSE_PROMPT),
             HumanMessage(content=(
                 f"User asked: {query}\n\n"
@@ -152,13 +153,13 @@ class ResponseOptimizer:
                 f"Write the Answer section ONLY. "
                 f"Do NOT include SQL Used or Record Count — those will be added separately."
             )),
-        ]).content
+        ], "format_response").content
 
         return raw.strip()
 
     def _format_table(self, query: str, sql: str, rows: list, count: int) -> str:
         """11–500 rows: LLM summary only — the frontend RecordsPanel renders the table."""
-        summary = self.llm.invoke([
+        summary = invoke_tracked(self.llm, [
             SystemMessage(content=self.RESPONSE_PROMPT),
             HumanMessage(content=(
                 f"User asked: {query}\n"
@@ -167,7 +168,7 @@ class ResponseOptimizer:
                 f"Write the Answer section ONLY. "
                 f"Do NOT include SQL Used or Record Count — those will be added separately."
             )),
-        ]).content
+        ], "format_response").content
 
         return summary.strip()
         

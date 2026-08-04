@@ -62,6 +62,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import sqlglot
 
+from backend.agents import usage as usage_tracking
 from backend.eval.error_analysis import categorize, summarize
 
 logger = logging.getLogger(__name__)
@@ -343,6 +344,10 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         if winnable else 0.0
     )
 
+    usages = [r.get("usage") or {} for r in results]
+    total_cost = sum(float(u.get("est_cost_usd") or 0.0) for u in usages)
+    total_calls = sum(int(u.get("calls") or 0) for u in usages)
+
     return {
         "total": n,
         "EX":  round(ex_score, 2),
@@ -351,6 +356,12 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         "gold_errors": gold_errors,
         "EX_winnable": ex_winnable,
         "error_categories": summarize(results),
+        "llm_calls": total_calls,
+        "llm_calls_per_question": round(total_calls / n, 2),
+        "tokens_in": sum(int(u.get("input_tokens") or 0) for u in usages),
+        "tokens_out": sum(int(u.get("output_tokens") or 0) for u in usages),
+        "cost_usd": round(total_cost, 4),
+        "cost_usd_per_question": round(total_cost / n, 6),
         "by_difficulty": by_difficulty,
     }
 
@@ -561,6 +572,8 @@ def run_bird_eval(
         # Schema-linking & question-understanding (Issue #17): produce a
         # structured plan first so generation follows resolved tables/joins.
         query_plan = None
+        # GH#57: account this question's LLM tokens/cost separately.
+        q_usage = usage_tracking.start_request()
         if linker is not None:
             try:
                 query_plan = linker.analyze(full_query, schema_context)
@@ -713,6 +726,7 @@ def run_bird_eval(
             "refined":        refined,
             "gold_transpiled": gold_transpiled,
             "query_plan":     query_plan,
+            "usage":          q_usage.as_dict(),
             "error_category": categorize(
                 ex, gold_error, pred_sql, bool(validation.get("valid")),
                 pred_error, pred_rows, gold_rows,
@@ -831,6 +845,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
 
     model_name = resolve_model(args.model, config)
+    usage_tracking.set_pricing(config["llm"].get("pricing"))
     llm = ChatOpenAI(
         model=model_name,
         temperature=0,

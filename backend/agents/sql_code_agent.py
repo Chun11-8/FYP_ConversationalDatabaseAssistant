@@ -10,6 +10,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from backend.agents.trace import trace
+from backend.agents.usage import invoke_tracked
+from backend.agents import usage as usage_tracking
 from backend.agents.utils import PromptHarness
 from backend.agents.schema_linking_agent import render_query_plan
 
@@ -579,10 +581,14 @@ class SQLCodeAgent:
             trace(f"  │ {line}")
         trace("  └───────────────────────────────────────────────────────────")
 
+        # Captured so the pool workers below attribute their tokens to the
+        # request that spawned them (thread-locals don't cross into workers).
+        tracker = usage_tracking.current()
+
         def _invoke(p: str) -> str:
-            return self.llm.invoke([
+            return invoke_tracked(self.llm, [
                 SystemMessage(content=system_p), HumanMessage(content=p),
-            ]).content
+            ], "generate_sql", tracker=tracker).content
 
         if diverse:
             path_prompts = {
@@ -1060,7 +1066,7 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             SystemMessage(content=self._system_prompt()),
             HumanMessage(content=prompt),
         ]
-        raw = self.llm.invoke(messages).content
+        raw = invoke_tracked(self.llm, messages, "refine_sql").content
         sqls = [
             self.normalize_dialect(
                 reconcile_identifiers(self._repair_literals(s), schema_context)
@@ -1115,7 +1121,7 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
         ]
 
         try:
-            raw_choice = self.llm.invoke(messages).content.strip()
+            raw_choice = invoke_tracked(self.llm, messages, "rerank").content.strip()
             trace(f"\n  ┌─ RERANKER OUTPUT ──────────────────────────────────────────")
             trace(f"  │ {raw_choice}")
             trace(f"  └────────────────────────────────────────────────────────────")
