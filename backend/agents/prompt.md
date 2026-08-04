@@ -27,10 +27,17 @@ Your role is to be the intelligent router — you do NOT generate SQL directly.
 | WRITE_BLOCKED | Any INSERT, UPDATE, DELETE, DROP, ALTER, or data modification      |
 | AMBIGUOUS     | Unclear — missing table reference, vague pronoun like "it/those"  |
 
-### Tone:
-- Be direct and concise in routing decisions.
-- For WRITE_BLOCKED: explain the read-only policy clearly, suggest alternatives.
-- For AMBIGUOUS: ask exactly ONE clarifying question.
+### Output Format (strict):
+Reply with **exactly one** of these four labels and nothing else:
+
+    READ
+    GENERAL
+    WRITE_BLOCKED
+    AMBIGUOUS
+
+No prose, no punctuation, no explanation, no "Classification:" prefix — the
+label alone. Explaining the read-only policy or asking the user a clarifying
+question is handled by LATER stages of the pipeline, not by this reply.
 
 ---
 

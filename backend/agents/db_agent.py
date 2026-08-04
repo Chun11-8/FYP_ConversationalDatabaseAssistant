@@ -45,6 +45,32 @@ from concurrent.futures import ThreadPoolExecutor
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
 
 
+# Canonical intents, most-restrictive first: a reply that names more than one
+# resolves to the safest reading.
+_INTENTS = ("WRITE_BLOCKED", "AMBIGUOUS", "GENERAL", "READ")
+
+
+def _normalize_intent(raw: str) -> str:
+    """
+    Reduce the classifier's reply to exactly one canonical intent.
+
+    The model is asked for a bare label, but a chatty reply ("Classification:
+    READ — the user wants to retrieve…") must not become the intent: every
+    router compares by equality, so an unnormalized string silently falls
+    through to the READ path, and the UI renders it as a badge.
+
+    Unrecognized text → AMBIGUOUS, matching the prompt's own safety-first rule
+    (better to ask than to guess).
+    """
+    text = (raw or "").upper()
+    for intent in _INTENTS:
+        # Tolerate "WRITE BLOCKED" / "WRITE-BLOCKED" alongside the underscored form.
+        pattern = intent.replace("_", r"[\s_-]")
+        if re.search(rf"\b{pattern}\b", text):
+            return intent
+    return "AMBIGUOUS"
+
+
 def rows_fingerprint(rows: List[Dict[str, Any]]) -> frozenset:
     """Order-insensitive identity of a result set (execution voting groups by this)."""
     return frozenset(
@@ -329,8 +355,11 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            result = invoke_tracked(self._get_intent_llm(), messages,
-                                    "classify_intent").content.strip().upper()
+            raw = invoke_tracked(self._get_intent_llm(), messages,
+                                 "classify_intent").content
+            result = _normalize_intent(raw)
+            if result != raw.strip().upper():
+                logger.info(f"[INTENT] normalized {raw.strip()[:80]!r} → {result}")
         except Exception as e:
             logger.warning(f"[INTENT] LLM call failed, defaulting to AMBIGUOUS: {e}")
             result = "AMBIGUOUS"

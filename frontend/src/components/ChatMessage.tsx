@@ -86,8 +86,19 @@ function IntentBadge({ intent }: { intent: string }) {
     WRITE_BLOCKED: { label: 'WRITE BLOCKED', cls: 'badge-blocked' },
     AMBIGUOUS:     { label: 'AMBIGUOUS',     cls: 'badge-ambiguous' },
   };
-  const entry = map[intent.toUpperCase()] ?? { label: intent, cls: 'badge-general' };
-  return <span className={`intent-badge ${entry.cls}`}>{entry.label}</span>;
+  // The backend normalizes intent to one of the four labels, but never render an
+  // arbitrary-length API string: an unnormalized one used to blow up into a
+  // full-width all-caps banner. Truncate anything unexpected.
+  const known = map[intent.toUpperCase()];
+  // Show a truncated fragment of an unexpected value, never the whole string —
+  // an unnormalized one used to render as a full-width all-caps banner. The
+  // untruncated text stays available on hover.
+  const entry = known ?? { label: 'UNKNOWN', cls: 'badge-general' };
+  return (
+    <span className={`intent-badge ${entry.cls}`} title={known ? entry.label : intent}>
+      {entry.label}
+    </span>
+  );
 }
 
 /** "Cached" chip — this turn reused a past validated query instead of generating. */
@@ -261,7 +272,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, onFeedback })
   return (
     <div className="message-wrapper message-user">
       <div className="message-inner">
-        <div className="message-content w-full">
+        {/* No w-full here: the bubble must shrink to its content so it sits
+            beside its avatar instead of stretching the whole column. */}
+        <div className="message-content">
           {/* Timestamp for user messages */}
           <div className="msg-meta msg-meta--right">
             <span className="msg-time">{formatTime(message.timestamp)}</span>
