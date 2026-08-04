@@ -197,7 +197,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
 │   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
-│   ├── tests/                          # 725 unit/integration tests (offline)
+│   ├── tests/                          # 755 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -656,7 +656,7 @@ The React frontend provides a dark-minimal chat interface:
 | **Typing indicator** | Animated dots while the backend is processing |
 | **Error banner** | Dismissible error display for network or server errors |
 | **New chat** | Starts a fresh session from the sidebar button |
-| **Responsive layout** | Collapsible sidebar on mobile screens |
+| **Responsive layout** | Collapsible sidebar on mobile; the chat column widens with the screen (48rem → 60rem ≥1600px → 72rem ≥2000px) and the input bar stays aligned with it |
 | **Live streaming stages** | Pipeline stage labels update in real time over SSE (falls back to `/chat`) |
 | **Records panel** | First 10 result rows inline, the rest behind a toggle |
 | **Cache chip** | Marks a turn answered from the semantic cache rather than regenerated |
@@ -766,7 +766,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~725 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | ~755 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |

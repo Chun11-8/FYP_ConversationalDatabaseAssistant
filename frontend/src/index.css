@@ -5,9 +5,9 @@
   --bg-hover:        #3a3a3a;
   --bg-user-bubble:  #2f2f2f;
 
-  --text-primary:    #ececec;
-  --text-secondary:  #8e8ea0;
-  --text-muted:      #6b6b7e;
+  --text-primary:    #f2f2f2;
+  --text-secondary:  #b4b4c4;   /* 6.6:1 on --bg-surface (was 4.2:1) */
+  --text-muted:      #9a9aac;   /* 4.8:1 on --bg-surface (was 2.6:1) */
 
   --border-subtle:   rgba(255,255,255,0.07);
   --border-light:    rgba(255,255,255,0.12);
@@ -357,24 +357,27 @@ body, html, #root {
   gap: 1rem;
 }
 
-/* User message */
-.message-user { justify-content: flex-end; }
+/* User message.
+   The WRAPPER must keep .message-wrapper's `justify-content: center` — pushing
+   it to flex-end shifted the user's column right of the bot column and the
+   input box. Only the INNER right-aligns, so the bubble+avatar hug the right
+   edge of a column that still lines up with everything else. */
 .message-user .message-inner { justify-content: flex-end; }
 
 .message-user .message-content {
   background-color: var(--bg-user-bubble);
   padding: 0.625rem 1.125rem;
   border-radius: var(--radius-lg);
-  max-width: 78%;
-  font-size: 0.9375rem;
-  line-height: 1.6;
+  max-width: min(46rem, 78%);
+  font-size: 1rem;
+  line-height: 1.65;
 }
 
 /* Bot message */
 .message-bot .message-content {
   min-width: 0;
-  font-size: 0.9375rem;
-  line-height: 1.7;
+  font-size: 1rem;
+  line-height: 1.75;
   padding-top: 0.125rem;
 }
 
@@ -422,6 +425,11 @@ body, html, #root {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  max-width: 14rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .badge-read      { background: rgba(16,163,127,0.15); color: #34d399; border: 1px solid rgba(16,163,127,0.3); }
@@ -1295,9 +1303,16 @@ body, html, #root {
   .top-bar-title { font-size: 0.875rem; }
 }
 
+/* Wide screens: grow the column AND the type. The previous `body { font-size }`
+   bump here was inert — rem resolves against <html>, not <body> — so the root
+   is scaled instead, which carries the column width and every rem size with it. */
 @media (min-width: 1600px) {
-  :root { --chat-max-width: 54rem; }
-  body { font-size: 17px; }
+  :root { --chat-max-width: 60rem; }
+}
+
+@media (min-width: 2000px) {
+  :root { --chat-max-width: 72rem; }
+  html { font-size: 17px; }
 }
 
 /* ── Index Sync panel (Issue #7) ─────────────────────────────────────────── */
