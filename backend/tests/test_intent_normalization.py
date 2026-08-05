@@ -40,13 +40,47 @@ class TestNormalizeIntent:
     def test_spacing_variants_of_write_blocked(self, raw):
         assert _normalize_intent(raw) == "WRITE_BLOCKED"
 
+    def test_reasoning_style_reply_takes_the_final_line_as_the_verdict(self):
+        raw = ("The user is asking to retrieve data about vice president funds.\n"
+               "This requires checking the schema for a matching table.\n\n"
+               "READ")
+        assert _normalize_intent(raw) == "READ"
+
+    def test_final_line_verdict_ignores_trailing_punctuation(self):
+        raw = "Some reasoning about the request.\n\nREAD."
+        assert _normalize_intent(raw) == "READ"
+
+    def test_exact_match_short_circuits_before_any_scan(self):
+        # A compliant reply never needs the fallback scan at all.
+        assert _normalize_intent("GENERAL") == "GENERAL"
+
+    @pytest.mark.parametrize("raw", [None, "", "   "])
+    def test_none_and_empty_do_not_crash_the_fast_paths(self, raw):
+        assert _normalize_intent(raw) == "AMBIGUOUS"
+
     def test_most_restrictive_label_wins(self):
         """A reply naming several labels must resolve to the safest reading."""
         raw = "The user wants to remove rows, so WRITE_BLOCKED, not READ."
         assert _normalize_intent(raw) == "WRITE_BLOCKED"
 
-    def test_ambiguous_beats_general_and_read(self):
-        assert _normalize_intent("This is AMBIGUOUS or possibly READ") == "AMBIGUOUS"
+    def test_actionable_label_beats_an_incidental_ambiguous_mention(self):
+        # A verbose/reasoning-style reply that hedges before concluding must
+        # not be derailed by the word "ambiguous" appearing along the way —
+        # this was the root cause of a real bug: a non-gpt-4o-mini model kept
+        # getting classified AMBIGUOUS on every turn because its raw reply
+        # discussed the possibility of ambiguity before landing on READ.
+        raw = ("This could be somewhat ambiguous without more context, but "
+               "since it's asking to retrieve a value, I'll classify this as READ.")
+        assert _normalize_intent(raw) == "READ"
+
+    def test_write_blocked_still_wins_over_an_incidental_read_mention(self):
+        # Safety-critical: WRITE_BLOCKED must still be checked first, even
+        # though READ now outranks AMBIGUOUS.
+        raw = "The user wants to remove rows (not just read them), so WRITE_BLOCKED."
+        assert _normalize_intent(raw) == "WRITE_BLOCKED"
+
+    def test_bare_ambiguous_with_no_actionable_label_stays_ambiguous(self):
+        assert _normalize_intent("This is AMBIGUOUS, no clear target table.") == "AMBIGUOUS"
 
     @pytest.mark.parametrize("raw", ["", "   ", "hello there", "42", None])
     def test_unrecognized_falls_back_to_ambiguous(self, raw):
@@ -92,6 +126,83 @@ class TestClassifyIntentNode:
         a = self._agent("READ")
         a._get_intent_llm.return_value.invoke.side_effect = RuntimeError("boom")
         assert a.classify_intent(self._state())["intent"] == "AMBIGUOUS"
+
+    def test_llm_failure_sets_a_real_error_not_just_ambiguous(self):
+        """A call failure (bad model, auth, network) must be distinguishable
+        from a genuinely unclear question — not silently masked as one."""
+        a = self._agent("READ")
+        a._get_intent_llm.return_value.invoke.side_effect = RuntimeError(
+            "model_not_found: gpt-5o-mini")
+        out = a.classify_intent(self._state())
+        assert out["intent"] == "AMBIGUOUS"
+        assert out["error"] is not None
+        assert "gpt-5o-mini" in out["error"]
+
+    def test_successful_unmatched_reply_sets_no_error(self):
+        """A reply that came back but didn't parse to a label is a genuine
+        AMBIGUOUS result, not a failure — must not carry an error."""
+        a = self._agent("I'm not sure what you mean.")
+        out = a.classify_intent(self._state())
+        assert out["intent"] == "AMBIGUOUS"
+        assert out["error"] is None
+
+    def test_dml_keyword_override_clears_a_pending_error(self):
+        a = self._agent("READ")
+        a._get_intent_llm.return_value.invoke.side_effect = RuntimeError("boom")
+        out = a.classify_intent(self._state("DELETE FROM players"))
+        assert out["intent"] == "WRITE_BLOCKED"
+        assert out["error"] is None
+
+    def test_short_reply_to_own_clarification_short_circuits_to_read(self):
+        """The reported bug: a one-word answer to our own clarifying question
+        must not go back through the LLM (and risk AMBIGUOUS again) — it
+        should be forced to READ so condense_query can merge it with history."""
+        a = self._agent("this should never be called")
+        history = [
+            {"role": "user", "content": "What is the amount of the funds "
+                                         "that the Vice President received?"},
+            {"role": "assistant", "content": "I want to make sure I query the "
+                                              "right data — your question is a "
+                                              "little ambiguous. Could you name "
+                                              "the table, entity, or metric you "
+                                              "mean? Are you asking about data "
+                                              "in schools, satscores, frpm?"},
+        ]
+        state = {"user_query": "frpm", "conversation_history": history, "session_id": "s"}
+        out = a.classify_intent(state)
+        assert out["intent"] == "READ"
+        assert out["error"] is None
+        a._get_intent_llm.return_value.invoke.assert_not_called()
+
+    def test_long_reply_to_own_clarification_still_goes_through_the_llm(self):
+        """Only SHORT replies are treated as continuing the clarification —
+        a full new question after one should be classified normally."""
+        a = self._agent("READ")
+        history = [
+            {"role": "user", "content": "vague question"},
+            {"role": "assistant", "content": "I want to make sure I query the "
+                                              "right data — your question is a "
+                                              "little ambiguous. Could you name "
+                                              "the table, entity, or metric you mean?"},
+        ]
+        state = {"user_query": "Actually, show me all players from Brazil please",
+                 "conversation_history": history, "session_id": "s"}
+        out = a.classify_intent(state)
+        assert out["intent"] == "READ"
+        a._get_intent_llm.return_value.invoke.assert_called_once()
+
+    def test_short_reply_when_last_turn_was_not_a_clarification_goes_through_llm(self):
+        """The short-circuit is specific to OUR clarification template — a
+        short reply to a normal assistant answer must classify normally."""
+        a = self._agent("AMBIGUOUS")
+        history = [
+            {"role": "user", "content": "how many players are there?"},
+            {"role": "assistant", "content": "There are 500 players."},
+        ]
+        state = {"user_query": "frpm", "conversation_history": history, "session_id": "s"}
+        out = a.classify_intent(state)
+        assert out["intent"] == "AMBIGUOUS"
+        a._get_intent_llm.return_value.invoke.assert_called_once()
 
     def test_stored_intent_is_always_routable(self):
         a = self._agent("some unparseable nonsense")

@@ -58,6 +58,7 @@ route_entry ──── repeat question already resolved from cache ───�
 classify_intent ──┬── WRITE_BLOCKED ──► handle_write_blocked ──► END    │
                   ├── GENERAL       ──► handle_general (web search + LLM) ──► END
                   ├── AMBIGUOUS     ──► ask_clarification ──► END       │
+                  ├── (LLM call failed) ──► handle_intent_error ──► END │
                   └── READ                                             │
                           │                                            │
                           ▼                                            │
@@ -95,6 +96,15 @@ retrieval short-circuits linking and generation. In every case the SQL is
 re-validated against the current schema and re-executed, so a cached query that
 no longer fits the schema unwinds to full retrieval rather than returning
 wrong rows.
+
+`classify_intent` distinguishes a genuinely unclear question from a broken
+model call: a call failure (an invalid custom model id, an auth error, a
+timeout) routes to `handle_intent_error` with a real error message instead of
+the misleading "your question is ambiguous" clarification prompt. A short,
+on-topic reply to the assistant's own last clarifying question (e.g. naming a
+table) is recognized and forced straight to `READ`, so `condense_query` — the
+existing follow-up-merging step — resolves it against the original question
+instead of re-asking indefinitely.
 
 ### Agent & Module Responsibilities
 
@@ -197,7 +207,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
 │   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
-│   ├── tests/                          # 762 unit/integration tests (offline)
+│   ├── tests/                          # 776 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -770,7 +780,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~762 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | ~776 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |

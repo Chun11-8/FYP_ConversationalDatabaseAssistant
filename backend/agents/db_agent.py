@@ -45,9 +45,18 @@ from concurrent.futures import ThreadPoolExecutor
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
 
 
-# Canonical intents, most-restrictive first: a reply that names more than one
-# resolves to the safest reading.
-_INTENTS = ("WRITE_BLOCKED", "AMBIGUOUS", "GENERAL", "READ")
+# WRITE_BLOCKED always wins (safety-critical, never demoted). Among the rest,
+# actionable labels are checked before AMBIGUOUS: a verbose/reasoning-style
+# reply that hedges ("this could be ambiguous, but it's asking to retrieve
+# data, so READ") mentions "ambiguous" incidentally on the way to a real
+# conclusion — AMBIGUOUS is the catch-all, not a label worth pre-empting an
+# actionable one just because it happens to appear earlier in the text.
+_INTENTS = ("WRITE_BLOCKED", "READ", "GENERAL", "AMBIGUOUS")
+
+
+def _intent_pattern(intent: str) -> str:
+    # Tolerate "WRITE BLOCKED" / "WRITE-BLOCKED" alongside the underscored form.
+    return intent.replace("_", r"[\s_-]")
 
 
 def _normalize_intent(raw: str) -> str:
@@ -62,13 +71,70 @@ def _normalize_intent(raw: str) -> str:
     Unrecognized text → AMBIGUOUS, matching the prompt's own safety-first rule
     (better to ask than to guess).
     """
-    text = (raw or "").upper()
+    stripped = (raw or "").strip()
+    text = stripped.upper()
+
+    # Fast path: a fully-compliant reply is exactly one label (gpt-4o-mini
+    # reliably does this) — trivially correct, no scanning needed.
+    if text in _INTENTS:
+        return text
+
+    # Fast path: a reasoning-style reply that explains itself before
+    # concluding typically states its verdict on the final line.
+    lines = [l.strip().rstrip(".:,") for l in text.splitlines() if l.strip()]
+    if lines and lines[-1] in _INTENTS:
+        return lines[-1]
+
+    if len(stripped) > 60:
+        logger.warning(
+            f"[INTENT] classifier reply is unusually long for a bare label "
+            f"({len(stripped)} chars) — model may not be complying with the "
+            f"output-format instruction: {stripped[:120]!r}"
+        )
+
+    # Last resort: scan the whole reply. WRITE_BLOCKED first (safety-critical);
+    # among the rest, an actionable label beats an incidental "ambiguous"
+    # mention in hedging text (see _INTENTS ordering above).
     for intent in _INTENTS:
-        # Tolerate "WRITE BLOCKED" / "WRITE-BLOCKED" alongside the underscored form.
-        pattern = intent.replace("_", r"[\s_-]")
-        if re.search(rf"\b{pattern}\b", text):
+        if re.search(rf"\b{_intent_pattern(intent)}\b", text):
             return intent
     return "AMBIGUOUS"
+
+
+# Shared between ask_clarification (which generates this exact opening) and
+# classify_intent/_replying_to_own_clarification (which detects it in
+# history) — kept as one constant so the two can't silently drift apart.
+_CLARIFICATION_PREFIX = "I want to make sure I query the right data"
+
+
+def _replying_to_own_clarification(history: List[Dict]) -> bool:
+    """
+    True when the most recent assistant turn was our own ask_clarification
+    response — i.e. this turn is (probably) a direct answer to it, not a
+    fresh question. `history` is chronological; SessionMemory.add appends a
+    user+assistant pair per turn, so the last entry is the prior assistant
+    turn once this new user message hasn't been stored yet.
+    """
+    for m in reversed(history or []):
+        if m.get("role") == "assistant":
+            return str(m.get("content") or "").startswith(_CLARIFICATION_PREFIX)
+        if m.get("role") == "user":
+            return False
+    return False
+
+
+def _original_question_before_clarification(history: List[Dict]) -> Optional[str]:
+    """The user turn that triggered our own clarifying question, if any."""
+    seen_clarification = False
+    for m in reversed(history or []):
+        if m.get("role") == "assistant" and not seen_clarification:
+            if not str(m.get("content") or "").startswith(_CLARIFICATION_PREFIX):
+                return None
+            seen_clarification = True
+            continue
+        if seen_clarification and m.get("role") == "user":
+            return str(m.get("content") or "") or None
+    return None
 
 
 def rows_fingerprint(rows: List[Dict[str, Any]]) -> frozenset:
@@ -338,7 +404,8 @@ class OrchestrationAgent:
 
     def classify_intent(self, state: AgentState) -> AgentState:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
-        history_str = self._format_history(state.get("conversation_history", [])[-6:])
+        history = state.get("conversation_history", [])
+        history_str = self._format_history(history[-6:])
 
         trace("\n" + "━" * 70)
         trace("🔍  PIPELINE START — classify_intent")
@@ -347,31 +414,55 @@ class OrchestrationAgent:
         trace(f"  Session : {state.get('session_id', 'n/a')}")
         trace(f"  History : {history_str[:200]}{'…' if len(history_str) > 200 else ''}")
 
-        messages = [
-            SystemMessage(content=self.INTENT_PROMPT),
-            HumanMessage(content=(
-                f"Conversation so far:\n{history_str}\n\n"
-                f"New query: {state['user_query']}"
-            )),
-        ]
-        try:
-            raw = invoke_tracked(self._get_intent_llm(), messages,
-                                 "classify_intent").content
-            result = _normalize_intent(raw)
-            if result != raw.strip().upper():
-                logger.info(f"[INTENT] normalized {raw.strip()[:80]!r} → {result}")
-        except Exception as e:
-            logger.warning(f"[INTENT] LLM call failed, defaulting to AMBIGUOUS: {e}")
-            result = "AMBIGUOUS"
+        error: Optional[str] = None
+
+        # Break the AMBIGUOUS clarification loop: a short reply to our own
+        # last clarifying question ("frpm", "schools") is, out of context, not
+        # obviously a query — the classifier has no instruction telling it to
+        # treat a terse but on-topic answer as a continuation, and safety-first
+        # bias ("when in doubt, AMBIGUOUS") keeps re-asking forever. Forcing
+        # READ here hands off to condense_query (already reachable from READ),
+        # which merges this reply with the original question via history —
+        # the mechanism built for exactly this, just never reached before.
+        if self._looks_anaphoric(state["user_query"], history) and \
+                _replying_to_own_clarification(history):
+            result = "READ"
+            trace("  ⚡ Short reply to our own clarifying question — forcing READ")
+            logger.info(f"[INTENT] short-circuited to READ (clarification reply): "
+                       f"{state['user_query'][:60]}")
+        else:
+            messages = [
+                SystemMessage(content=self.INTENT_PROMPT),
+                HumanMessage(content=(
+                    f"Conversation so far:\n{history_str}\n\n"
+                    f"New query: {state['user_query']}"
+                )),
+            ]
+            try:
+                raw = invoke_tracked(self._get_intent_llm(), messages,
+                                     "classify_intent").content
+                result = _normalize_intent(raw)
+                if result != raw.strip().upper():
+                    logger.info(f"[INTENT] normalized {raw.strip()[:80]!r} → {result}")
+            except Exception as e:
+                # A call failure (invalid model, auth, rate limit, network) is
+                # NOT the same as a genuinely ambiguous question — surface it
+                # as a real error instead of a misleading "your question is
+                # ambiguous" clarification prompt (GH#58: a broken custom
+                # model id should fail loudly, not masquerade as normal flow).
+                logger.warning(f"[INTENT] LLM call failed: {e}")
+                result = "AMBIGUOUS"
+                error = f"The selected model could not be reached: {e}"
 
         # Hard safety: detect DML keywords regardless of LLM output
         dml_keywords = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE"}
         if any(kw in state["user_query"].upper() for kw in dml_keywords):
             result = "WRITE_BLOCKED"
+            error = None
 
         trace(f"  ✅ Intent: {result}")
         logger.info(f"[INTENT] {result} | query={state['user_query'][:60]}")
-        return {**state, "intent": result}
+        return {**state, "intent": result, "error": error}
 
     
     @staticmethod
@@ -1211,6 +1302,27 @@ class OrchestrationAgent:
         )
         return {**state, "response": response, "turn_id": turn_id}
 
+    def handle_intent_error(self, state: AgentState) -> AgentState:
+        """
+        classify_intent's LLM call failed outright (invalid model, auth, rate
+        limit, network) — surface that plainly instead of silently presenting
+        it as a normal "your question is ambiguous" clarification request,
+        which would hide a broken model/connection behind confusing UI text.
+        """
+        response = (
+            f"⚠️ I couldn't process that: {state.get('error') or 'the model call failed.'} "
+            "If you picked a custom model, double-check it's a valid, "
+            "accessible OpenAI model id."
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"],
+            user_query=state["user_query"],
+            response=response,
+            sql=None,
+            valid=None,
+        )
+        return {**state, "response": response, "turn_id": turn_id}
+
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
         trace("\n" + "─" * 70)
@@ -1306,6 +1418,12 @@ class OrchestrationAgent:
     # ── Conditional Edges ───────────────────────
 
     def route_by_intent(self, state: AgentState) -> str:
+        # A classify_intent call FAILURE (not a genuinely unclear question)
+        # must never be presented as an ordinary clarification request —
+        # checked before intent, since a failed call still defaults intent to
+        # AMBIGUOUS as a safe routing value.
+        if state.get("error"):
+            return "handle_intent_error"
         intent = state.get("intent", "READ")
         if intent == "WRITE_BLOCKED":
             return "handle_write_blocked"
@@ -1371,6 +1489,7 @@ class OrchestrationAgent:
         g.add_node("format_response", _staged("format_response", self.format_response))
         g.add_node("handle_general", _staged("handle_general", self.handle_general))
         g.add_node("handle_write_blocked", _staged("handle_write_blocked", self.handle_write_blocked))
+        g.add_node("handle_intent_error", _staged("handle_intent_error", self.handle_intent_error))
         g.add_node("fallback_handler", _staged("fallback_handler", self.fallback_handler))
 
         # GH#57: run() pre-resolves a repeat question against the semantic cache
@@ -1386,9 +1505,11 @@ class OrchestrationAgent:
             "handle_general": "handle_general",
             "handle_write_blocked": "handle_write_blocked",
             "ask_clarification": "ask_clarification",
+            "handle_intent_error": "handle_intent_error",
         })
         g.add_edge("condense_query", "retrieve_schema")
         g.add_edge("ask_clarification", END)
+        g.add_edge("handle_intent_error", END)
 
         # Happy path routes through schema-linking (#17) before generation;
         # a cache hit (GH#38) jumps straight to validation.
