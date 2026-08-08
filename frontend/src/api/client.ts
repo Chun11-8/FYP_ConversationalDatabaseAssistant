@@ -178,6 +178,9 @@ export interface SchemaSyncResult {
   changes_applied: SchemaChange[];
   reembedded_tables: string[];
   removed_tables: string[];
+  // Semantic-cache cascade (Issue #7/GH#8): {table: count of pairs affected}.
+  archived_pairs: Record<string, number>;
+  demoted_pairs: Record<string, number>;
   full: boolean;
 }
 

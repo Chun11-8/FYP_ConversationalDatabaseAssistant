@@ -640,7 +640,11 @@ added/dropped tables, added/dropped/modified columns, and any unindexed tables.
 Re-embeds the RAG index to match the live schema. Body: `full` (re-embed every
 table — use when table **data** changed) and optional `tables` filter. The
 default is a **surgical** sync that only touches changed/unindexed tables and
-removes chunks for dropped ones.
+removes chunks for dropped ones. A dropped table also **archives** (not
+deletes) its semantic-cache few-shot pairs; a modified/dropped column
+**demotes** their confidence — both reported in the response as
+`archived_pairs`/`demoted_pairs` (`{table: count}`), so stale examples stop
+surfacing without losing history. No admin-auth guard yet (Issue #6/GH#7).
 
 ---
 
@@ -777,7 +781,7 @@ previous behavior exactly.
 | #4 | Semantic cache / few-shot | ✅ Done | Validated pairs as few-shots + hit shortcut |
 | #5 | Feedback collection (thumbs) | ✅ Done | `/feedback` endpoint + UI |
 | #6 | User isolation & roles | ⏳ Planned | Read-only DB role landed; auth still open |
-| #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI |
+| #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI; drop/modify cascades the semantic cache (archive/demote) |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
 | #11 | Full test suite | ✅ Done | ~776 tests; CI still to wire |

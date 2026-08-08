@@ -54,6 +54,58 @@ class TestHelpersAndDisabled:
         cache.add_feedback(turn_id=1, session_id="s", rating="down")
         assert cache.retrieve_pairs("q") == []
         assert cache.retrieve_few_shots("q") == []
+        # Issue #7/GH#8 schema-change cascade: also a safe no-op when disabled.
+        assert cache.archive_pairs_referencing_table("players") == 0
+        assert cache.demote_pairs_referencing_table("players") == 0
+
+
+# ── schema-change cascade — offline (mocked connection) ──────────────────────
+
+class TestSchemaChangeCascadeOffline:
+    """Issue #7/GH#8: verifies the SQL issued and result plumbing without a
+    live database — the pgvector-gated class below exercises it for real."""
+
+    def _cache_with_mock_conn(self, rowcount: int):
+        from unittest.mock import MagicMock
+        cache = SemanticCache(db_config={"name": "x"}, embed_fn=fake_embed)
+        cache._enabled = True  # bypass real connect attempted in __init__
+        cur = MagicMock()
+        cur.rowcount = rowcount
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        conn.cursor.return_value.__enter__.return_value = cur
+        cache._connect = MagicMock(return_value=conn)
+        return cache, cur
+
+    def test_archive_issues_status_update_and_returns_rowcount(self):
+        cache, cur = self._cache_with_mock_conn(rowcount=2)
+        n = cache.archive_pairs_referencing_table("players")
+        assert n == 2
+        sql, params = cur.execute.call_args[0]
+        assert "SET status = 'archived'" in sql
+        assert "status = 'active'" in sql
+        assert params[-1] == r"\yplayers\y"
+
+    def test_demote_issues_confidence_update_with_factor(self):
+        cache, cur = self._cache_with_mock_conn(rowcount=3)
+        n = cache.demote_pairs_referencing_table("teams", factor=0.25)
+        assert n == 3
+        sql, params = cur.execute.call_args[0]
+        assert "confidence = confidence * %s" in sql
+        assert params == (0.25, r"\yteams\y")
+
+    def test_table_name_is_regex_escaped(self):
+        cache, cur = self._cache_with_mock_conn(rowcount=0)
+        cache.archive_pairs_referencing_table("weird.table")
+        _, params = cur.execute.call_args[0]
+        assert params[-1] == r"\yweird\.table\y"
+
+    def test_cascade_survives_db_failure(self):
+        cache = SemanticCache(db_config={"name": "x"}, embed_fn=fake_embed)
+        cache._enabled = True
+        cache._connect = lambda: (_ for _ in ()).throw(RuntimeError("db down"))
+        assert cache.archive_pairs_referencing_table("players") == 0
+        assert cache.demote_pairs_referencing_table("players") == 0
 
 
 # ── pgvector integration (skipped without a live DB) ─────────────────────────
@@ -188,4 +240,28 @@ class TestSemanticCachePg:
             pairs = cache.retrieve_pairs("players from brazil", group_id=other)
             assert pairs == []
         finally:
-            _cleanup(other)
+            _cleanup(gid)
+
+    def test_archive_pairs_referencing_table_hides_them_from_retrieval(self, cache, gid):
+        cache.save_pair("how many players", "SELECT count(*) FROM players", group_id=gid)
+        n = cache.archive_pairs_referencing_table("players")
+        assert n >= 1
+        assert cache.retrieve_pairs("how many players", group_id=gid) == []
+
+    def test_archive_ignores_pairs_for_unrelated_tables(self, cache, gid):
+        cache.save_pair("how many teams", "SELECT count(*) FROM teams", group_id=gid)
+        cache.archive_pairs_referencing_table("players")
+        assert len(cache.retrieve_pairs("how many teams", group_id=gid)) == 1
+
+    def test_demote_pairs_referencing_table_halves_confidence(self, cache, gid):
+        cache.save_pair("how many players", "SELECT count(*) FROM players",
+                        group_id=gid, confidence=1.0)
+        n = cache.demote_pairs_referencing_table("players", factor=0.5)
+        assert n >= 1
+        pairs = cache.retrieve_pairs("how many players", group_id=gid)
+        assert pairs[0]["confidence"] == pytest.approx(0.5)
+
+    def test_demote_does_not_archive(self, cache, gid):
+        cache.save_pair("how many players", "SELECT count(*) FROM players", group_id=gid)
+        cache.demote_pairs_referencing_table("players")
+        assert len(cache.retrieve_pairs("how many players", group_id=gid)) == 1

@@ -73,8 +73,10 @@ def snapshot_from_tables(tables: List[dict]) -> Snapshot:
 class SchemaVersioningAgent:
     """Snapshot store + diff + surgical re-embedding for one database."""
 
-    def __init__(self, db_name: Optional[str] = None):
+    def __init__(self, db_name: Optional[str] = None, db_config: Optional[dict] = None):
         self.db_name = db_name or os.getenv("PG_DB", "FYP")
+        self.db_config = db_config
+        self._cache = None
 
     # ── infrastructure (thin wrappers — mocked in tests) ──────────────────────
 
@@ -84,6 +86,19 @@ class SchemaVersioningAgent:
         if conn is None:
             raise RuntimeError(f"Cannot connect to database '{self.db_name}'")
         return conn
+
+    def _semantic_cache(self):
+        """Lazily build the SemanticCache used for the drop/modify cascade
+        (Issue #7/GH#8). Reuses db_config if the caller already loaded one
+        (e.g. the API's shared config); otherwise loads it once."""
+        if self._cache is None:
+            from backend.memory.semantic_cache import SemanticCache
+            db_config = self.db_config
+            if db_config is None:
+                from backend.config.config_loader import load_config
+                db_config = load_config().get("db")
+            self._cache = SemanticCache(db_config=db_config)
+        return self._cache
 
     def _init_store(self, conn) -> None:
         with conn.cursor() as cur:
@@ -192,6 +207,40 @@ class SchemaVersioningAgent:
             store_conn.close()
         return [t["table_name"] for t in tables]
 
+    def _cascade_cache(self, changes: List[dict]) -> tuple:
+        """
+        Best-effort semantic-cache impact of a schema change (Issue #7/GH#8,
+        Change Classifier): a DROPPED table's cached pairs are archived, not
+        deleted; a MODIFIED/dropped column's cached pairs are demoted in
+        confidence, not removed. Returns ({table: archived_count}, {table:
+        demoted_count}) — empty dicts if nothing applies or the cache is
+        unavailable (never raises, mirrors _indexed_tables' degrade-on-error).
+        """
+        archived: Dict[str, int] = {}
+        demoted: Dict[str, int] = {}
+        dropped_tables = {c["table"] for c in changes if c["action"] == "drop_table"}
+        modified_tables = {
+            c["table"] for c in changes
+            if c["action"] in ("modify_column", "drop_column")
+            and c["table"] not in dropped_tables
+        }
+        if not dropped_tables and not modified_tables:
+            return archived, demoted
+        try:
+            cache = self._semantic_cache()
+        except Exception as exc:
+            logger.warning(f"[SCHEMA_SYNC] cache unavailable, skipping cascade: {exc}")
+            return archived, demoted
+        for t in sorted(dropped_tables):
+            n = cache.archive_pairs_referencing_table(t)
+            if n:
+                archived[t] = n
+        for t in sorted(modified_tables):
+            n = cache.demote_pairs_referencing_table(t)
+            if n:
+                demoted[t] = n
+        return archived, demoted
+
     def _remove_tables(self, table_names: List[str]) -> List[str]:
         if not table_names:
             return []
@@ -260,13 +309,19 @@ class SchemaVersioningAgent:
 
         reembedded = self._reembed_tables(to_embed)
         removed = self._remove_tables(dropped)
+        archived_pairs, demoted_pairs = self._cascade_cache(changes)
         new_hash = self._persist(current, changes)
-        logger.info(f"[SCHEMA_SYNC] re-embedded={reembedded} removed={removed}")
+        logger.info(
+            f"[SCHEMA_SYNC] re-embedded={reembedded} removed={removed} "
+            f"archived_pairs={archived_pairs} demoted_pairs={demoted_pairs}"
+        )
         return {
             "db_name": self.db_name,
             "schema_hash": new_hash,
             "changes_applied": changes,
             "reembedded_tables": reembedded,
             "removed_tables": removed,
+            "archived_pairs": archived_pairs,
+            "demoted_pairs": demoted_pairs,
             "full": full,
         }
