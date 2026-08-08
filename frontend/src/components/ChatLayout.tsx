@@ -159,7 +159,13 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
                 <button
                   type="button"
                   className="model-picker-trigger"
-                  onClick={() => setPickerOpen((v) => !v)}
+                  // Toggling via setPickerOpen alone would close the menu
+                  // without resetting customEntry/customValue (only
+                  // closePicker does that) — a self-review finding: dismissing
+                  // the picker with the trigger (rather than an outside-click
+                  // or Escape, both already routed through closePicker) left
+                  // the stale "Custom…" text input showing on the next open.
+                  onClick={() => (pickerOpen ? closePicker() : setPickerOpen(true))}
                   aria-haspopup="listbox"
                   aria-expanded={pickerOpen}
                 >

@@ -170,6 +170,20 @@ class TestRunModelOverride:
             _run_with_mocked_graph(agent, model="   ")
             assert mc.call_count == calls_before
 
+    def test_audit_log_records_the_overridden_model_not_the_default(self):
+        """Self-review finding: query_interactions.model must match whatever
+        model this request's tokens/cost were actually billed against."""
+        with _mk_agent({"model": "gpt-4o-mini", "api_key": "k"}) as (agent, _):
+            _run_with_mocked_graph(agent, model="gpt-4o")
+            kwargs = agent.semantic_cache.log_interaction.call_args.kwargs
+            assert kwargs["model"] == "gpt-4o"
+
+    def test_audit_log_records_the_default_model_when_no_override(self):
+        with _mk_agent({"model": "gpt-4o-mini", "api_key": "k"}) as (agent, _):
+            _run_with_mocked_graph(agent)
+            kwargs = agent.semantic_cache.log_interaction.call_args.kwargs
+            assert kwargs["model"] == "gpt-4o-mini"
+
 
 # ── API layer ───────────────────────────────────────────────────────────────────
 
