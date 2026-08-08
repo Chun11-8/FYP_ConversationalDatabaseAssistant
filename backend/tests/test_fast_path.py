@@ -443,3 +443,21 @@ class TestCacheWriteBack:
         assert kwargs["tokens_in"] == 100
         assert kwargs["cost_usd"] == 0.001
         assert kwargs["model"] == "gpt-4o-mini"
+
+    def test_logs_the_per_request_override_model_not_the_static_default(self):
+        # Self-review finding: query_interactions.model must match whatever
+        # model the tokens/cost in that same row were actually billed
+        # against, not the agent's static config default.
+        a = _agent(_model="gpt-4o-mini")
+        a._update_cache("s", "q", self._final(), 1, 10,
+                        usage={"input_tokens": 50, "output_tokens": 5,
+                               "est_cost_usd": 0.002},
+                        model="gpt-4o")
+        kwargs = a.semantic_cache.log_interaction.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o"
+
+    def test_model_falls_back_to_the_default_when_not_passed(self):
+        a = _agent(_model="gpt-4o-mini")
+        a._update_cache("s", "q", self._final(), 1, 10)
+        kwargs = a.semantic_cache.log_interaction.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o-mini"

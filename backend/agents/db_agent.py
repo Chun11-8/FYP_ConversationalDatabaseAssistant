@@ -1606,9 +1606,15 @@ class OrchestrationAgent:
             (api_key and api_key.strip())
             or (model and model.strip() and model != self._model)
         )
+        # The model actually used for this request's LLM calls — distinct from
+        # self._model (the static configured default) whenever a per-request
+        # override is active. Threaded through to _update_cache so the
+        # query_interactions audit row's `model` column matches the model the
+        # tokens/cost in that same row were actually billed against.
+        effective_model = model.strip() if (model and model.strip()) else self._model
         if has_override:
             _tls.llm = ChatOpenAI(
-                model=(model or self._model), temperature=0,
+                model=effective_model, temperature=0,
                 api_key=(api_key or self._default_api_key),
             )
             _tls.intent_llm = _tls.llm
@@ -1715,7 +1721,7 @@ class OrchestrationAgent:
 
         # Semantic cache write-path + interaction log (best-effort, never fatal).
         self._update_cache(session_id, user_query, final, row_count, latency_ms,
-                           usage=result["usage"])
+                           usage=result["usage"], model=effective_model)
         return result
 
     def _update_cache(
@@ -1726,6 +1732,7 @@ class OrchestrationAgent:
         row_count: Optional[int],
         latency_ms: int,
         usage: Optional[Dict[str, Any]] = None,
+        model: Optional[str] = None,
     ) -> None:
         """Persist a successful query→SQL pair and log the interaction."""
         validation = final.get("validation", {})
@@ -1760,7 +1767,7 @@ class OrchestrationAgent:
                 valid=validation.get("valid"),
                 row_count=row_count,
                 latency_ms=latency_ms,
-                model=getattr(self, "_model", None),
+                model=model or getattr(self, "_model", None),
                 tokens_in=(usage or {}).get("input_tokens"),
                 tokens_out=(usage or {}).get("output_tokens"),
                 cost_usd=(usage or {}).get("est_cost_usd"),
