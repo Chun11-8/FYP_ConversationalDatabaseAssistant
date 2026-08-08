@@ -112,4 +112,8 @@ class SchemaSyncResponse(BaseModel):
     changes_applied: List[SchemaChange] = Field(default_factory=list)
     reembedded_tables: List[str] = Field(default_factory=list)
     removed_tables: List[str] = Field(default_factory=list)
+    # Semantic-cache cascade (Issue #7/GH#8): dropped tables archive their
+    # cached pairs, modified columns demote confidence — {table: count}.
+    archived_pairs: Dict[str, int] = Field(default_factory=dict)
+    demoted_pairs: Dict[str, int] = Field(default_factory=dict)
     full: bool = False

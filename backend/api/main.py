@@ -457,7 +457,9 @@ def get_db_schema() -> SchemaResponse:
 
 def _versioner() -> "SchemaVersioningAgent":
     from backend.agents.schema_versioning_agent import SchemaVersioningAgent
-    return SchemaVersioningAgent(db_name=(_db_config or {}).get("name"))
+    return SchemaVersioningAgent(
+        db_name=(_db_config or {}).get("name"), db_config=_db_config,
+    )
 
 
 @app.get("/schema/diff", response_model=SchemaDiffResponse, tags=["schema"])

@@ -27,6 +27,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -392,6 +393,61 @@ class SemanticCache:
             logger.warning("SemanticCache.add_feedback downvote cascade failed: %s", exc)
         finally:
             conn2.close()
+
+    # ── schema-change cascade (Issue #7/GH#8) ────────────────────────────────
+    #
+    # A schema change affects every session's cache, not just one group, so
+    # these intentionally sweep all groups rather than using _group_filter.
+
+    def _update_pairs_for_table(self, table: str, sql: str, extra_params: tuple = ()) -> int:
+        """Run an UPDATE against active pairs whose SQL references `table`
+        (case-insensitive, word-bounded). Best-effort: 0 on any failure."""
+        if not self._enabled:
+            return 0
+        pattern = r"\y" + re.escape(table) + r"\y"   # Postgres word-boundary metachar
+        try:
+            conn = self._connect()
+        except Exception as exc:
+            logger.warning("SemanticCache table-cascade for %r failed: %s", table, exc)
+            return 0
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (*extra_params, pattern))
+                    return cur.rowcount
+        except Exception as exc:
+            logger.warning("SemanticCache table-cascade for %r failed: %s", table, exc)
+            return 0
+        finally:
+            conn.close()
+
+    def archive_pairs_referencing_table(self, table: str) -> int:
+        """
+        DROPPED-table cascade: mark active pairs whose SQL references `table`
+        as 'archived' rather than deleting them (recoverable, and consistent
+        with the existing 'low_conf' down-vote pattern in add_feedback).
+        Archived pairs are excluded from retrieve_pairs/best_match (status
+        != 'active'). Returns the number of pairs archived.
+        """
+        return self._update_pairs_for_table(
+            table,
+            "UPDATE query_sql_pairs SET status = 'archived' "
+            "WHERE status = 'active' AND sql ~* %s;",
+        )
+
+    def demote_pairs_referencing_table(self, table: str, factor: float = 0.5) -> int:
+        """
+        MODIFIED-column cascade: halve (by default) the confidence of active
+        pairs whose SQL references `table`, rather than deleting them — they
+        stay available but surface less often until re-validated. Returns the
+        number of pairs demoted.
+        """
+        return self._update_pairs_for_table(
+            table,
+            "UPDATE query_sql_pairs SET confidence = confidence * %s "
+            "WHERE status = 'active' AND sql ~* %s;",
+            (factor,),
+        )
 
     # ── read path ─────────────────────────────────────────────────────────────
 

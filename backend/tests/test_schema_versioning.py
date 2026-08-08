@@ -79,6 +79,9 @@ class TestAgentOrchestration:
         a._reembed_tables = MagicMock(side_effect=lambda ts: list(ts))
         a._remove_tables = MagicMock(side_effect=lambda ts: list(ts))
         a._persist = MagicMock(return_value="newhash")
+        # Isolate sync() tests from the cache cascade by default — it's
+        # covered on its own in TestCacheCascade below.
+        a._cascade_cache = MagicMock(return_value=({}, {}))
         return a
 
     def test_check_reports_changes_and_unindexed(self):
@@ -136,6 +139,112 @@ class TestAgentOrchestration:
                         last_snap=None, indexed=[])
         out = a.check()
         assert {c["table"] for c in out["changes"]} == {"players", "teams"}
+
+    def test_sync_result_includes_empty_cache_cascade_by_default(self):
+        a = self._agent(current={"players": {"id": "int"}},
+                        last_snap={"players": {"id": "int"}}, indexed=["players"])
+        out = a.sync()
+        assert out["archived_pairs"] == {}
+        assert out["demoted_pairs"] == {}
+
+
+# ── semantic-cache cascade (Issue #7/GH#8) ──────────────────────────────────────
+
+class TestCacheCascade:
+    """Change Classifier: a dropped table archives its cached pairs (not
+    deleted); a modified/dropped column demotes their confidence — the
+    acceptance criterion for GH#8 ('dropping a table archives its pairs')."""
+
+    def _agent(self):
+        a = SchemaVersioningAgent(db_name="FYP")
+        return a
+
+    def _fake_cache(self):
+        cache = MagicMock()
+        cache.archive_pairs_referencing_table = MagicMock(return_value=2)
+        cache.demote_pairs_referencing_table = MagicMock(return_value=1)
+        return cache
+
+    def test_drop_table_archives_its_pairs(self):
+        a = self._agent()
+        cache = self._fake_cache()
+        a._semantic_cache = MagicMock(return_value=cache)
+        archived, demoted = a._cascade_cache(
+            [{"action": "drop_table", "table": "teams"}])
+        cache.archive_pairs_referencing_table.assert_called_once_with("teams")
+        cache.demote_pairs_referencing_table.assert_not_called()
+        assert archived == {"teams": 2}
+        assert demoted == {}
+
+    def test_modify_column_demotes_its_pairs(self):
+        a = self._agent()
+        cache = self._fake_cache()
+        a._semantic_cache = MagicMock(return_value=cache)
+        archived, demoted = a._cascade_cache(
+            [{"action": "modify_column", "table": "players", "column": "id"}])
+        cache.demote_pairs_referencing_table.assert_called_once_with("players")
+        cache.archive_pairs_referencing_table.assert_not_called()
+        assert demoted == {"players": 1}
+        assert archived == {}
+
+    def test_drop_column_also_demotes(self):
+        a = self._agent()
+        cache = self._fake_cache()
+        a._semantic_cache = MagicMock(return_value=cache)
+        _, demoted = a._cascade_cache(
+            [{"action": "drop_column", "table": "players", "column": "age"}])
+        assert demoted == {"players": 1}
+
+    def test_dropped_table_is_not_also_demoted(self):
+        """A table that's fully dropped shouldn't also get a (pointless)
+        confidence demotion from its own column-level diff entries."""
+        a = self._agent()
+        cache = self._fake_cache()
+        a._semantic_cache = MagicMock(return_value=cache)
+        archived, demoted = a._cascade_cache([
+            {"action": "drop_table", "table": "teams"},
+            {"action": "drop_column", "table": "teams", "column": "id"},
+        ])
+        cache.demote_pairs_referencing_table.assert_not_called()
+        assert archived == {"teams": 2}
+
+    def test_add_table_and_add_column_never_touch_the_cache(self):
+        a = self._agent()
+        a._semantic_cache = MagicMock()
+        archived, demoted = a._cascade_cache([
+            {"action": "add_table", "table": "new_t"},
+            {"action": "add_column", "table": "players", "column": "x"},
+        ])
+        a._semantic_cache.assert_not_called()
+        assert archived == {} and demoted == {}
+
+    def test_zero_hits_are_omitted_from_the_result(self):
+        a = self._agent()
+        cache = MagicMock()
+        cache.archive_pairs_referencing_table = MagicMock(return_value=0)
+        a._semantic_cache = MagicMock(return_value=cache)
+        archived, _ = a._cascade_cache([{"action": "drop_table", "table": "teams"}])
+        assert archived == {}
+
+    def test_cascade_survives_cache_being_unavailable(self):
+        a = self._agent()
+        a._semantic_cache = MagicMock(side_effect=RuntimeError("no db"))
+        archived, demoted = a._cascade_cache(
+            [{"action": "drop_table", "table": "teams"}])
+        assert archived == {} and demoted == {}
+
+    def test_semantic_cache_builds_with_injected_db_config(self):
+        a = SchemaVersioningAgent(db_name="FYP", db_config={"name": "FYP"})
+        with patch("backend.memory.semantic_cache.SemanticCache") as MockCache:
+            a._semantic_cache()
+            MockCache.assert_called_once_with(db_config={"name": "FYP"})
+
+    def test_semantic_cache_is_memoized(self):
+        a = SchemaVersioningAgent(db_name="FYP", db_config={"name": "FYP"})
+        with patch("backend.memory.semantic_cache.SemanticCache") as MockCache:
+            a._semantic_cache()
+            a._semantic_cache()
+        MockCache.assert_called_once()
 
 
 # ── API endpoints ──────────────────────────────────────────────────────────────

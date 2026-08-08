@@ -122,8 +122,13 @@ function IndexSyncPanel({
     syncSchema(full)
       .then((r) => {
         const n = r.reembedded_tables.length, d = r.removed_tables.length;
+        const archived = Object.values(r.archived_pairs ?? {}).reduce((a, b) => a + b, 0);
+        const demoted = Object.values(r.demoted_pairs ?? {}).reduce((a, b) => a + b, 0);
         const text = `Re-indexed ${n} table${n !== 1 ? 's' : ''}` +
-               (d ? `, removed ${d}` : '') + (full ? ' (full re-index)' : '') + '.';
+               (d ? `, removed ${d}` : '') +
+               (archived ? `, archived ${archived} cached example${archived !== 1 ? 's' : ''}` : '') +
+               (demoted ? `, demoted ${demoted} cached example${demoted !== 1 ? 's' : ''}` : '') +
+               (full ? ' (full re-index)' : '') + '.';
         onSynced(text);
         check();
       })
