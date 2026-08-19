@@ -47,6 +47,61 @@ def _format_few_shot(user_query: str, sql: str) -> str:
     return f"Q: {user_query}\nSQL:\n{sql.strip()}"
 
 
+# ── literal-aware cache matching (GH#63) ──────────────────────────────────────
+#
+# Embeddings are structurally near-blind to exact numeric/date tokens: "…in
+# 2013?" and "…in 2014?" differ by one character and land well inside the 0.03
+# hit threshold, so a follow-up would silently be answered from the previous
+# turn's SQL. Distance alone cannot express "same shape, different value", so
+# the concrete values get a symbolic equality check alongside it.
+
+_MONTHS = {
+    "jan": "jan", "january": "jan", "feb": "feb", "february": "feb",
+    "mar": "mar", "march": "mar", "apr": "apr", "april": "apr",
+    "may": "may", "jun": "jun", "june": "jun", "jul": "jul", "july": "jul",
+    "aug": "aug", "august": "aug", "sep": "sep", "sept": "sep",
+    "september": "sep", "oct": "oct", "october": "oct",
+    "nov": "nov", "november": "nov", "dec": "dec", "december": "dec",
+}
+
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+_QUOTED_RE = re.compile(r"'([^']+)'|\"([^\"]+)\"")
+_WORD_RE = re.compile(r"[A-Za-z]+")
+
+
+def discriminative_literals(text: str) -> frozenset:
+    """
+    The concrete values a question pins down: numbers, quoted strings and
+    month names, normalized so only a REAL difference registers ("Aug" ==
+    "August", "06" == "6", "'Brazil'" == "'brazil'").
+
+    Deliberately narrow. Every token type included here changes which rows a
+    correct answer returns, so two questions differing in any of them cannot
+    share one cached SQL. Ordinary words are excluded — distinguishing those
+    is what the embedding distance is for.
+    """
+    if not text:
+        return frozenset()
+    out = set()
+    for m in _NUMBER_RE.finditer(text):
+        out.add(("num", m.group(0).lstrip("0") or "0"))
+    for m in _QUOTED_RE.finditer(text):
+        val = (m.group(1) or m.group(2) or "").strip().casefold()
+        if val:
+            out.add(("str", val))
+    for m in _WORD_RE.finditer(text):
+        canon = _MONTHS.get(m.group(0).casefold())
+        if canon:
+            out.add(("month", canon))
+    return frozenset(out)
+
+
+def literals_conflict(a: Optional[str], b: Optional[str]) -> bool:
+    """True when two questions name different concrete values — i.e. one's
+    cached SQL cannot answer the other no matter how close their vectors are."""
+    return discriminative_literals(a or "") != discriminative_literals(b or "")
+
+
 class SemanticCache:
     """
     Embedded question→SQL cache backed by pgvector.
@@ -250,7 +305,7 @@ class SemanticCache:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
-                        SELECT id, embedding <=> %s::vector AS distance
+                        SELECT id, embedding <=> %s::vector AS distance, user_query
                         FROM query_sql_pairs
                         WHERE status = 'active' AND {group_clause}
                         ORDER BY distance ASC
@@ -259,7 +314,21 @@ class SemanticCache:
                         (lit, *params_filter),
                     )
                     row = cur.fetchone()
-                    if row is not None and row[1] is not None and row[1] < self.dedup_distance:
+                    # GH#63: dedup_distance (0.05) is WIDER than the read-side
+                    # hit threshold (0.03), so without this guard saving "…in
+                    # 2014?" would overwrite the near-identical "…in 2013?" row
+                    # and the cache could only ever hold one of the two. Two
+                    # questions naming different concrete values are different
+                    # questions — insert, don't merge.
+                    near_dupe = (row is not None and row[1] is not None
+                                 and row[1] < self.dedup_distance)
+                    if near_dupe and literals_conflict(user_query, row[2]):
+                        logger.info(
+                            "SemanticCache: near-duplicate (d=%.4f) kept separate "
+                            "— different literals: %r vs %r",
+                            row[1], user_query[:60], (row[2] or "")[:60])
+                        near_dupe = False
+                    if near_dupe:
                         cur.execute(
                             """
                             UPDATE query_sql_pairs

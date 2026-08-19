@@ -250,10 +250,16 @@ class TestProbedOrLookup:
         a.semantic_cache.best_match.assert_not_called()
 
     def test_condensed_query_gets_its_own_lookup(self):
+        # The condensed text differs from user_query, so the pre-graph probe
+        # (done against the RAW follow-up) must not be reused — a fresh
+        # best_match runs instead. Text kept literal-compatible with HIT so
+        # this stays a test of the re-lookup, not of the GH#63 literal guard
+        # (which has its own tests in TestLiteralGuard).
         a = _agent()
         a.semantic_cache.best_match.return_value = HIT
         state = {"user_query": "q", "cache_probed": True, "cache_pair": None}
-        assert a._probed_or_lookup(state, "q in 2013", [0.9]) == HIT
+        assert a._probed_or_lookup(state, "how many players?", [0.9]) == HIT
+        a.semantic_cache.best_match.assert_called_once()
 
     def test_unprobed_state_looks_up(self):
         a = _agent()
@@ -265,6 +271,71 @@ class TestProbedOrLookup:
         state = {"user_query": "q", "cache_probed": True, "cache_pair": HIT,
                  "cache_rejected": True}
         assert a._probed_or_lookup(state, "q", [0.1]) is None
+
+
+class TestLiteralGuard:
+    """
+    GH#63 — the reported multi-turn bug. Turn 1 asks about 2013; the follow-up
+    'what about 2014?' condenses to the same sentence with one digit changed,
+    which sits inside the 0.03 hit threshold. Without the guard the cached 2013
+    SQL is returned and the assistant replays the previous answer forever.
+    """
+
+    Q2013 = "How much did customer 6 consume in total between August and November 2013?"
+    Q2014 = "How much did customer 6 consume in total between August and November 2014?"
+
+    def _agent_hitting(self, cached_question: str, distance: float = 0.01):
+        a = _agent()
+        a.semantic_cache.best_match.return_value = {
+            "user_query": cached_question, "sql": "SELECT 1", "confidence": 1.0,
+            "distance": distance, "rows_fingerprint": "f", "response": "old answer",
+        }
+        return a
+
+    def test_the_reported_bug_year_change_is_not_a_cache_hit(self):
+        a = self._agent_hitting(self.Q2013)
+        assert a._cache_lookup([0.1], self.Q2014) is None
+
+    def test_the_same_question_still_hits(self):
+        """The GH#57 cost saving must survive the fix."""
+        a = self._agent_hitting(self.Q2013)
+        assert a._cache_lookup([0.1], self.Q2013) is not None
+
+    def test_rewording_without_changing_values_still_hits(self):
+        a = self._agent_hitting("How many players are there?")
+        assert a._cache_lookup([0.1], "How many players do we have?") is not None
+
+    @pytest.mark.parametrize("asked", [
+        "How much did customer 7 consume in total between August and November 2013?",
+        "How much did customer 6 consume in total between August and September 2013?",
+    ])
+    def test_other_changed_literals_are_also_rejected(self, asked):
+        """Not year-specific: entity ids and month names matter just as much."""
+        a = self._agent_hitting(self.Q2013)
+        assert a._cache_lookup([0.1], asked) is None
+
+    def test_quoted_string_change_is_rejected(self):
+        a = self._agent_hitting("players from 'Brazil'")
+        assert a._cache_lookup([0.1], "players from 'Spain'") is None
+
+    def test_month_abbreviation_is_not_a_difference(self):
+        a = self._agent_hitting("revenue in Aug 2013")
+        assert a._cache_lookup([0.1], "revenue in August 2013") is not None
+
+    def test_distance_still_gates_before_the_literal_check(self):
+        a = self._agent_hitting(self.Q2013, distance=0.9)
+        assert a._cache_lookup([0.1], self.Q2013) is None
+
+    def test_omitting_query_text_keeps_the_old_distance_only_behaviour(self):
+        a = self._agent_hitting(self.Q2013)
+        assert a._cache_lookup([0.1]) is not None
+
+    def test_probed_or_lookup_applies_the_guard_to_a_condensed_followup(self):
+        """End-to-end through the node's own helper, not just _cache_lookup."""
+        a = self._agent_hitting(self.Q2013)
+        state = {"user_query": "what about 2014?", "cache_probed": True,
+                 "cache_pair": None}
+        assert a._probed_or_lookup(state, self.Q2014, [0.9]) is None
 
 
 class TestStaleCacheUnwind:
@@ -421,6 +492,29 @@ class TestCacheWriteBack:
         kwargs = a.semantic_cache.save_pair.call_args.kwargs
         assert kwargs["rows_fingerprint"] == "new"
         assert kwargs["response"] == "ok"
+
+    def test_stores_the_condensed_question_not_the_raw_followup(self):
+        """GH#63: the embedding saved alongside is the CONDENSED text's, so
+        storing 'what about 2014?' here left text and vector describing
+        different questions — and made the pair useless as a few-shot."""
+        a = _agent()
+        a._update_cache("s", "what about 2014?",
+                        self._final(standalone_query="revenue in 2014"), 1, 10)
+        assert a.semantic_cache.save_pair.call_args.kwargs["user_query"] \
+            == "revenue in 2014"
+
+    def test_the_audit_log_still_records_what_the_user_actually_typed(self):
+        a = _agent()
+        a._update_cache("s", "what about 2014?",
+                        self._final(standalone_query="revenue in 2014"), 1, 10)
+        assert a.semantic_cache.log_interaction.call_args.kwargs["user_query"] \
+            == "what about 2014?"
+
+    def test_falls_back_to_the_raw_query_when_nothing_was_condensed(self):
+        a = _agent()
+        a._update_cache("s", "revenue in 2014", self._final(), 1, 10)
+        assert a.semantic_cache.save_pair.call_args.kwargs["user_query"] \
+            == "revenue in 2014"
 
     def test_refreshes_a_reused_pair_when_the_rows_moved(self):
         a = _agent()

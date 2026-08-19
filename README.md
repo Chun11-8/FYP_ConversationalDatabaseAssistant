@@ -97,6 +97,16 @@ re-validated against the current schema and re-executed, so a cached query that
 no longer fits the schema unwinds to full retrieval rather than returning
 wrong rows.
 
+A cache hit needs more than a close vector. Embeddings are near-blind to exact
+numeric and date tokens — *"…in 2013?"* and *"…in 2014?"* differ by one
+character and sit well inside the 0.03 threshold — so a **literal guard**
+compares the concrete values each question pins down (numbers, quoted strings,
+month names, normalized so `Aug` == `August` and `06` == `6`). Differing
+values reject the hit no matter how close the vectors are, on both the read
+path and the dedup write path. This is what keeps a follow-up like *"what
+about 2014?"* from being answered with the previous turn's SQL; a genuine
+repeat, with identical literals, still hits the cache.
+
 `classify_intent` distinguishes a genuinely unclear question from a broken
 model call: a call failure (an invalid custom model id, an auth error, a
 timeout) routes to `handle_intent_error` with a real error message instead of
@@ -541,6 +551,7 @@ Sends a user message and returns a structured response.
 | `csv_path` | string \| null | CSV filename for large result sets (>100 rows) |
 | `turn_id` | integer \| null | Turn id, used to submit feedback |
 | `cache_hit` | boolean | Answered via the semantic-cache shortcut |
+| `standalone_query` | string \| null | A follow-up rewritten as a self-contained question; `null` when the turn needed no context |
 | `latency_ms` | integer | End-to-end turn latency |
 | `timings` | object | Per-stage wall-clock ms |
 | `usage` | object | LLM calls, token counts, and estimated USD cost for the turn, in total and per stage |

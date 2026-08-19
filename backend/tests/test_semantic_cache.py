@@ -17,7 +17,10 @@ import uuid
 
 import pytest
 
-from backend.memory.semantic_cache import SemanticCache, _to_vector_literal, _format_few_shot
+from backend.memory.semantic_cache import (
+    SemanticCache, _to_vector_literal, _format_few_shot,
+    discriminative_literals, literals_conflict,
+)
 
 VECTOR_DIM = 1536
 
@@ -57,6 +60,104 @@ class TestHelpersAndDisabled:
         # Issue #7/GH#8 schema-change cascade: also a safe no-op when disabled.
         assert cache.archive_pairs_referencing_table("players") == 0
         assert cache.demote_pairs_referencing_table("players") == 0
+
+
+# ── literal-aware matching (GH#63) ───────────────────────────────────────────
+
+class TestDiscriminativeLiterals:
+
+    def test_extracts_numbers_and_months(self):
+        lits = discriminative_literals("customer 6 between August and November 2013")
+        assert ("num", "6") in lits
+        assert ("num", "2013") in lits
+        assert ("month", "aug") in lits
+        assert ("month", "nov") in lits
+
+    def test_extracts_quoted_strings_case_insensitively(self):
+        assert ("str", "brazil") in discriminative_literals("players from 'Brazil'")
+        assert ("str", "brazil") in discriminative_literals('players from "brazil"')
+
+    def test_ordinary_words_are_not_literals(self):
+        # Distinguishing prose is the embedding's job; over-collecting here
+        # would reject legitimate rewordings of the same question.
+        assert discriminative_literals("how many players are there") == frozenset()
+
+    def test_leading_zeros_normalize(self):
+        assert discriminative_literals("month 06") == discriminative_literals("month 6")
+
+    def test_month_abbreviations_normalize(self):
+        assert discriminative_literals("in Aug") == discriminative_literals("in August")
+        assert discriminative_literals("in Sept") == discriminative_literals("in September")
+
+    def test_empty_and_none_are_safe(self):
+        assert discriminative_literals("") == frozenset()
+        assert literals_conflict(None, None) is False
+        assert literals_conflict(None, "in 2013") is True
+
+
+class TestLiteralsConflict:
+
+    Q2013 = "How much did customer 6 consume in total between August and November 2013?"
+
+    def test_the_reported_bug_year_change_conflicts(self):
+        assert literals_conflict(self.Q2013, self.Q2013.replace("2013", "2014")) is True
+
+    def test_identical_questions_do_not_conflict(self):
+        assert literals_conflict(self.Q2013, self.Q2013) is False
+
+    def test_reworded_same_values_do_not_conflict(self):
+        assert literals_conflict("how many players are there",
+                                 "how many players do we have") is False
+
+    def test_entity_id_change_conflicts(self):
+        assert literals_conflict("total for customer 6", "total for customer 7") is True
+
+    def test_word_order_does_not_matter(self):
+        assert literals_conflict("6 then 2013", "2013 then 6") is False
+
+
+class TestSavePairLiteralDedupOffline:
+    """
+    GH#63 write path: dedup_distance (0.05) is WIDER than the read-side hit
+    threshold (0.03), so without a literal guard saving the 2014 pair would
+    UPDATE the 2013 row in place and the cache could only ever hold one.
+    """
+
+    def _cache(self, nearest_row):
+        from unittest.mock import MagicMock
+        cache = SemanticCache(db_config={"name": "x"}, embed_fn=fake_embed)
+        cache._enabled = True
+        cur = MagicMock()
+        cur.fetchone.return_value = nearest_row     # (id, distance, user_query)
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        conn.cursor.return_value.__enter__.return_value = cur
+        cache._connect = MagicMock(return_value=conn)
+        return cache, cur
+
+    @staticmethod
+    def _second_statement(cur) -> str:
+        return cur.execute.call_args_list[1][0][0]
+
+    def test_different_year_inserts_instead_of_overwriting(self):
+        cache, cur = self._cache((7, 0.01, "revenue in 2013"))
+        cache.save_pair("revenue in 2014", "SELECT 2014", embedding=[0.1] * 4)
+        assert "INSERT INTO query_sql_pairs" in self._second_statement(cur)
+
+    def test_same_question_still_updates_in_place(self):
+        cache, cur = self._cache((7, 0.01, "revenue in 2013"))
+        cache.save_pair("revenue in 2013", "SELECT 2013b", embedding=[0.1] * 4)
+        assert "UPDATE query_sql_pairs" in self._second_statement(cur)
+
+    def test_far_away_pair_inserts_as_before(self):
+        cache, cur = self._cache((7, 0.9, "revenue in 2013"))
+        cache.save_pair("revenue in 2013", "SELECT x", embedding=[0.1] * 4)
+        assert "INSERT INTO query_sql_pairs" in self._second_statement(cur)
+
+    def test_empty_cache_inserts(self):
+        cache, cur = self._cache(None)
+        cache.save_pair("revenue in 2014", "SELECT 1", embedding=[0.1] * 4)
+        assert "INSERT INTO query_sql_pairs" in self._second_statement(cur)
 
 
 # ── schema-change cascade — offline (mocked connection) ──────────────────────
@@ -241,6 +342,22 @@ class TestSemanticCachePg:
             assert pairs == []
         finally:
             _cleanup(gid)
+
+    def test_year_variants_coexist_instead_of_overwriting(self, cache, gid):
+        """GH#63 acceptance criterion, against a real pgvector index."""
+        q13 = "How much did customer 6 consume between August and November 2013?"
+        q14 = q13.replace("2013", "2014")
+        cache.save_pair(q13, "SELECT 13", group_id=gid)
+        cache.save_pair(q14, "SELECT 14", group_id=gid)
+        assert _count_pairs(gid) == 2
+        assert {p["sql"] for p in cache.retrieve_pairs(q13, top_k=5, group_id=gid)} \
+            == {"SELECT 13", "SELECT 14"}
+
+    def test_repeating_a_question_still_dedupes(self, cache, gid):
+        q = "How much did customer 6 consume between August and November 2013?"
+        cache.save_pair(q, "SELECT a", group_id=gid)
+        cache.save_pair(q, "SELECT b", group_id=gid)
+        assert _count_pairs(gid) == 1
 
     def test_archive_pairs_referencing_table_hides_them_from_retrieval(self, cache, gid):
         cache.save_pair("how many players", "SELECT count(*) FROM players", group_id=gid)

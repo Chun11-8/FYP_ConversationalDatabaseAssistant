@@ -33,6 +33,10 @@ class ChatResponse(BaseModel):
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
     cache_hit: bool = False   # answered from the semantic cache (no generation)
+    # The follow-up rewritten as a standalone question (GH#40), surfaced so a
+    # bad condensation is visible instead of silent (GH#63). None on a first
+    # turn or any question that needed no context.
+    standalone_query: Optional[str] = None
     latency_ms: Optional[int] = None            # total turn wall-clock (GH#42)
     timings: Optional[Dict[str, int]] = None    # per-stage ms (GH#42)
     usage: Optional[Dict[str, Any]] = None      # tokens + est. cost (GH#57)

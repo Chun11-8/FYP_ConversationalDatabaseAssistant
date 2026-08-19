@@ -25,7 +25,7 @@ from backend.agents import usage as usage_tracking
 from backend.agents.utils import PromptHarness
 
 from backend.memory.session_memory import SessionMemory
-from backend.memory.semantic_cache import SemanticCache
+from backend.memory.semantic_cache import SemanticCache, literals_conflict
 from backend.retrieval.indexing import (
     retrieve, execute_query, expand_fk_tables, fetch_table_chunks,
 )
@@ -721,12 +721,20 @@ class OrchestrationAgent:
             return None
         if state.get("cache_probed") and search_q == state["user_query"]:
             return state.get("cache_pair")
-        return self._cache_lookup(embedding)
+        return self._cache_lookup(embedding, search_q)
 
-    def _cache_lookup(self, embedding: Optional[List[float]]) -> Optional[dict]:
+    def _cache_lookup(self, embedding: Optional[List[float]],
+                      query_text: Optional[str] = None) -> Optional[dict]:
         """
         The cached pair for this query, or None when the shortcut is disabled,
         the cache is empty, or nothing is close enough. Never raises.
+
+        ``query_text`` enables the GH#63 literal guard: a pair that is close in
+        vector space but names DIFFERENT concrete values (2013 vs 2014,
+        customer 6 vs 7, August vs September) is rejected. Without it a
+        follow-up would be answered from the previous turn's SQL — the bug that
+        made multi-turn conversation appear broken. Omit it only where no
+        question text is available; distance alone is not a safe match.
         """
         if not getattr(self, "_cache_shortcut", False) or embedding is None:
             return None
@@ -741,7 +749,18 @@ class OrchestrationAgent:
         if not isinstance(distance, (int, float)):
             return None
         threshold = getattr(self, "_cache_hit_threshold", 0.03)
-        return hit if distance <= threshold else None
+        if distance > threshold:
+            return None
+        cached_q = hit.get("user_query") or ""
+        if query_text is not None and literals_conflict(query_text, cached_q):
+            trace(f"  🚫 Cache candidate rejected (d={distance:.4f}) — different "
+                  f"literals: {cached_q[:70]!r}")
+            logger.info(f"[CACHE] literal-guard rejected d={distance:.4f} | "
+                        f"asked={query_text[:60]!r} cached={cached_q[:60]!r}")
+            return None
+        logger.info(f"[CACHE] hit d={distance:.4f} | asked={(query_text or '')[:60]!r} "
+                    f"cached={cached_q[:60]!r}")
+        return hit
 
     def _schema_for_sql(self, sql: str) -> str:
         """
@@ -1640,7 +1659,7 @@ class OrchestrationAgent:
         query_embedding = self._consume_prefetched_embedding()
         cache_probed = bool(getattr(self, "_fast_path", True)) and \
             not self._looks_anaphoric(user_query, history)
-        cache_pair = self._cache_lookup(query_embedding) if cache_probed else None
+        cache_pair = self._cache_lookup(query_embedding, user_query) if cache_probed else None
         fast = self._fast_path_state(cache_pair) if cache_pair else None
         initial_state: AgentState = {
             "session_id": session_id,
@@ -1714,6 +1733,9 @@ class OrchestrationAgent:
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
             "cache_hit":  bool(final.get("cache_hit")),
+            # GH#63: what the follow-up was condensed into, so a bad rewrite is
+            # visible rather than silently producing a confusing answer.
+            "standalone_query": final.get("standalone_query"),
             "latency_ms": latency_ms,
             "timings":    final.get("timings") or {},
             "usage":      tracker.as_dict(),
@@ -1749,10 +1771,17 @@ class OrchestrationAgent:
             and (not final.get("cache_hit")
                  or fingerprint != final.get("cached_fingerprint"))
         )
+        # GH#63: store the CONDENSED question when there is one. The embedding
+        # written alongside it is the condensed text's (retrieve_schema
+        # re-embeds after condense_query), so storing the raw follow-up here
+        # left text and vector describing different questions — and made the
+        # pair useless as a few-shot ("Q: what about 2014?"). The raw text is
+        # still the audit record, so log_interaction below keeps it verbatim.
+        cache_query = final.get("standalone_query") or user_query
         try:
             if success:
                 self.semantic_cache.save_pair(
-                    user_query=user_query,
+                    user_query=cache_query,
                     sql=best_sql,
                     embedding=final.get("query_embedding"),
                     rows_fingerprint=fingerprint,
