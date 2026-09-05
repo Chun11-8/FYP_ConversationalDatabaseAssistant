@@ -33,6 +33,10 @@ class ChatResponse(BaseModel):
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
     cache_hit: bool = False   # answered from the semantic cache (no generation)
+    # GH#67: how this answer was arrived at — candidate agreement, how the
+    # winner was decided, refine rounds, validation flags. Facts only; no
+    # confidence verdict until the calibration study establishes one.
+    verification: Optional[Dict[str, Any]] = None
     # The follow-up rewritten as a standalone question (GH#40), surfaced so a
     # bad condensation is visible instead of silent (GH#63). None on a first
     # turn or any question that needed no context.

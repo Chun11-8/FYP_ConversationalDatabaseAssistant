@@ -25,6 +25,8 @@ export interface TextMessage extends BaseMessage {
   cache_hit?: boolean;
   /** LLM tokens + estimated cost for this turn (GH#57) */
   usage?: TurnUsage | null;
+  /** How this answer was arrived at (GH#67) — evidence, not a verdict */
+  verification?: TurnVerification | null;
   /** Feedback the user submitted for this message ('up' | 'down' | null) */
   feedback?: 'up' | 'down' | null;
 }
@@ -41,6 +43,43 @@ export interface TurnUsage {
     output_tokens: number;
     est_cost_usd: number;
   }>;
+}
+
+/**
+ * Evidence about how the winning SQL was chosen (GH#67).
+ *
+ * Deliberately facts, not a confidence verdict: nothing has yet established
+ * that agreement predicts correctness (that is the calibration study), and a
+ * miscalibrated badge would teach users to trust the wrong answers.
+ */
+export interface TurnVerification {
+  /** SQL candidates generated this turn */
+  candidates: number;
+  /** Candidates that validated and executed successfully */
+  executed: number;
+  /** Candidates whose result set matched the winner's */
+  agreement: number;
+  /** How many genuinely different result sets the candidates produced */
+  distinct_result_sets: number;
+  /** Which mechanism picked the winner */
+  decided_by:
+    | 'plurality'            // most candidates produced this result set
+    | 'non_empty_tiebreak'   // tie, resolved toward the non-empty result
+    | 'unit_test'            // unit-test screen left one survivor
+    | 'pairwise'             // LLM pairwise comparison broke the tie
+    | 'reranker'             // voting inconclusive — text-only reranker chose
+    | 'inconclusive'
+    | 'single_candidate'     // only one candidate — nothing to compare
+    | 'voting_disabled'
+    | 'none_executed'
+    | 'generation_failed'
+    | 'cache_hit'            // reused a stored query; no voting this turn
+    | 'not_generated'        // GENERAL / blocked / clarifying turn
+    | string;
+  /** ReAct execute→refine rounds taken (0 = first attempt worked) */
+  refine_rounds?: number;
+  validated?: boolean;
+  validation_checks?: Record<string, boolean>;
 }
 
 export type Message = TextMessage;

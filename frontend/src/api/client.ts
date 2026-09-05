@@ -1,4 +1,4 @@
-import type { SchemaInfo, SessionSummary, TurnUsage } from '../types';
+import type { SchemaInfo, SessionSummary, TurnUsage, TurnVerification } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
 
@@ -13,6 +13,8 @@ export interface ChatApiResponse {
   turn_id: number | null;
   cache_hit?: boolean;
   usage?: TurnUsage | null;
+  /** How the winning SQL was chosen (GH#67) — evidence, not a verdict */
+  verification?: TurnVerification | null;
 }
 
 export interface Turn {

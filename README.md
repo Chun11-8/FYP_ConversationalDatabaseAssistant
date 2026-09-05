@@ -551,6 +551,7 @@ Sends a user message and returns a structured response.
 | `csv_path` | string \| null | CSV filename for large result sets (>100 rows) |
 | `turn_id` | integer \| null | Turn id, used to submit feedback |
 | `cache_hit` | boolean | Answered via the semantic-cache shortcut |
+| `verification` | object | How this answer was chosen — `candidates`, `executed`, `agreement`, `distinct_result_sets`, `decided_by`, `refine_rounds`, `validated`, `validation_checks` (GH#67) |
 | `standalone_query` | string \| null | A follow-up rewritten as a self-contained question; `null` when the turn needed no context |
 | `latency_ms` | integer | End-to-end turn latency |
 | `timings` | object | Per-stage wall-clock ms |
@@ -754,6 +755,31 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Evidence-target guidance | evidence formulas misread as filters instead of the SELECT target | GH#50 |
 | Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
 | Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
+
+### Showing the evidence behind an answer (GH#67)
+
+A text-to-SQL system gets no natural signal telling it whether its own answer
+is right. Syntax errors are self-reporting and safety violations are
+detectable, but a query that joins the wrong table parses cleanly, executes,
+and returns plausible rows. The 150-question runs in `outputs/` bear this out:
+
+| Run | Failed validation | Failed execution | Wrong but executed |
+|---|---|---|---|
+| gpt-4o-mini (EX 82/62/42) | 1 | 2 | 54 |
+| gpt-5-mini (EX 76/58/46) | 0 | 0 | **57 (100 %)** |
+
+Every failure a user actually meets runs cleanly. The pipeline already
+manufactures evidence about which answer to trust — execution voting over
+candidate result sets, a unit-test screen, pairwise comparison — so each turn
+now reports it in `verification` and the UI shows it: an agreement chip
+(*"4/5 agreed"*) beside the answer and a collapsed **Why this answer** panel
+with the full breakdown.
+
+These are **facts, not a verdict**. There is deliberately no High/Medium/Low
+confidence badge: whether agreement predicts correctness has not yet been
+measured, and a miscalibrated badge would teach users to trust exactly the
+answers they should question. Establishing that relationship against the
+labelled `error_category` data is the follow-on calibration study.
 
 ### Cost & minimum execution (GH#57)
 
