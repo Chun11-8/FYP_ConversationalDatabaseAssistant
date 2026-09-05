@@ -24,7 +24,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from backend.agents.usage import invoke_tracked
-from backend.agents.utils import PromptHarness
+from backend.agents.utils import PromptHarness, strip_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,11 @@ def _extract_json(raw: str) -> Optional[dict]:
     """
     if not raw:
         return None
+
+    # GH#65: a reasoning model's think block routinely contains braces, which
+    # makes the outermost-{...} fallback below span both the reasoning and the
+    # answer and fail to parse — losing the query plan silently.
+    raw = strip_reasoning(raw)
 
     # 1. Prefer an explicit ```json ... ``` (or bare ``` ... ```) fenced block.
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL | re.IGNORECASE)

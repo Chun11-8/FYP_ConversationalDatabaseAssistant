@@ -132,6 +132,7 @@ instead of re-asking indefinitely.
 | Schema RAG | `backend/retrieval/` | pgvector store, FK expansion, value index, indexing CLI |
 | Memory | `backend/memory/session_memory.py` | Session turn history (in-RAM, optional Postgres) with rolling summaries |
 | Semantic cache | `backend/memory/semantic_cache.py` | Validated question→SQL pairs; few-shots, hit shortcut, cached answers |
+| LLM factory | `backend/agents/llm_factory.py` | Single construction point for query-stage clients; OpenAI-compatible `base_url` |
 | Query skeletons | `backend/memory/skeleton.py` | Structural-shape signatures used to blend few-shot selection |
 | Tools | `backend/tools/` | Web-search tool + registry, used by the `GENERAL` intent path |
 | Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) + output guardrail |
@@ -738,6 +739,52 @@ MODEL=gpt-4o bash backend/eval/run_bird.sh
 # Or the lightweight ground-truth harness on your own labelled set
 python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP --model gpt-4o
 ```
+
+### Benchmarking across providers (GH#65)
+
+`--base-url` points a run at any **OpenAI-compatible** endpoint, so the same
+BIRD harness can score open-weight models from different vendors against the
+identical prompt stack, schema linking and voting configuration:
+
+```bash
+export OPENAI_API_KEY=sk-...            # still required — embeddings/RAG use OpenAI
+export PROVIDER_KEY=sk-or-...           # your OpenRouter / Groq / DeepSeek key
+
+# Baseline
+python -m backend.eval.bird --output out/gpt4omini.json --model gpt-4o-mini
+
+# Meta Llama via Groq
+python -m backend.eval.bird --output out/llama33.json \
+  --model llama-3.3-70b-versatile --base-url https://api.groq.com/openai/v1
+
+# DeepSeek direct
+python -m backend.eval.bird --output out/deepseek.json \
+  --model deepseek-chat --base-url https://api.deepseek.com
+
+# Alibaba Qwen via OpenRouter (one key reaches many vendors)
+python -m backend.eval.bird --output out/qwen.json \
+  --model qwen/qwen-2.5-coder-32b-instruct --base-url https://openrouter.ai/api/v1
+
+# Fully local, no API cost
+python -m backend.eval.bird --output out/local.json \
+  --model qwen2.5-coder --base-url http://localhost:11434/v1
+```
+
+`--base-url` also works on `bird_predict.py` and `smoke_examples.py`, and can
+be set once via `$LLM_BASE_URL` or `llm.base_url` in `config.yaml`. Each run
+records both `model` and `base_url` in the results file's `run_config` — the
+same model id served by two providers can differ in weights, quantisation and
+sampling defaults, so a number without its endpoint isn't reproducible.
+
+Two things to know before reading the numbers:
+
+- **Cost shows `$0.00` for non-OpenAI models** until you add them to the
+  `llm.pricing` block in `config.yaml`. Token counts are still accurate.
+- **Reasoning models** (DeepSeek-R1, QwQ, Qwen-thinking, GPT-OSS) emit a
+  chain of thought before the answer. `strip_reasoning()`
+  (`backend/agents/utils.py`) removes it ahead of all four free-text parsers —
+  intent, query plan, SQL extraction and follow-up condensation — so a `<think>`
+  block doesn't get mistaken for the answer.
 
 Research-backed techniques implemented to raise accuracy **without a stronger
 model** (all config-gated) — see GitHub issues #48/#49/#50:

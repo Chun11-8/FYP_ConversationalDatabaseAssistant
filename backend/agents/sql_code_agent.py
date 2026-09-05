@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from backend.agents.trace import trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
-from backend.agents.utils import PromptHarness
+from backend.agents.utils import PromptHarness, strip_reasoning
 from backend.agents.schema_linking_agent import render_query_plan
 
 logger = logging.getLogger(__name__)
@@ -1136,13 +1136,26 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
     # ── Helpers ─────────────────────────────────
 
     def _extract_sqls(self, raw: str) -> List[str]:
-        """Extract SQL blocks from fenced code blocks.
+        """Extract SQL blocks from an LLM reply.
 
-        Handles both ```sql ... ``` (preferred) and bare ``` ... ``` fallback.
+        Tries ```sql ... ``` (preferred), then bare ``` ... ``` containing a
+        SELECT, then an unfenced SELECT (GH#65).
         """
+        # GH#65: strip a reasoning model's think block first, or we'd collect
+        # candidate SQL the model was only considering, not proposing.
+        raw = strip_reasoning(raw or "")
+
         # Primary: explicit ```sql tag
         blocks = re.findall(r"```sql\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
         if not blocks:
             # Fallback: bare ``` fences that contain a SELECT statement
             blocks = re.findall(r"```\s*(SELECT[\s\S]*?)```", raw, re.DOTALL | re.IGNORECASE)
+        if not blocks:
+            # GH#65 last resort: unfenced SQL. Open-weight models honour the
+            # "wrap in ```sql fences" instruction far less reliably than
+            # gpt-4o-mini, and returning [] here sends a perfectly good query
+            # to fallback_handler for two wasted rounds. Anchored at a line
+            # start and terminated by a blank line or `;` so surrounding prose
+            # ("Here is the query:") isn't swallowed.
+            blocks = re.findall(r"(?im)^[ \t]*(SELECT\b[\s\S]*?)(?:;|\n[ \t]*\n|\Z)", raw)
         return [b.strip() for b in blocks if b.strip()]

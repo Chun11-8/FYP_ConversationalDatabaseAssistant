@@ -3,6 +3,19 @@
 
 llm:
   model: gpt-4o-mini
+  # GH#65: point the QUERY STAGE at any OpenAI-COMPATIBLE endpoint to use
+  # open-weight models from other vendors (Llama, DeepSeek, Qwen, Mistral,
+  # Gemma, GPT-OSS). Unset → OpenAI. Overridden by $LLM_BASE_URL, and by
+  # --base-url on the eval CLIs. Embeddings ALWAYS stay on OpenAI: the
+  # pgvector columns are sized for text-embedding-3-small (1536 dims), so
+  # changing the embedder means a full re-index.
+  #   OpenRouter  https://openrouter.ai/api/v1      (one key, many vendors)
+  #   Groq        https://api.groq.com/openai/v1
+  #   DeepSeek    https://api.deepseek.com
+  #   Together    https://api.together.xyz/v1
+  #   Gemini      https://generativelanguage.googleapis.com/v1beta/openai/
+  #   Ollama      http://localhost:11434/v1         (local, no key)
+  # base_url:
   # GH#38 model routing (optional): cheaper models for one-token intent
   # classification and response formatting. Absent → main model reused.
   # intent_model: gpt-4o-mini
@@ -18,10 +31,21 @@ llm:
   # GH#57 cost accounting: USD per 1M tokens, merged over the built-in table in
   # backend/agents/usage.py. A model absent here still has its tokens counted,
   # it just contributes no dollar figure. Update when OpenAI changes prices.
+  # Non-OpenAI models (GH#65) have no built-in price, so cost reads $0.00 until
+  # you add them here — tokens are still counted either way. Namespaced ids
+  # must be quoted in YAML. The non-OpenAI figures below are ILLUSTRATIVE
+  # placeholders — look up your provider's current rates before trusting a
+  # cost number in a report.
   # pricing:
   #   gpt-4o-mini:
   #     input: 0.15
   #     output: 0.60
+  #   "deepseek-chat":
+  #     input: 0.28
+  #     output: 0.42
+  #   "meta-llama/Llama-3.3-70B-Instruct":
+  #     input: 0.12
+  #     output: 0.30
 
 db:
   dialect: postgres

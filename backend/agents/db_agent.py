@@ -22,7 +22,8 @@ from backend.agents.safety import enforce_limit
 from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
-from backend.agents.utils import PromptHarness
+from backend.agents.llm_factory import build_chat_llm, describe_target, resolve_base_url
+from backend.agents.utils import PromptHarness, strip_reasoning
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache, literals_conflict
@@ -71,7 +72,9 @@ def _normalize_intent(raw: str) -> str:
     Unrecognized text → AMBIGUOUS, matching the prompt's own safety-first rule
     (better to ask than to guess).
     """
-    stripped = (raw or "").strip()
+    # GH#65: a reasoning model weighs several labels aloud before deciding —
+    # strip the chain of thought so only the verdict is scanned.
+    stripped = strip_reasoning(raw or "").strip()
     text = stripped.upper()
 
     # Fast path: a fully-compliant reply is exactly one label (gpt-4o-mini
@@ -275,11 +278,15 @@ class OrchestrationAgent:
         self._selectable_models = list(config["llm"].get("selectable_models") or [self._model])
         if self._model not in self._selectable_models:
             self._selectable_models.insert(0, self._model)
-        self.llm = ChatOpenAI(
-            model=self._model,
-            temperature=0,
-            api_key=self._default_api_key,
-        )
+        # GH#65: optional OpenAI-COMPATIBLE endpoint (OpenRouter, Groq,
+        # DeepSeek, Together, Ollama…), which is what makes open-weight models
+        # from other vendors usable. Absent → OpenAI, unchanged. Query stage
+        # only: embeddings stay on OpenAI (pgvector columns are 1536-dim).
+        self._base_url = resolve_base_url(config)
+        if self._base_url:
+            logger.info("[LLM] query stage → %s",
+                        describe_target(self._model, self._base_url))
+        self.llm = self._chat_llm(self._model, self._default_api_key)
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
         self.linker = SchemaLinkingAgent(config, self.llm)
@@ -348,12 +355,12 @@ class OrchestrationAgent:
         # main LLM object is REUSED (identical behavior, no extra client).
         intent_model = config["llm"].get("intent_model")
         self.intent_llm = (
-            ChatOpenAI(model=intent_model, temperature=0, api_key=self._default_api_key)
+            self._chat_llm(intent_model, self._default_api_key)
             if intent_model and intent_model != self._model else self.llm
         )
         format_model = config["llm"].get("format_model")
         self._format_llm = (
-            ChatOpenAI(model=format_model, temperature=0, api_key=self._default_api_key)
+            self._chat_llm(format_model, self._default_api_key)
             if format_model and format_model != self._model else self.llm
         )
         self.optimizer = ResponseOptimizer(self._format_llm)
@@ -383,6 +390,10 @@ class OrchestrationAgent:
     def _get_llm(self) -> ChatOpenAI:
         """Return the per-request LLM if an api_key override is active, else the default."""
         return getattr(_tls, "llm", self.llm)
+
+    def _chat_llm(self, model: str, api_key: Optional[str]) -> ChatOpenAI:
+        """Build a query-stage client honouring this agent's base_url (GH#65)."""
+        return build_chat_llm(model, api_key, getattr(self, "_base_url", None))
 
     def _get_sql_agent(self) -> SQLCodeAgent:
         return getattr(_tls, "sql_agent", self.sql_agent)
@@ -504,8 +515,12 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            standalone = invoke_tracked(self._get_intent_llm(), messages,
-                                        "condense_query").content.strip()
+            raw = invoke_tracked(self._get_intent_llm(), messages,
+                                 "condense_query").content
+            # GH#65: without stripping, a reasoning model's think block pushes
+            # the reply past the 500-char guard below, the rewrite is silently
+            # dropped, and multi-turn regresses to the GH#63 symptom.
+            standalone = strip_reasoning(raw or "").strip()
         except Exception as exc:
             logger.warning(f"[CONDENSE] failed: {exc}")
             return state
@@ -1632,10 +1647,11 @@ class OrchestrationAgent:
         # tokens/cost in that same row were actually billed against.
         effective_model = model.strip() if (model and model.strip()) else self._model
         if has_override:
-            _tls.llm = ChatOpenAI(
-                model=effective_model, temperature=0,
-                api_key=(api_key or self._default_api_key),
-            )
+            # Must go through _chat_llm too (GH#65): a bare ChatOpenAI here
+            # would silently send a bring-your-own-key request to OpenAI while
+            # every other stage talks to the configured provider.
+            _tls.llm = self._chat_llm(
+                effective_model, api_key or self._default_api_key)
             _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
             _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)

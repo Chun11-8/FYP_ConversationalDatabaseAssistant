@@ -831,26 +831,35 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--no-refine", action="store_true",
                         help="Disable the one-round ReAct refine on failure for A/B comparison")
     parser.add_argument("--model", default=None,
-                        help="Override config.yaml's llm.model for this run (any OpenAI model id)")
+                        help="Override config.yaml's llm.model for this run (any model id)")
+    parser.add_argument("--base-url", default=None,
+                        help="OpenAI-COMPATIBLE endpoint to benchmark against, e.g. "
+                             "https://openrouter.ai/api/v1 or http://localhost:11434/v1. "
+                             "Overrides $LLM_BASE_URL and config llm.base_url; "
+                             "omit for OpenAI. Lets one BIRD run target Llama, "
+                             "DeepSeek, Qwen, Mistral etc. (GH#65)")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
     from backend.agents.sql_code_agent import SQLCodeAgent
     from backend.agents.sql_validator_agent import SQLValidatorAgent
     from backend.agents.schema_linking_agent import SchemaLinkingAgent
-    from langchain_openai import ChatOpenAI
+    from backend.agents.llm_factory import (
+        build_chat_llm, describe_target, resolve_base_url,
+    )
 
     config = load_config()
     # Override dialect to sqlite so the agent and validator target SQLite syntax
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
 
     model_name = resolve_model(args.model, config)
+    base_url = resolve_base_url(config, args.base_url)
     usage_tracking.set_pricing(config["llm"].get("pricing"))
-    llm = ChatOpenAI(
-        model=model_name,
-        temperature=0,
-        api_key=config["llm"]["api_key"],
-    )
+    # Recorded in the run header: the same model id served by two providers can
+    # differ in weights, quantisation and sampling defaults, so a benchmark
+    # number without its endpoint is not reproducible.
+    logger.info("[EVAL] target → %s", describe_target(model_name, base_url))
+    llm = build_chat_llm(model_name, config["llm"]["api_key"], base_url)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
 
@@ -884,6 +893,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     metrics = compute_bird_metrics(results)
     run_config = {
         "model": model_name,
+        # GH#65: without the endpoint a cross-provider comparison isn't
+        # attributable — the same id can be served with different weights,
+        # quantisation or sampling defaults.
+        "base_url": base_url or "openai-default",
         "dialect": "sqlite",
         "schema_linking": bool(linker),
         "exec_voting": use_voting,
