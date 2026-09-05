@@ -493,6 +493,42 @@ body, html, #root {
   opacity: 0.85;
 }
 
+/* Risk flags (GH#69). Amber, not red: these are "worth checking", not
+   "this is wrong" — the checks are precise but far from exhaustive, and a
+   red alarm would imply a certainty they cannot support. */
+.risk-notes {
+  list-style: none;
+  margin: 0.625rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.risk-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(234,179,8,0.28);
+  background: rgba(234,179,8,0.08);
+  color: #fcd34d;
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
+.risk-note--low {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.risk-note-icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
 .evidence-panel {
   margin-top: 0.5rem;
 }

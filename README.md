@@ -776,10 +776,45 @@ now reports it in `verification` and the UI shows it: an agreement chip
 with the full breakdown.
 
 These are **facts, not a verdict**. There is deliberately no High/Medium/Low
-confidence badge: whether agreement predicts correctness has not yet been
-measured, and a miscalibrated badge would teach users to trust exactly the
-answers they should question. Establishing that relationship against the
-labelled `error_category` data is the follow-on calibration study.
+confidence badge: a miscalibrated badge would teach users to trust exactly the
+answers they should question.
+
+Measured against the labelled `error_category` data, agreement is a real
+signal — and has a hard ceiling:
+
+| | unanimous | candidates disagreed |
+|---|---|---|
+| gpt-5-mini | 67.5 % EX (n=126) | 23.8 % EX (n=21) |
+| gpt-4o-mini | 69.6 % EX (n=115) | 40.6 % EX (n=32) |
+
+**41 of gpt-5-mini's 57 errors happened on turns where every candidate
+agreed** — wrong together. Agreement can never catch those.
+
+### Risk checks (GH#69)
+
+An `assess_risk` node runs seven checks that need no ground truth: zero rows,
+a WHERE literal absent from the data (via the GH#49 value index), an
+unconstrained cross join, an aggregate with no GROUP BY on a per-group
+question, `LIMIT 1` on a plural question, column count against the linker
+plan, and a table outside the retrieved schema. Flags are attached to
+`verification.risks` and shown above the result rows — each stating one
+specific, checkable objection (*"'Brazil' does not appear in the data — use
+'BRA'"*) rather than a generic warning.
+
+They **annotate only**: nothing is blocked, rewritten or retried. Config gate
+`sql.risk_checks`.
+
+Replayed over the 150 labelled questions (agreement OR a risk flag):
+
+| | errors caught | turns flagged | precision |
+|---|---|---|---|
+| agreement alone | 28.1 % | 14.3 % | 76.2 % |
+| **+ risk checks** | **40.4 %** | 19.0 % | **82.1 %** |
+
+Zero false alarms on the 85 unanimous-and-correct answers. This is a **floor**:
+the two checks aimed at the largest error class (`disjoint`, 25 of the 41)
+need a live database and stored schema context, so they could not be replayed
+offline and contribute nothing to the figure above.
 
 ### Cost & minimum execution (GH#57)
 

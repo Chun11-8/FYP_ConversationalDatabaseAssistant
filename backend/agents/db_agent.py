@@ -297,6 +297,9 @@ class OrchestrationAgent:
         # candidates against the DB and plurality-vote on result fingerprints;
         # the text reranker only breaks ties (config `sql.execution_voting`).
         self._exec_voting = bool(config.get("sql", {}).get("execution_voting", True))
+        # GH#69: gold-free risk checks on the executed result. On by default;
+        # off gives a clean A/B against the labelled benchmark data.
+        self._risk_checks = bool(config.get("sql", {}).get("risk_checks", True))
         # FK-expansion / context-budget knobs (config `retrieval.*`).
         _r = config.get("retrieval", {}) or {}
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
@@ -1388,6 +1391,52 @@ class OrchestrationAgent:
         )
         return {**state, "response": response, "turn_id": turn_id}
 
+    def assess_risk(self, state: AgentState) -> AgentState:
+        """
+        GH#69: gold-free checks on the executed result — the signals that do
+        NOT depend on candidate agreement.
+
+        Phase 1's agreement signal cannot see the dominant failure: 41 of
+        gpt-5-mini's 57 BIRD errors happened on turns where every candidate
+        agreed, wrong together. These checks look at the query and its rows
+        directly instead.
+
+        Annotates only. Nothing here suppresses, rewrites or retries the
+        answer, and a failure inside the checks costs nothing but the flags.
+        """
+        if not getattr(self, "_risk_checks", True):
+            return state
+        try:
+            from backend.agents import risk as risk_mod
+            sql = state.get("best_sql") or ""
+            tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
+            out = risk_mod.assess(
+                sql=sql,
+                rows=state.get("execution_result"),
+                question=state.get("standalone_query") or state.get("user_query") or "",
+                schema_context=state.get("schema_context") or "",
+                query_plan=state.get("query_plan"),
+                tables=tables,
+                value_index=getattr(self, "value_index", None),
+            )
+        except Exception as exc:
+            logger.warning(f"[RISK] assessment skipped: {exc}")
+            return state
+
+        risks = out.get("risks") or []
+        if risks:
+            trace("\n" + "─" * 70)
+            trace(f"⚠️   NODE: assess_risk — {len(risks)} flag(s)")
+            for r in risks:
+                trace(f"     [{r['severity']}] {r['code']}: {r['message']}")
+            logger.info("[RISK] %s flag(s): %s", len(risks),
+                        ", ".join(r["code"] for r in risks))
+
+        ev = dict(state.get("verification") or {})
+        ev["risks"] = risks
+        ev["risk_score"] = out.get("risk_score", 0)
+        return {**state, "verification": ev}
+
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
         trace("\n" + "─" * 70)
@@ -1437,17 +1486,24 @@ class OrchestrationAgent:
         than reported as zero agreement, which would read as "5 candidates
         disagreed" when nothing was voted on at all.
         """
-        ev = final.get("verification")
-        if not isinstance(ev, dict):
-            ev = {"candidates": 0, "executed": 0, "agreement": 0,
-                  "distinct_result_sets": 0,
-                  "decided_by": "cache_hit" if final.get("cache_hit") else "not_generated"}
-        else:
-            ev = dict(ev)
+        stored = final.get("verification")
+        # Defaults are merged UNDER whatever was recorded, per key rather than
+        # all-or-nothing: assess_risk (GH#69) writes risks into this block on
+        # paths where generate_sql never ran — a cache hit — leaving it a
+        # partial dict that consumers would otherwise find missing the Phase 1
+        # counts entirely.
+        ev = {"candidates": 0, "executed": 0, "agreement": 0,
+              "distinct_result_sets": 0,
+              "decided_by": "cache_hit" if final.get("cache_hit") else "not_generated",
+              "risks": [], "risk_score": 0}
+        if isinstance(stored, dict):
+            ev.update(stored)
             # A cached SQL that got re-validated and re-executed was not chosen
             # by this turn's voting, whatever generate_sql last recorded.
             if final.get("cache_hit"):
                 ev["decided_by"] = "cache_hit"
+            elif "decided_by" not in stored:
+                ev["decided_by"] = "not_generated"
         validation = final.get("validation") or {}
         ev["refine_rounds"] = int(final.get("refine_level") or 0)
         ev["validated"] = bool(validation.get("valid"))
@@ -1582,6 +1638,7 @@ class OrchestrationAgent:
         g.add_node("validate_sql", _staged("validate_sql", self.validate_sql))
         g.add_node("execute_sql", _staged("execute_sql", self.execute_sql))
         g.add_node("refine_sql", _staged("refine_sql", self.refine_sql))
+        g.add_node("assess_risk", _staged("assess_risk", self.assess_risk))
         g.add_node("format_response", _staged("format_response", self.format_response))
         g.add_node("handle_general", _staged("handle_general", self.handle_general))
         g.add_node("handle_write_blocked", _staged("handle_write_blocked", self.handle_write_blocked))
@@ -1626,10 +1683,13 @@ class OrchestrationAgent:
         })
 
         # ReAct: after execution, refine once on error/empty result, else format.
+        # GH#69: risk assessment sits on the answer path, AFTER any refine
+        # rounds, so it judges the result the user will actually be shown.
         g.add_conditional_edges("execute_sql", self.route_after_execution, {
             "refine_sql": "refine_sql",
-            "format_response": "format_response",
+            "format_response": "assess_risk",
         })
+        g.add_edge("assess_risk", "format_response")
         # Refined SQL re-enters validation (safety must run on it) → execute.
         g.add_edge("refine_sql", "validate_sql")
 
