@@ -60,6 +60,34 @@ def _intent_pattern(intent: str) -> str:
     return intent.replace("_", r"[\s_-]")
 
 
+# GH#76: markers that a question is harder than a one-table plan suggests.
+# Deliberately narrow — this can only ever RAISE the effort budget, but a
+# marker on every question would erase the simple tier's cost saving.
+_HARD_QUESTION_RE = re.compile(
+    r"\b(percentage|percent|proportion|ratio|average|"          # derived values
+    r"highest|lowest|most|least|peak|maximum|minimum|top|"      # superlatives
+    r"per\s+\w+|each\s+\w+|monthly|yearly|annual|"              # per-group grain
+    r"compared|difference|more\s+than|versus|vs\b|"             # comparisons
+    r"how\s+much\s+.*\bthan\b)\b",
+    re.IGNORECASE)
+
+
+def _question_looks_hard(question: Optional[str]) -> bool:
+    """
+    True when the question itself shows complexity a thin plan would hide.
+
+    Two independent signals: recognised markers, or more than one question
+    mark (a compound question — the linker has no sub-question field, so it
+    collapses both parts into one plan and the result looks deceptively
+    simple).
+    """
+    if not question:
+        return False
+    if question.count("?") > 1:
+        return True
+    return bool(_HARD_QUESTION_RE.search(question))
+
+
 def _prepend_caution(response: str, verification: Optional[Dict[str, Any]]) -> str:
     """
     Lead a doubtful answer with the doubt (GH#75).
@@ -1032,7 +1060,9 @@ class OrchestrationAgent:
         # the graceful fallback path instead of bubbling up a 500. An empty
         # best_sql is treated as invalid by validate_sql → fallback_handler.
         try:
-            tier = self._infer_tier(state.get("query_plan"))
+            tier = self._infer_tier(
+                state.get("query_plan"),
+                state.get("standalone_query") or state.get("user_query"))
             if tier:
                 trace(f"  🎚️  Inferred difficulty tier: {tier}")
             sqls = sql_agent.generate(
@@ -1095,11 +1125,20 @@ class OrchestrationAgent:
                 "verification": ev, "tier": tier}
 
     @staticmethod
-    def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
+    def _infer_tier(plan: Optional[Dict[str, Any]],
+                    question: Optional[str] = None) -> Optional[str]:
         """
         Conservative difficulty tier from the linker plan (Issue #27). The BIRD
         harness passes the real label; live queries get this heuristic. None
         (no plan / unclear) → the generator's default (moderate) path.
+
+        GH#76: the tier is read from the plan, and the plan is the artefact
+        that fails. A linker that collapses a hard question to one table
+        yields "simple" → 2 candidates and no path diversity, so the question
+        is under-resourced precisely because the reasoning about it already
+        went wrong, and the two near-identical candidates then agree. The
+        QUESTION is independent evidence, so complexity markers in it veto a
+        downgrade to "simple" — never a downgrade of the plan's own verdict.
         """
         if not plan or not isinstance(plan, dict):
             return None
@@ -1111,7 +1150,7 @@ class OrchestrationAgent:
         if _set(plan.get("set_op")) or (_set(plan.get("having")) and len(tables) >= 3):
             return "challenging"
         if len(tables) <= 1 and not _set(plan.get("group_by")) and not _set(plan.get("having")):
-            return "simple"
+            return "moderate" if _question_looks_hard(question) else "simple"
         return "moderate"
 
     def _vote_candidates(

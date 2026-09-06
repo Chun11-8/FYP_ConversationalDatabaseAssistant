@@ -121,7 +121,10 @@ def check_ungrounded_literals(
 # absence proves nothing. Dates are the big one: "between August and November
 # 2013" is correctly answered with a '201308'-style literal, and on the
 # labelled data every one of these produced a false alarm.
-_DATE_SHAPED_RE = re.compile(r"\d{1,4}\s*[/-]\s*\d{1,2}|\d{4}|\b\d{1,2}:\d{2}")
+# \b on the bare-year alternative is load-bearing: unanchored `\d{4}` matches
+# "3850" inside the customer id 38508, so an entity id was silently skipped as
+# "date-shaped" and a dropped-constraint went unflagged (GH#76).
+_DATE_SHAPED_RE = re.compile(r"\d{1,4}\s*[/-]\s*\d{1,2}|\b\d{4}\b|\b\d{1,2}:\d{2}")
 _SENTENCE_STARTERS = {
     "is", "if", "in", "on", "at", "what", "which", "who", "how", "the", "a",
     "an", "and", "or", "of", "for", "list", "show", "give", "state", "name",
@@ -295,6 +298,78 @@ def check_aggregate_grain(sql: str, question: str) -> List[Dict[str, Any]]:
                   "aggregates everything into a single total.")]
 
 
+# ── 4b. aggregate function vs the question's verb (GH#76) ─────────────────────
+#
+# The largest single failure mode: of the 33 gpt-5-mini failures that had the
+# RIGHT tables and joins, 17 (52 %) differed from gold only in which aggregate
+# was applied. The structure is correct and the number is wrong, which is
+# exactly the class no other check can see.
+
+_SUM_WORDS = re.compile(
+    r"\b(total|sum|altogether|combined|in\s+total|how\s+much\s+.*\bspent\b|"
+    r"amount\s+spent)\b", re.IGNORECASE)
+_EXTREMUM_WORDS = re.compile(
+    r"\b(highest|lowest|maximum|minimum|peak|most|least|largest|smallest|top)\b",
+    re.IGNORECASE)
+_PER_UNIT_RE = re.compile(
+    r"\b(monthly|daily|yearly|annual|weekly|per\s+\w+|each\s+\w+)\b",
+    re.IGNORECASE)
+_PERCENT_RE = re.compile(r"\b(percentage|percent|proportion|ratio|%)\b",
+                         re.IGNORECASE)
+
+
+def _aggs_in(sql: str) -> set:
+    return {m.group(1).upper() for m in _AGG_RE.finditer(sql or "")}
+
+
+def check_aggregate_intent(sql: str, question: str) -> List[Dict[str, Any]]:
+    """
+    The aggregate the SQL applies against the one the question asks for.
+
+    Three signatures taken straight from the labelled failures:
+
+    * "the amount **spent**" answered with MAX/MIN and no SUM — the query
+      returns one transaction rather than the total.
+    * "the **highest monthly** consumption" answered with a bare MAX and no
+      GROUP BY. Gold sums per month and takes the largest month; MAX over raw
+      rows returns the largest single row, a different and smaller number that
+      looks entirely plausible.
+    * "what **percentage**" answered without any division.
+
+    Each requires an explicit contradiction between question and SQL, never an
+    absence, so a question the patterns do not recognise stays silent.
+    """
+    if not sql or not question:
+        return []
+    out: List[Dict[str, Any]] = []
+    aggs = _aggs_in(sql)
+    has_group = bool(re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE))
+
+    if (_SUM_WORDS.search(question) and not _EXTREMUM_WORDS.search(question)
+            and aggs and "SUM" not in aggs and aggs & {"MAX", "MIN"}):
+        out.append(_risk(
+            "aggregate_mismatch", HIGH,
+            "The question asks for a total, but the query takes a "
+            f"{sorted(aggs & {'MAX', 'MIN'})[0]} — that returns a single "
+            "extreme value, not the sum."))
+
+    if (_EXTREMUM_WORDS.search(question) and _PER_UNIT_RE.search(question)
+            and aggs & {"MAX", "MIN"} and not has_group):
+        out.append(_risk(
+            "extremum_without_grouping", HIGH,
+            "The question asks for the highest/lowest value per group, but the "
+            "query takes an extreme over individual rows without grouping — "
+            "these give different answers."))
+
+    if (_PERCENT_RE.search(question) and "/" not in sql
+            and not re.search(r"\bCAST\b|\bNULLIF\b", sql, re.IGNORECASE)):
+        out.append(_risk(
+            "percentage_without_division", MEDIUM,
+            "The question asks for a percentage or proportion, but the query "
+            "computes no ratio."))
+    return out[:3]
+
+
 # ── 5. plural question answered with LIMIT 1 ──────────────────────────────────
 
 # "what/which <plural noun>" needs the auxiliary-verb exclusion: without it
@@ -416,6 +491,7 @@ def assess(
         lambda: check_question_coverage(sql, question, tables, value_index),
         lambda: check_join_fanout(sql, rows),
         lambda: check_aggregate_grain(sql, question),
+        lambda: check_aggregate_intent(sql, question),
         lambda: check_limit_one_on_plural(sql, question),
         lambda: check_arity(rows, query_plan),
         lambda: check_out_of_schema_tables(tables, schema_context),
