@@ -62,33 +62,29 @@ class TestQuestionLooksHard:
         assert not _question_looks_hard("")
 
 
-class TestTierFloor:
+class TestTierIsNoLongerInferred:
+    """
+    GH#85 removed the plan-derived tier outright rather than patching the
+    floor: the budget was read from the artefact that fails, so no floor could
+    make it trustworthy. Live now runs one uniform tier, the BIRD harness
+    still gets the dataset's real label, and `_question_looks_hard` survives
+    because plan diversity (GH#76) still gates on it.
+    """
 
-    def test_a_thin_plan_on_a_hard_question_is_promoted(self):
-        assert A._infer_tier(THIN) == "simple"
-        assert A._infer_tier(THIN, "What is the highest monthly consumption in 2012?") \
-            == "moderate"
+    def test_the_plan_derived_tier_is_gone(self):
+        assert not hasattr(A, "_infer_tier")
 
-    def test_a_thin_plan_on_a_simple_question_stays_simple(self):
-        assert A._infer_tier(THIN, "How many customers are there?") == "simple"
+    def test_generate_sql_uses_the_fixed_tier_not_a_guess(self):
+        import inspect
+        src = inspect.getsource(A.generate_sql)
+        assert '_live_tier' in src
+        assert '_infer_tier' not in src
 
-    def test_the_question_never_DOWNgrades_the_plan(self):
-        """A rich plan means the linker found real structure. A plain-looking
-        question must not override that — the floor is one-directional."""
-        assert A._infer_tier(RICH, "How many customers are there?") == "moderate"
-
-    def test_challenging_is_untouched(self):
-        plan = {"tables": ["a", "b", "c"], "set_op": "UNION"}
-        assert A._infer_tier(plan, "How many?") == "challenging"
-
-    def test_no_plan_still_returns_none(self):
-        assert A._infer_tier(None, "highest monthly consumption") is None
-
-    def test_omitting_the_question_preserves_old_behaviour(self):
-        """The BIRD harness calls this without a question; it must be unchanged."""
-        assert A._infer_tier(THIN) == "simple"
-        assert A._infer_tier(RICH) == "moderate"
-
+    def test_question_hardness_still_gates_plan_diversity(self):
+        """The signal was not deleted with the tier — link_schema still uses
+        it to decide whether a second, disagreeing plan is worth an LLM call."""
+        import inspect
+        assert "_question_looks_hard(question)" in inspect.getsource(A.link_schema)
 
 class TestAggregateIntent:
 

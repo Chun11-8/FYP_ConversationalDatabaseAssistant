@@ -67,12 +67,21 @@ sql:
   # Number of SQL candidates to generate per question (one LLM call).
   n_candidates: 5
   # Difficulty-adaptive prompting (Issue #27): strategy block + per-tier
-  # candidate counts. BIRD passes the real difficulty; live infers from the plan.
+  # candidate counts. BIRD passes the dataset's real difficulty label.
   adaptive_prompting: true
   candidates_by_tier:
     simple: 2
     moderate: 5
     challenging: 7
+  # GH#85: the tier every LIVE question gets. There is no difficulty label
+  # outside the benchmark, and the heuristic that used to infer one read it
+  # from the linker plan — the artefact that fails. A plan that collapsed a
+  # hard question to one table produced "simple" (2 candidates, no path
+  # diversity), under-resourcing the question precisely because the reasoning
+  # about it had already gone wrong; the two near-identical candidates then
+  # agreed. One uniform tier replaces the guess. "challenging" buys 7
+  # candidates and 2 refine rounds on every question — measure before paying.
+  live_tier: moderate
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
@@ -173,6 +182,16 @@ retrieval:
   # FK-aware context expansion: hop depth (2 reaches through bridge tables),
   # cap on FK-added tables, and an approximate token budget for the schema
   # context (FK tables are dropped farthest-hop-first; primaries never dropped).
+  # GH#85: when retrieval is scoped to one logical database (active_db, or a
+  # per-request pick in the UI), hand the generator that database's COMPLETE
+  # schema — what the BIRD harness does with extract_sqlite_schema(db_path) —
+  # instead of the cosine top-k below. The table carrying a filter is often
+  # the one LEAST similar to the question's wording ("who had the least
+  # consumption in LAM?" never says "customers"), and a missing table doesn't
+  # fail: the model drops the constraint and answers a different question.
+  # Cosine top-k still applies when there is no scope, nothing is indexed for
+  # it, or the full schema exceeds max_schema_tokens. false = always top-k.
+  full_schema_when_scoped: true
   fk_max_hops: 2
   fk_max_expansion: 5
   max_schema_tokens: 4000

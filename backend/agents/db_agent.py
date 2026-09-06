@@ -23,12 +23,13 @@ from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
 from backend.agents.llm_factory import build_chat_llm, describe_target, resolve_base_url
-from backend.agents.utils import PromptHarness, strip_reasoning
+from backend.agents.utils import PromptHarness, estimate_tokens, strip_reasoning
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache, literals_conflict
 from backend.retrieval.indexing import (
     retrieve, execute_query, expand_fk_tables, fetch_table_chunks,
+    fetch_full_schema,
 )
 from backend.retrieval.value_index import ValueIndex, render_value_hints
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -375,6 +376,18 @@ class OrchestrationAgent:
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        # Cosine top-k, used only when the full-schema path (GH#85) is not
+        # available — no scope, nothing indexed for it, or over the budget.
+        self._top_k_tables = int(_r.get("top_k_tables", 5))
+        # GH#85: prefer the BIRD harness's complete-schema-per-database
+        # strategy over cosine top-k when retrieval is scoped. False restores
+        # pure top-k retrieval for an A/B.
+        self._full_schema = bool(_r.get("full_schema_when_scoped", True))
+        # GH#85: the effort tier every live question gets. The BIRD harness
+        # reads the real label from the dataset; live has none, so one uniform
+        # tier replaces a guess that could only under-resource a hard question.
+        self._live_tier = str(
+            config.get("sql", {}).get("live_tier", "moderate")).strip().lower()
         # GH#49 P3: deterministic WHERE-literal grounding against real values.
         self._value_grounding = bool(_r.get("value_grounding", True))
         if self._value_grounding:
@@ -490,6 +503,63 @@ class OrchestrationAgent:
 
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
+
+    def _fetch_schema(
+        self, search_q: str, embedding: Optional[list], top_k: int,
+    ) -> Dict[str, Any]:
+        """
+        Schema context for one question, FK-expanded and within the token
+        budget (GH#85).
+
+        Prefers the BIRD harness's strategy: when retrieval is scoped to one
+        logical database, hand the generator that database's COMPLETE schema,
+        the way `extract_sqlite_schema(db_path)` does. Cosine top-k is the
+        fallback — used when there is no scope, when the store has nothing for
+        it, or when the full schema does not fit `max_schema_tokens`.
+
+        Why the preference: the table carrying a filter is often the one least
+        similar to the question's wording ("who had the least consumption in
+        LAM?" never says "customers"), and a missing table does not fail — the
+        model silently drops the constraint and answers a different question.
+        80% of BIRD's gold SQL needs a join, so this is the common case.
+        """
+        scope = self._get_scope()
+        result = None
+        if scope and getattr(self, "_full_schema", True):
+            full = fetch_full_schema(scope, store="pgvector")
+            if full:
+                expanded = expand_fk_tables(
+                    full, scope,
+                    max_hops=self._fk_max_hops,
+                    max_expansion=self._fk_max_expansion,
+                    max_schema_tokens=self._max_schema_tokens,
+                )
+                # expand_fk_tables drops FK-expansion chunks to fit the budget,
+                # but here every table is primary and primaries are never
+                # dropped — so an over-budget scope must be caught here or the
+                # generator gets a context larger than it was configured for.
+                tokens = estimate_tokens(expanded["prompt_context"])
+                if tokens <= self._max_schema_tokens:
+                    trace(f"  🗂️  Full schema for '{scope}': "
+                          f"{len(full['tables'])} table(s), ~{tokens} tokens")
+                    result = expanded
+                else:
+                    logger.info(
+                        f"[RAG] full schema for '{scope}' is ~{tokens} tokens "
+                        f"(budget {self._max_schema_tokens}) — using cosine top-k")
+                    trace(f"  🗂️  Full schema too large (~{tokens} tokens) "
+                          f"→ falling back to top-{top_k} retrieval")
+
+        if result is None:
+            chunks = retrieve(search_q, scope, top_k_tables=top_k,
+                              store="pgvector", embedding=embedding)
+            result = expand_fk_tables(
+                chunks, scope,
+                max_hops=self._fk_max_hops,
+                max_expansion=self._fk_max_expansion,
+                max_schema_tokens=self._max_schema_tokens,
+            )
+        return result
 
     def _get_scope(self) -> Optional[str]:
         """
@@ -706,16 +776,9 @@ class OrchestrationAgent:
             trace("  💡 Few-shot examples: none")
 
         try:
-            db_name = self._get_scope()
-            schema_chunks = retrieve(search_q, db_name, top_k_tables=5,
-                                     store="pgvector", embedding=query_embedding)
-            # FK-aware expansion: pull in tables linked by FK to the retrieved set
-            schema_chunks = expand_fk_tables(
-                schema_chunks, db_name,
-                max_hops=self._fk_max_hops,
-                max_expansion=self._fk_max_expansion,
-                max_schema_tokens=self._max_schema_tokens,
-            )
+            schema_chunks = self._fetch_schema(
+                search_q, query_embedding,
+                top_k=getattr(self, "_top_k_tables", 5))
             schema_context = schema_chunks["prompt_context"]
 
             primary = [t["table_name"] for t in schema_chunks["tables"]]
@@ -744,10 +807,12 @@ class OrchestrationAgent:
                 # no SQL, so the model is obliged to invent something.
                 unsatisfiable = self._unsatisfiable_spans(search_q, primary + fk_extra)
 
-            # Print similarity distances for debugging retrieval quality
-            trace("  📊 Retrieval distances (lower = more relevant):")
-            for t in schema_chunks["tables"]:
-                trace(f"       {t['distance']:.4f}  {t['table_name']}")
+            # Print similarity distances for debugging retrieval quality.
+            # A full-schema fetch was not ranked, so there is nothing to print.
+            if not schema_chunks.get("full_schema"):
+                trace("  📊 Retrieval distances (lower = more relevant):")
+                for t in schema_chunks["tables"]:
+                    trace(f"       {t.get('distance', 0.0):.4f}  {t['table_name']}")
 
             trace("\n  📄 Schema context sent to LLM:")
             trace("  " + "·" * 60)
@@ -1118,11 +1183,17 @@ class OrchestrationAgent:
         # the graceful fallback path instead of bubbling up a 500. An empty
         # best_sql is treated as invalid by validate_sql → fallback_handler.
         try:
-            tier = self._infer_tier(
-                state.get("query_plan"),
-                state.get("standalone_query") or state.get("user_query"))
-            if tier:
-                trace(f"  🎚️  Inferred difficulty tier: {tier}")
+            # GH#85: no tier inference. The BIRD harness is handed the real
+            # difficulty label; live has no such label, and guessing it from
+            # the linker plan actively hurt — a plan that collapsed a hard
+            # question to one table produced "simple", which meant 2
+            # candidates and no path diversity, so the question was
+            # under-resourced precisely because the reasoning about it had
+            # already gone wrong, and the two near-identical candidates then
+            # agreed with each other. Every live question now gets the same
+            # full budget (`sql.live_tier`, default "moderate").
+            tier = getattr(self, "_live_tier", "moderate")
+            trace(f"  🎚️  Effort tier: {tier} (fixed — no inference)")
             def _gen(plan_for_this_batch):
                 return sql_agent.generate(
                     query=state["user_query"],
@@ -1198,34 +1269,6 @@ class OrchestrationAgent:
                 "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql,
                 "verification": ev, "tier": tier}
 
-    @staticmethod
-    def _infer_tier(plan: Optional[Dict[str, Any]],
-                    question: Optional[str] = None) -> Optional[str]:
-        """
-        Conservative difficulty tier from the linker plan (Issue #27). The BIRD
-        harness passes the real label; live queries get this heuristic. None
-        (no plan / unclear) → the generator's default (moderate) path.
-
-        GH#76: the tier is read from the plan, and the plan is the artefact
-        that fails. A linker that collapses a hard question to one table
-        yields "simple" → 2 candidates and no path diversity, so the question
-        is under-resourced precisely because the reasoning about it already
-        went wrong, and the two near-identical candidates then agree. The
-        QUESTION is independent evidence, so complexity markers in it veto a
-        downgrade to "simple" — never a downgrade of the plan's own verdict.
-        """
-        if not plan or not isinstance(plan, dict):
-            return None
-
-        def _set(v: Any) -> bool:
-            return v is not None and str(v).strip().lower() not in ("", "null", "none")
-
-        tables = [t for t in (plan.get("tables") or []) if t]
-        if _set(plan.get("set_op")) or (_set(plan.get("having")) and len(tables) >= 3):
-            return "challenging"
-        if len(tables) <= 1 and not _set(plan.get("group_by")) and not _set(plan.get("having")):
-            return "moderate" if _question_looks_hard(question) else "simple"
-        return "moderate"
 
     def _vote_candidates(
         self, sqls: List[str], schema_context: str, query: Optional[str] = None,
@@ -1786,9 +1829,8 @@ class OrchestrationAgent:
             # Broaden schema scan
             # Same search text retrieval used, so the reused vector matches it.
             search_q = state.get("standalone_query") or state["user_query"]
-            schema_chunks = retrieve(search_q, self._get_scope(),
-                                     top_k_tables=10, store="pgvector",
-                                     embedding=state.get("query_embedding"))
+            schema_chunks = self._fetch_schema(
+                search_q, state.get("query_embedding"), top_k=10)
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
