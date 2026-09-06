@@ -194,6 +194,7 @@ function App() {
         turn_id: result.turn_id,
         cache_hit: result.cache_hit,
         usage: result.usage,
+        verification: result.verification,
         feedback: null,
       };
       setMessages((prev) => [...prev, botMsg]);

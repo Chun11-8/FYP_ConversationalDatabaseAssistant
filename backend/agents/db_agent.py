@@ -247,6 +247,10 @@ class AgentState(TypedDict):
     cache_pair: Optional[dict]          # what that search found (None = miss)
     vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
+    # GH#67: how the winning SQL was chosen — the system's own evidence about
+    # its answer. {candidates, executed, agreement, distinct_result_sets,
+    # decided_by}; assembled for the response in run().
+    verification: Optional[Dict[str, Any]]
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
     tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
@@ -930,13 +934,29 @@ class OrchestrationAgent:
             # Execution-guided selection first (plurality over result sets);
             # the text reranker only decides when voting is inconclusive.
             best, vote_rows, vote_rows_sql = "", None, None
+            # GH#67: how the winner was chosen is the system's own evidence
+            # about its answer — recorded here rather than only traced, so the
+            # API and UI can show it alongside the result.
+            ev: Dict[str, Any] = {
+                "candidates": len(sqls), "executed": 0, "agreement": 0,
+                "distinct_result_sets": 0,
+                "decided_by": "single_candidate" if len(sqls) <= 1
+                              else "voting_disabled",
+            }
             if getattr(self, "_exec_voting", True) and len(sqls) > 1:
                 best, vote_rows, vote_rows_sql = self._vote_candidates(
                     sqls, state["schema_context"],
-                    query=state.get("standalone_query") or state["user_query"])
+                    query=state.get("standalone_query") or state["user_query"],
+                    evidence=ev)
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
                 trace(f"\n  🏆 Reranker selected:")
+                # The reranker reads text only, never result sets — so a turn
+                # decided here carries strictly weaker evidence than a
+                # plurality, and must not be reported as agreement.
+                if ev["decided_by"] in ("inconclusive", "none_executed"):
+                    ev["decided_by"] = "reranker"
+                    ev["agreement"] = 0
             else:
                 trace(f"\n  🗳️  Execution vote selected:")
             for line in best.splitlines():
@@ -945,11 +965,14 @@ class OrchestrationAgent:
         except Exception as exc:
             trace(f"  ❌ SQL generation failed: {exc}")
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
-            return {**state, "generated_sqls": [], "best_sql": ""}
+            return {**state, "generated_sqls": [], "best_sql": "",
+                    "verification": {"candidates": 0, "executed": 0,
+                                     "agreement": 0, "distinct_result_sets": 0,
+                                     "decided_by": "generation_failed"}}
 
         return {**state, "generated_sqls": sqls, "best_sql": best,
                 "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql,
-                "tier": tier}
+                "verification": ev, "tier": tier}
 
     @staticmethod
     def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -972,7 +995,8 @@ class OrchestrationAgent:
         return "moderate"
 
     def _vote_candidates(
-        self, sqls: List[str], schema_context: str, query: Optional[str] = None
+        self, sqls: List[str], schema_context: str, query: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, Optional[list], Optional[str]]:
         """
         Execution-guided selection for the live pipeline: validate each
@@ -983,7 +1007,19 @@ class OrchestrationAgent:
         Returns (winner_sql, winner_rows, executed_sql) — winner rows are reused by
         execute_sql so the winner runs ONCE per turn (GH#38). ("", None, None)
         when inconclusive (caller falls back to the reranker). Never raises.
+
+        GH#67: when an ``evidence`` dict is passed it is filled in place with
+        how the winner was chosen (agreement, distinct result sets, decided_by)
+        so the answer can be shown with the reasoning behind it. An out-param
+        rather than a fourth return value purely to leave the existing
+        three-tuple unpacking — and its tests — alone.
         """
+        def _record(**kw: Any) -> None:
+            if evidence is not None:
+                evidence.update(kw)
+
+        _record(candidates=len(sqls), executed=0, agreement=0,
+                distinct_result_sets=0, decided_by="none_executed")
         groups: Dict[frozenset, List[str]] = {}
         group_rows: Dict[frozenset, list] = {}   # first (rows, run_sql) per fingerprint
         group_run: Dict[frozenset, str] = {}
@@ -1027,18 +1063,24 @@ class OrchestrationAgent:
 
         if not groups:
             trace("  🗳️  Execution vote: no candidate executed — falling back to reranker")
+            _record(executed=0, decided_by="none_executed")
             return "", None, None
 
         best_size = max(len(s) for s in groups.values())
+        _record(executed=executed, distinct_result_sets=len(groups),
+                agreement=best_size)
         tied = [fp for fp, s in groups.items() if len(s) == best_size]
         if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
             trace(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
                   f"({len(groups)} distinct result sets)")
+            _record(decided_by="plurality")
             return _win(tied[0])
         non_empty = [fp for fp in tied if len(fp) > 0]
         if len(non_empty) == 1:
             trace(f"  🗳️  Execution vote: tie broken toward non-empty result "
                   f"({len(groups[non_empty[0]])}/{executed})")
+            _record(decided_by="non_empty_tiebreak",
+                    agreement=len(groups[non_empty[0]]))
             return _win(non_empty[0])
 
         # GH#48: genuinely inconclusive — unit-test screen + pairwise
@@ -1050,15 +1092,19 @@ class OrchestrationAgent:
                 passing = self._unit_test_screen(query, fps, groups, group_rows)
                 if len(passing) == 1:
                     trace("  🧪 Unit-test screen: single surviving result set")
+                    _record(decided_by="unit_test",
+                            agreement=len(groups[passing[0]]))
                     return _win(passing[0])
                 if len(passing) >= 2:
                     fps = passing
             winner_fp = self._pairwise_select(query, fps, groups, group_rows)
             if winner_fp is not None:
                 trace("  ⚖️  Pairwise comparison selected the winner")
+                _record(decided_by="pairwise", agreement=len(groups[winner_fp]))
                 return _win(winner_fp)
 
         trace("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
+        _record(decided_by="inconclusive")
         return "", None, None
 
     # ── GH#48: unit-test screen + pairwise selection ───────────────────────
@@ -1395,6 +1441,37 @@ class OrchestrationAgent:
         return {**state, "response": response, "csv_path": csv_path,
                 "turn_id": turn_id, "rows_fingerprint": rows_hash}
 
+    @staticmethod
+    def _verification_block(final: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        GH#67: the evidence behind this turn's answer, assembled for the API.
+
+        Always returns a well-formed block so no consumer has to special-case a
+        missing one. Turns that never generate — a cache hit, a blocked write,
+        a clarifying question — are labelled by what actually happened rather
+        than reported as zero agreement, which would read as "5 candidates
+        disagreed" when nothing was voted on at all.
+        """
+        ev = final.get("verification")
+        if not isinstance(ev, dict):
+            ev = {"candidates": 0, "executed": 0, "agreement": 0,
+                  "distinct_result_sets": 0,
+                  "decided_by": "cache_hit" if final.get("cache_hit") else "not_generated"}
+        else:
+            ev = dict(ev)
+            # A cached SQL that got re-validated and re-executed was not chosen
+            # by this turn's voting, whatever generate_sql last recorded.
+            if final.get("cache_hit"):
+                ev["decided_by"] = "cache_hit"
+        validation = final.get("validation") or {}
+        ev["refine_rounds"] = int(final.get("refine_level") or 0)
+        ev["validated"] = bool(validation.get("valid"))
+        ev["validation_checks"] = {
+            k: bool(v) for k, v in validation.items()
+            if k in ("syntax_ok", "safety_ok", "semantic_ok")
+        }
+        return ev
+
     def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:
         """A stored answer is reusable only if THESE rows are byte-identical to it."""
         return bool(
@@ -1704,6 +1781,7 @@ class OrchestrationAgent:
             "cache_pair": cache_pair,
             "vote_rows": None,
             "vote_rows_sql": None,
+            "verification": None,
             "fallback_level": 0,
             "refine_level": 0,
             "tier": None,
@@ -1752,6 +1830,8 @@ class OrchestrationAgent:
             # GH#63: what the follow-up was condensed into, so a bad rewrite is
             # visible rather than silently producing a confusing answer.
             "standalone_query": final.get("standalone_query"),
+            # GH#67: the evidence behind this answer, not just the answer.
+            "verification": self._verification_block(final),
             "latency_ms": latency_ms,
             "timings":    final.get("timings") or {},
             "usage":      tracker.as_dict(),

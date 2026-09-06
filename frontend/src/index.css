@@ -476,6 +476,90 @@ body, html, #root {
   font-weight: 600;
 }
 
+/* ── Verification evidence (GH#67) ───────────────────────────────────────── */
+/* Amber = the candidates disagreed; grey-italic = the answer rests on weaker
+   evidence than an execution plurality. Deliberately NOT a red/green verdict:
+   whether agreement predicts correctness is not yet measured, and a
+   confident-looking badge on a wrong answer is worse than no badge at all. */
+
+.meta-chip--split {
+  background: rgba(234,179,8,0.10);
+  color: #fcd34d;
+  border-color: rgba(234,179,8,0.28);
+}
+
+.meta-chip--weak {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.evidence-panel {
+  margin-top: 0.5rem;
+}
+
+.evidence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.35rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+
+.evidence-toggle:hover {
+  color: var(--text-primary);
+}
+
+.evidence-body {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.evidence-body dt {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.evidence-body dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence-check {
+  margin-right: 0.6rem;
+  white-space: nowrap;
+  color: #34d399;
+}
+
+.evidence-check--fail {
+  color: #f87171;
+}
+
+/* Narrow screens: stack the term above its value rather than squeezing both. */
+@media (max-width: 560px) {
+  .evidence-body {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  .evidence-body dd {
+    margin-bottom: 0.35rem;
+  }
+}
+
 /* ── Row Count Chip ──────────────────────────────────────────────────────── */
 .row-count-chip {
   display: inline-flex;

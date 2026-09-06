@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import type { Message, TextMessage, TurnUsage } from '../types';
+import type { Message, TextMessage, TurnUsage, TurnVerification } from '../types';
 import { downloadUrl } from '../api/client';
 
 interface ChatMessageProps {
@@ -157,6 +157,112 @@ function UsageChip({ usage }: { usage: TurnUsage }) {
   );
 }
 
+/**
+ * How the winner was decided, in the user's words rather than the enum's.
+ * `null` for turns where nothing was chosen (cache reuse, non-READ turns) —
+ * the caller renders nothing at all rather than an empty or confusing chip.
+ */
+const DECIDED_BY_LABEL: Record<string, string> = {
+  plurality:          'agreed on this result',
+  non_empty_tiebreak: 'tie broken toward the non-empty result',
+  unit_test:          'chosen by unit-test screen',
+  pairwise:           'chosen by pairwise comparison',
+  reranker:           'no execution agreement — chosen by text reranker',
+  inconclusive:       'no execution agreement',
+  single_candidate:   'only one candidate generated',
+  voting_disabled:    'execution voting disabled',
+  none_executed:      'no candidate executed successfully',
+  generation_failed:  'SQL generation failed',
+};
+
+/**
+ * Agreement chip (GH#67). Reports what happened — "4/5 agreed" — and
+ * deliberately NOT a High/Medium/Low verdict: whether agreement predicts
+ * correctness is exactly what the calibration study has yet to measure, and a
+ * miscalibrated badge would teach the user to trust the wrong answers.
+ */
+function AgreementChip({ v }: { v: TurnVerification }) {
+  const label = DECIDED_BY_LABEL[v.decided_by];
+  // Nothing was chosen this turn — a cached answer or a non-READ turn.
+  if (!label) return null;
+
+  const voted = v.executed > 0 && v.agreement > 0;
+  // A lone dissenting result set is the signal worth seeing at a glance.
+  const split = voted && v.distinct_result_sets > 1;
+  const weak = !voted || v.decided_by === 'reranker' || v.decided_by === 'none_executed';
+
+  return (
+    <span
+      className={`meta-chip${split ? ' meta-chip--split' : ''}${weak ? ' meta-chip--weak' : ''}`}
+      title={
+        `${v.candidates} candidate${v.candidates !== 1 ? 's' : ''} generated, ` +
+        `${v.executed} executed — ${label}.` +
+        (v.distinct_result_sets > 1
+          ? `\n${v.distinct_result_sets} different result sets were produced.`
+          : '') +
+        (v.refine_rounds ? `\nRefined ${v.refine_rounds}× after a failed attempt.` : '')
+      }
+    >
+      <ShieldCheck size={11} />
+      {voted ? `${v.agreement}/${v.executed} agreed` : label}
+    </span>
+  );
+}
+
+/** Collapsed "why this answer" panel — the full evidence, on demand. */
+function EvidencePanel({ v }: { v: TurnVerification }) {
+  const [open, setOpen] = useState(false);
+  if (!DECIDED_BY_LABEL[v.decided_by]) return null;
+
+  const checks = Object.entries(v.validation_checks ?? {});
+  return (
+    <div className="evidence-panel">
+      <button
+        className="evidence-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        Why this answer
+      </button>
+      {open && (
+        <dl className="evidence-body">
+          <dt>Candidates</dt>
+          <dd>{v.candidates} generated · {v.executed} executed successfully</dd>
+          <dt>Agreement</dt>
+          <dd>
+            {v.executed > 0
+              ? `${v.agreement} of ${v.executed} produced the same result set`
+              : 'no candidate executed'}
+            {v.distinct_result_sets > 1 &&
+              ` · ${v.distinct_result_sets} distinct result sets`}
+          </dd>
+          <dt>Decided by</dt>
+          <dd>{DECIDED_BY_LABEL[v.decided_by]}</dd>
+          {Boolean(v.refine_rounds) && (
+            <>
+              <dt>Refine rounds</dt>
+              <dd>{v.refine_rounds}</dd>
+            </>
+          )}
+          {checks.length > 0 && (
+            <>
+              <dt>Validation</dt>
+              <dd>
+                {checks.map(([k, ok]) => (
+                  <span key={k} className={`evidence-check${ok ? '' : ' evidence-check--fail'}`}>
+                    {ok ? '✓' : '✗'} {k.replace(/_ok$/, '')}
+                  </span>
+                ))}
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -229,6 +335,7 @@ function AssistantMessage({
           <div className="msg-meta">
             {message.intent && <IntentBadge intent={message.intent} />}
             {message.cache_hit && <CacheChip />}
+            {message.verification && <AgreementChip v={message.verification} />}
             {message.usage && <UsageChip usage={message.usage} />}
             <span className="msg-time">{formatTime(message.timestamp)}</span>
           </div>
@@ -259,6 +366,10 @@ function AssistantMessage({
 
           {/* 4. Toggleable SQL Used */}
           {message.sql && <SqlPanel sql={message.sql} />}
+
+          {/* 5. Why this answer (GH#67) — sits under the SQL, since it explains
+                 how that particular query came to be chosen. */}
+          {message.verification && <EvidencePanel v={message.verification} />}
 
           {/* Action bar */}
           <div className="msg-actions">
