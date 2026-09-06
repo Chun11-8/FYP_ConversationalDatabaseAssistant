@@ -193,7 +193,10 @@ class TestGoldSqlAgainstRealFixtures:
             for i, t in enumerate(c["turns"]):
                 if not t.get("gold_sql"):
                     continue
-                rows, err = MT.run_sqlite(path, t["gold_sql"])
+                # GH#87: a turn may move the conversation to another database.
+                turn_path = (MT.db_path_for(db_root, t["db_id"])
+                             if t.get("db_id") else path)
+                rows, err = MT.run_sqlite(turn_path, t["gold_sql"])
                 assert err is None, f"{c['id']} T{i}: {err}"
                 assert rows is not None
 
@@ -205,7 +208,9 @@ class TestGoldSqlAgainstRealFixtures:
                 if not t.get("gold_sql"):
                     prev = None
                     continue
-                rows, _ = MT.run_sqlite(path, t["gold_sql"])
+                turn_path = (MT.db_path_for(db_root, t["db_id"])
+                             if t.get("db_id") else path)
+                rows, _ = MT.run_sqlite(turn_path, t["gold_sql"])
                 if t.get("expect_differs_from_previous") and prev is not None:
                     assert MT._row_set(rows) != MT._row_set(prev), (
                         f"{c['id']} T{i} claims to differ but gold is identical — "

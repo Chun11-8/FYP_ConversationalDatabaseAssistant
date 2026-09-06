@@ -918,7 +918,7 @@ multi-turn breaks:
 | `ellipsis` | "And CZK?" | constraint not carried over |
 | `anaphora` | "How many of them wear Medium?" | referent lost |
 | `refinement` | "Only those with a Large t-shirt." | prior scope dropped |
-| `topic_switch` | an unrelated question | stale context wrongly kept |
+| `topic_switch` | an unrelated question, incl. one in another **database** | stale context wrongly kept (GH#87) |
 | `clarification_reply` | a terse answer to our own question | the GH#62 loop |
 | `legitimate_repeat` | the same question again | **cache SHOULD hit** |
 

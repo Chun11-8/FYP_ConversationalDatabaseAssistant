@@ -20,7 +20,7 @@
     "id": "literal-swap-entity",
     "db_id": "debit_card_specializing",
     "category": "literal_swap",
-    "why": "Same class as the month swap but on the entity id — confirms the fix generalises beyond dates.",
+    "why": "Same class as the month swap but on the entity id \u2014 confirms the fix generalises beyond dates.",
     "turns": [
       {
         "question": "What was the consumption of customer 1 in 201208?",
@@ -54,7 +54,7 @@
     "id": "ellipsis-then-second-followup",
     "db_id": "debit_card_specializing",
     "category": "ellipsis",
-    "why": "Three turns. A follow-up to a follow-up must resolve against the resolved question, not the raw previous text — the failure mode where context decays after one hop.",
+    "why": "Three turns. A follow-up to a follow-up must resolve against the resolved question, not the raw previous text \u2014 the failure mode where context decays after one hop.",
     "turns": [
       {
         "question": "Which customers pay in EUR?",
@@ -92,7 +92,7 @@
     "id": "anaphora-size-swap",
     "db_id": "student_club",
     "category": "literal_swap",
-    "why": "A literal swap layered on an anaphoric reference — both mechanisms have to work at once.",
+    "why": "A literal swap layered on an anaphoric reference \u2014 both mechanisms have to work at once.",
     "turns": [
       {
         "question": "How many members who attended the Women's Soccer event wear a Medium t-shirt?",
@@ -177,7 +177,7 @@
     "id": "legitimate-repeat",
     "db_id": "debit_card_specializing",
     "category": "legitimate_repeat",
-    "why": "The control. Asking the same question again SHOULD reuse the cached SQL — without this case the metric would reward disabling the cache outright, which is the wrong lesson from GH#63.",
+    "why": "The control. Asking the same question again SHOULD reuse the cached SQL \u2014 without this case the metric would reward disabling the cache outright, which is the wrong lesson from GH#63.",
     "turns": [
       {
         "question": "How many customers are there in total?",
@@ -194,7 +194,7 @@
     "id": "reworded-repeat",
     "db_id": "student_club",
     "category": "legitimate_repeat",
-    "why": "Same question, different words and no changed literals — the cache should still hit. Distinguishes the GH#63 literal guard from a blanket cache disable.",
+    "why": "Same question, different words and no changed literals \u2014 the cache should still hit. Distinguishes the GH#63 literal guard from a blanket cache disable.",
     "turns": [
       {
         "question": "How many members are in the club?",
@@ -219,6 +219,24 @@
       {
         "question": "customer 3, 201208",
         "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 3 AND Date = '201208'"
+      }
+    ]
+  },
+  {
+    "id": "topic-switch-across-databases",
+    "db_id": "debit_card_specializing",
+    "category": "topic_switch",
+    "why": "GH#87, reported from the chat UI. Turn 2 is self-contained, sits in a DIFFERENT database, and contains a relative clause \u2014 which used to trip the anaphora gate on the bare word 'that'. The condenser then merged turn 1's 'SME' and '2013' into it and the answer became a refusal about a value that was never asked for. Neither other topic_switch case crosses databases, so neither could catch this.",
+    "turns": [
+      {
+        "question": "What was the average monthly consumption of customers in SME for the year 2013?",
+        "gold_sql": "SELECT AVG(y.consumption) FROM yearmonth AS y INNER JOIN customers AS c ON c.customerid = y.customerid WHERE c.segment = 'SME' AND y.date LIKE '2013%'"
+      },
+      {
+        "question": "List the first names of members that wear a Medium t-shirt.",
+        "db_id": "student_club",
+        "gold_sql": "SELECT first_name FROM member WHERE t_shirt_size = 'Medium'",
+        "expect_differs_from_previous": true
       }
     ]
   }
