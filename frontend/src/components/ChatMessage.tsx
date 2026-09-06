@@ -261,6 +261,15 @@ function EvidencePanel({ v }: { v: TurnVerification }) {
           </dd>
           <dt>Decided by</dt>
           <dd>{DECIDED_BY_LABEL[v.decided_by]}</dd>
+          {v.topic_switch && (
+            <>
+              <dt>Context</dt>
+              <dd>
+                Answered on its own — this question is about different tables
+                from the previous one, so the earlier conversation was not used.
+              </dd>
+            </>
+          )}
           {Boolean(v.refine_rounds) && (
             <>
               <dt>Refine rounds</dt>
