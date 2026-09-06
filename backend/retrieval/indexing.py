@@ -134,6 +134,10 @@ def build_index(
             backend.delete_database(conn, db_name)
 
         backend.save_chunks(chunks, conn=conn)
+        # GH#79: drop chunks left behind by an index built before the
+        # assistant's own tables were excluded (save_chunks upserts, so a
+        # plain rebuild would never remove them).
+        backend.purge_internal_chunks(conn, db_name)
         stats = backend.get_stats(conn)
         conn.close()
 

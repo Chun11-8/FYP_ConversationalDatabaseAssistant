@@ -19,6 +19,8 @@ import re
 import threading
 from typing import Dict, List, Optional, Tuple
 
+from backend.retrieval.internal_tables import is_internal_table
+
 logger = logging.getLogger(__name__)
 
 # Per-column cap: columns with more distinct values than this are skipped —
@@ -69,6 +71,11 @@ class ValueIndex:
     # ── loading ────────────────────────────────────────────────────────────
 
     def _load_table(self, table: str) -> Dict[str, List[str]]:
+        # GH#79: never scan the assistant's own tables for data values — the
+        # cache holds past SQL text, which fuzzy-matches user spans and yields
+        # "closest actual value" hints pointing at the plumbing.
+        if is_internal_table(table):
+            return {}
         with self._lock:
             if table in self._by_table:
                 return self._by_table[table]
