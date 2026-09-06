@@ -77,6 +77,12 @@ sql:
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
   execution_voting: true
+  # GH#69: gold-free risk checks on the executed result — zero rows,
+  # ungrounded WHERE literal, cross join, missing GROUP BY, LIMIT 1 on a
+  # plural question, arity vs the plan, table outside the retrieved schema.
+  # They ANNOTATE only: no query is blocked, rewritten or retried. Set false
+  # to A/B the flags against the labelled benchmark data.
+  risk_checks: true
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
   # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):

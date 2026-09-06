@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import type { Message, TextMessage, TurnUsage, TurnVerification } from '../types';
+import type { Message, TextMessage, TurnUsage, TurnVerification, TurnRisk } from '../types';
 import { downloadUrl } from '../api/client';
 
 interface ChatMessageProps {
@@ -209,6 +209,28 @@ function AgreementChip({ v }: { v: TurnVerification }) {
   );
 }
 
+/**
+ * Risk flags (GH#69). Shown OUTSIDE the collapsed panel, unlike the rest of
+ * the evidence: a specific, checkable objection to the answer the user is
+ * reading is worth interrupting for, where "5/5 agreed" is not.
+ *
+ * Never phrased as a verdict on the whole answer — each line states the one
+ * concrete thing that looks wrong, so the user can judge it themselves.
+ */
+function RiskNotes({ risks }: { risks: TurnRisk[] }) {
+  if (!risks.length) return null;
+  return (
+    <ul className="risk-notes">
+      {risks.map((r, i) => (
+        <li key={`${r.code}-${i}`} className={`risk-note risk-note--${r.severity}`}>
+          <AlertTriangle size={12} className="risk-note-icon" />
+          <span>{r.message}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Collapsed "why this answer" panel — the full evidence, on demand. */
 function EvidencePanel({ v }: { v: TurnVerification }) {
   const [open, setOpen] = useState(false);
@@ -346,6 +368,12 @@ function AssistantMessage({
               {message.content}
             </ReactMarkdown>
           </div>
+
+          {/* 1b. Risk flags (GH#69) — a specific objection to THIS answer,
+                 placed before the rows it questions rather than behind a toggle. */}
+          {message.verification?.risks?.length ? (
+            <RiskNotes risks={message.verification.risks} />
+          ) : null}
 
           {/* 2. Fetched records — first 10 visible, rest behind toggle */}
           {message.rows && message.rows.length > 0 && (

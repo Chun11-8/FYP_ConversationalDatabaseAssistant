@@ -80,6 +80,19 @@ export interface TurnVerification {
   refine_rounds?: number;
   validated?: boolean;
   validation_checks?: Record<string, boolean>;
+  /** Gold-free risk flags on the executed result (GH#69) */
+  risks?: TurnRisk[];
+  /** Severity-weighted flag count. A ranking aid, NOT a probability. */
+  risk_score?: number;
+}
+
+/** One thing that looks wrong about an answer that nonetheless ran fine. */
+export interface TurnRisk {
+  code: string;
+  severity: 'high' | 'medium' | 'low' | string;
+  /** Written to be actionable on its own — shown verbatim to the user. */
+  message: string;
+  detail?: Record<string, unknown> | null;
 }
 
 export type Message = TextMessage;
