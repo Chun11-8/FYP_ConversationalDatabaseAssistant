@@ -387,7 +387,17 @@ class OrchestrationAgent:
         self._backward_linking = bool(_r.get("backward_linking", True))
         # GH#38 latency + GH#41 hardening knobs.
         _sql = config.get("sql", {}) or {}
-        self._db_name = config.get("db", {}).get("name", "FYP")
+        # GH#81: the RETRIEVAL scope — the db_name label a schema chunk must
+        # carry to be searchable. `retrieval.active_db` narrows it to ONE
+        # logical database (e.g. "debit_card_specializing") when several were
+        # loaded into the same PostgreSQL schema, which is the condition the
+        # BIRD harness runs under. None searches every scope — identical to
+        # the old behaviour, where one label spanned the whole index and the
+        # filter was a no-op. It is a label, never a connection: queries always
+        # execute against the single database configured under `db:`.
+        self._db_name = _r.get("active_db") or None
+        # Public read-only view of the scope, for GET /databases.
+        self.active_db = self._db_name
         self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
         # GH#48: when execution voting is inconclusive, resolve with a
@@ -611,7 +621,7 @@ class OrchestrationAgent:
         trace("─" * 70)
         tables: List[str] = []
         try:
-            r = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
+            r = retrieve(state["user_query"], getattr(self, "_db_name", None),
                          top_k_tables=3, store="pgvector",
                          embedding=state.get("query_embedding"))
             tables = [t["table_name"] for t in r.get("tables", [])][:3]
@@ -683,7 +693,7 @@ class OrchestrationAgent:
             trace("  💡 Few-shot examples: none")
 
         try:
-            db_name = getattr(self, "_db_name", "FYP")
+            db_name = getattr(self, "_db_name", None)
             schema_chunks = retrieve(search_q, db_name, top_k_tables=5,
                                      store="pgvector", embedding=query_embedding)
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
@@ -949,7 +959,7 @@ class OrchestrationAgent:
         tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
         if not tables:
             return ""
-        chunks = fetch_table_chunks(tables, getattr(self, "_db_name", "FYP"))
+        chunks = fetch_table_chunks(tables, getattr(self, "_db_name", None))
         # A partial fetch would hand strict-semantic validation an incomplete
         # schema and fail a perfectly good cached query — take all or nothing.
         if len(chunks) < len(tables):
@@ -1038,7 +1048,7 @@ class OrchestrationAgent:
             missing = [t for t in planned if t.casefold() not in ctx_low]
             if missing:
                 chunks = fetch_table_chunks(
-                    missing, getattr(self, "_db_name", "FYP"))
+                    missing, getattr(self, "_db_name", None))
                 if chunks:
                     recovered = [c["table_name"] for c in chunks]
                     trace(f"  🔙 Backward-linked tables recovered: {recovered}")
@@ -1763,7 +1773,7 @@ class OrchestrationAgent:
             # Broaden schema scan
             # Same search text retrieval used, so the reused vector matches it.
             search_q = state.get("standalone_query") or state["user_query"]
-            schema_chunks = retrieve(search_q, getattr(self, "_db_name", "FYP"),
+            schema_chunks = retrieve(search_q, getattr(self, "_db_name", None),
                                      top_k_tables=10, store="pgvector",
                                      embedding=state.get("query_embedding"))
             schema_context = schema_chunks["prompt_context"]

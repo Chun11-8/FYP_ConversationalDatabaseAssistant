@@ -23,6 +23,19 @@ class ModelsResponse(BaseModel):
     default: str
 
 
+class DatabaseInfo(BaseModel):
+    """One logical database (BIRD db_id) present in the schema vector index."""
+    name: str
+    tables: int
+    active: bool
+
+
+class DatabasesResponse(BaseModel):
+    """GH#81: retrieval scopes available, and which one is in force."""
+    databases: List[DatabaseInfo]
+    active: str
+
+
 class ChatResponse(BaseModel):
     response: str
     sql: Optional[str] = None

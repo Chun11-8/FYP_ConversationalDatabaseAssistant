@@ -408,25 +408,36 @@ def get_fk_graph(conn: psycopg2.extensions.connection) -> tuple[dict, list[dict]
 def get_chunks_by_tables(
     conn: psycopg2.extensions.connection,
     table_names: list[str],
-    db_name: str,
+    db_name: Optional[str] = None,
 ) -> list[dict]:
     """
     Retrieve schema_embeddings rows for a specific list of table names.
     No embedding / cosine search — direct lookup by name.
+
+    *db_name* None (GH#81) searches every scope, matching retrieve()'s
+    behaviour when `retrieval.active_db` is unset.
     Returns list of {chunk_id, db_name, table_name, content} dicts.
     """
     if not table_names:
         return []
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
+    if db_name:
+        sql = """
             SELECT chunk_id, db_name, table_name, content
             FROM schema_embeddings
             WHERE db_name = %s AND table_name = ANY(%s)
             ORDER BY table_name;
-            """,
-            (db_name, list(table_names)),
-        )
+        """
+        params = (db_name, list(table_names))
+    else:
+        sql = """
+            SELECT chunk_id, db_name, table_name, content
+            FROM schema_embeddings
+            WHERE table_name = ANY(%s)
+            ORDER BY table_name;
+        """
+        params = (list(table_names),)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, params)
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -481,13 +492,39 @@ def list_databases(conn: psycopg2.extensions.connection) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
-def list_tables(conn: psycopg2.extensions.connection, db_name: str) -> list[str]:
-    """Return all table names for a given database."""
+def list_databases_with_counts(
+    conn: psycopg2.extensions.connection,
+) -> list[tuple[str, int]]:
+    """
+    GH#81: [(db_name, distinct table count), ...] for the /databases endpoint —
+    one query instead of list_databases() + a list_tables() per database.
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT table_name FROM schema_embeddings WHERE db_name = %s ORDER BY table_name;",
-            (db_name,)
+            "SELECT db_name, COUNT(DISTINCT table_name) FROM schema_embeddings "
+            "GROUP BY db_name ORDER BY db_name;"
         )
+        return [(row[0], int(row[1])) for row in cur.fetchall()]
+
+
+def list_tables(
+    conn: psycopg2.extensions.connection, db_name: Optional[str] = None
+) -> list[str]:
+    """
+    Return all indexed table names. *db_name* None (GH#81) spans every scope.
+    """
+    with conn.cursor() as cur:
+        if db_name:
+            cur.execute(
+                "SELECT table_name FROM schema_embeddings WHERE db_name = %s "
+                "ORDER BY table_name;",
+                (db_name,),
+            )
+        else:
+            cur.execute(
+                "SELECT DISTINCT table_name FROM schema_embeddings "
+                "ORDER BY table_name;"
+            )
         return [row[0] for row in cur.fetchall()]
 
 
@@ -513,6 +550,41 @@ def delete_table_chunks(
     conn.commit()
     print(f"[INFO] Deleted {n} chunk(s) for {db_name}.{table_name}")
     return n
+
+
+def prune_relabelled_chunks(
+    conn: psycopg2.extensions.connection, chunks: list[dict]
+) -> int:
+    """
+    GH#81: drop chunks for a table that is now tagged with a DIFFERENT db_name.
+
+    Re-tagging changes chunk_id (`FYP__customers__schema` →
+    `debit_card_specializing__customers__schema`), so the upsert in
+    save_chunks() inserts the new row and leaves the old one behind — the table
+    would then be retrievable under both labels, and the stale copy would keep
+    winning slots in the un-scoped `FYP` pool. Returns rows deleted.
+    """
+    wanted: dict[str, str] = {}
+    for c in chunks:
+        table, db = c.get("table_name"), c.get("db_name")
+        if table and db:
+            wanted[table] = db
+    if not wanted:
+        return 0
+
+    deleted = 0
+    with conn.cursor() as cur:
+        for table, db in wanted.items():
+            cur.execute(
+                "DELETE FROM schema_embeddings "
+                "WHERE table_name = %s AND db_name <> %s;",
+                (table, db),
+            )
+            deleted += cur.rowcount
+    conn.commit()
+    if deleted:
+        print(f"[INFO] Pruned {deleted} chunk(s) left under a previous db_name")
+    return deleted
 
 
 def purge_internal_chunks(

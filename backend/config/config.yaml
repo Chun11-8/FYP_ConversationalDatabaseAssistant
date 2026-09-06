@@ -149,6 +149,26 @@ sql:
 retrieval:
   vector_store: pgvector
   top_k_tables: 5
+  # GH#81 retrieval scoping. All 75 BIRD mini-dev tables from 11 unrelated
+  # domains live in the same `public` schema, so an un-scoped top-5 picks from
+  # 75 candidates while the BIRD harness only ever sees the 4 tables of the
+  # question's own db_id. Tagging (below) records which db_id owns each table;
+  # active_db then narrows retrieval to one of them.
+  #
+  # active_db: the logical database to search. Unset → EVERY scope, which is
+  # exactly what a single-domain install always did (one label across the whole
+  # index made the filter a no-op). Set it to reproduce the benchmark's
+  # retrieval conditions in the chat UI, e.g.:
+  #   active_db: debit_card_specializing
+  # `GET /databases` lists what is actually indexed. This is a LABEL on the
+  # vector rows — queries always execute against the one database under `db:`.
+  # active_db:
+  #
+  # table_catalog: BIRD tables.json used at BUILD time to map table → db_id.
+  # Unset → $BIRD_TABLES_JSON, then outputs/dev_tables.json, then
+  # dataset/minidev/MINIDEV/dev_tables.json. No file found → every table keeps
+  # the --db name (pre-GH#81 behaviour). Changing this needs a re-index.
+  # table_catalog: outputs/dev_tables.json
   top_k_kb: 3
   # FK-aware context expansion: hop depth (2 reaches through bridge tables),
   # cap on FK-added tables, and an approximate token budget for the schema

@@ -94,6 +94,10 @@ outputs/         CSV exports from large query results
 docker compose -f backend/config/compose.yml up -d
 
 # 2. Build the schema vector index (from repo root)
+#    Tables are tagged with the logical database that owns them (GH#81, read
+#    from outputs/dev_tables.json); the assistant's own tables are excluded
+#    (GH#79, backend/retrieval/internal_tables.py). Scope retrieval to one
+#    domain with retrieval.active_db in config.yaml; unset = search all.
 python -m backend.retrieval.indexing build --db FYP
 
 # 3. Run the orchestrator (until the API exists)

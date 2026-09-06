@@ -33,6 +33,7 @@ from langchain_openai import ChatOpenAI
 from openai import OpenAI
 
 from backend.retrieval.data_processing import process_database
+from backend.retrieval.db_catalog import load_catalog
 from backend.retrieval.embedding import build_chunks, embed_chunks, get_openai_client, EMBED_MODEL
 import logging as _logging
 _logger = _logging.getLogger(__name__)
@@ -78,6 +79,26 @@ def _embed_query(query: str, client: OpenAI) -> list[float]:
     return response.data[0].embedding
 
 
+def _print_scope_summary(chunks: list[dict]) -> None:
+    """
+    GH#81: show which logical database each table was tagged with, so a build
+    makes the retrieval scopes visible instead of silently labelling
+    everything with the --db name.
+    """
+    by_db: dict[str, list[str]] = {}
+    for c in chunks:
+        if c.get("table_name"):
+            by_db.setdefault(c.get("db_name", "?"), []).append(c["table_name"])
+    if len(by_db) <= 1:
+        return
+    print(f"   Scopes    : {len(by_db)} logical databases "
+          "(set retrieval.active_db to search just one)")
+    for db in sorted(by_db):
+        tables = sorted(by_db[db])
+        shown = ", ".join(tables[:6]) + (" …" if len(tables) > 6 else "")
+        print(f"     - {db:<28} {len(tables):>3} tables  [{shown}]")
+
+
 # ── build index pipeline ───────────────────────────────────────────────────────
 
 def build_index(
@@ -85,6 +106,7 @@ def build_index(
     store: str = None,
     force_reindex: bool = False,
     pg_config: dict = None,
+    tables_json: str = None,
 ) -> None:
     """
     Run the complete pipeline for ONE PostgreSQL database:
@@ -96,7 +118,16 @@ def build_index(
         force_reindex: If True, delete existing vectors before re-indexing.
         pg_config:     Optional custom PostgreSQL connection config dict.
                        If None, uses defaults from data_processing.py.
+        tables_json:   GH#81 — BIRD tables.json used to tag each table with the
+                       logical database (db_id) that owns it. None searches the
+                       default locations; nothing found leaves every table
+                       tagged with *db_name*.
     """
+    catalog = load_catalog(tables_json)
+    if catalog:
+        print(f"[INFO] Table catalog: {len(catalog)} tables across "
+              f"{len(catalog.databases())} logical databases "
+              f"({catalog.source})")
     store = store or _default_store()
     backend = _get_backend(store)
     
@@ -106,9 +137,9 @@ def build_index(
 
     # Pass optional pg_config if provided
     if pg_config:
-        db_data = process_database(db_name, **pg_config)
+        db_data = process_database(db_name, catalog=catalog, **pg_config)
     else:
-        db_data = process_database(db_name)
+        db_data = process_database(db_name, catalog=catalog)
 
     if not db_data:
         print(f"[ERROR] Could not process database '{db_name}'. Aborting.")
@@ -138,6 +169,8 @@ def build_index(
         # assistant's own tables were excluded (save_chunks upserts, so a
         # plain rebuild would never remove them).
         backend.purge_internal_chunks(conn, db_name)
+        # GH#81: same for tables that have just moved to their real db_id.
+        backend.prune_relabelled_chunks(conn, chunks)
         stats = backend.get_stats(conn)
         conn.close()
 
@@ -146,6 +179,7 @@ def build_index(
         print(f"   Database  : {db_name}")
         print(f"   Chunks    : {len(chunks)}")
         print(f"   Store     : pgvector → {stats}")
+        _print_scope_summary(chunks)
         print("=" * 60)
 
     # ── pinecone ───────────────────────────────────────────────────────────
@@ -308,13 +342,15 @@ def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
 # ── Backward schema linking (GH#49 P4) ────────────────────────────────────────
 
 def fetch_table_chunks(
-    table_names: list[str], db_name: str, store: str = "pgvector"
+    table_names: list[str], db_name: Optional[str] = None,
+    store: str = "pgvector"
 ) -> list[dict]:
     """
     Direct name lookup of schema chunks (no embedding search) — used to recover
     tables the linker plan names but forward retrieval missed (RSL-SQL-style
     backward linking). Table names are matched case-insensitively against the
-    indexed names. Returns [] on any failure — never raises.
+    indexed names. *db_name* None (GH#81) spans every retrieval scope.
+    Returns [] on any failure — never raises.
     """
     if not table_names:
         return []
@@ -343,7 +379,7 @@ def fetch_table_chunks(
 
 def expand_fk_tables(
     retrieve_result: dict,
-    db_name: str,
+    db_name: Optional[str] = None,
     max_hops: int = 2,
     store_conn=None,
     max_expansion: int = 5,
@@ -364,7 +400,8 @@ def expand_fk_tables(
 
     Args:
         retrieve_result:   Output from retrieve() — must contain "tables" list.
-        db_name:           Database name used to filter schema_embeddings lookups.
+        db_name:           Retrieval scope for schema_embeddings lookups;
+                           None (GH#81) spans every logical database.
         max_hops:          FK traversal depth (default 2 so a middle "bridge"
                            table pulls in its far side, e.g. players→stats→teams).
         store_conn:        Reuse an existing pgvector connection (None = create one).
@@ -540,6 +577,11 @@ def main():
         "--force", action="store_true",
         help="Delete existing vectors for this DB before rebuilding"
     )
+    build_parser.add_argument(
+        "--tables-json", default=None,
+        help="BIRD tables.json mapping each table to its owning db_id (GH#81).\n"
+             "Default: $BIRD_TABLES_JSON, then outputs/dev_tables.json."
+    )
 
     # ── query subcommand ───────────────────────────────────────────────────
     query_parser = subparsers.add_parser("query", help="Query the vector index")
@@ -567,6 +609,7 @@ def main():
             db_name       = args.db,
             store         = store,
             force_reindex = args.force,
+            tables_json   = args.tables_json,
         )
 
     # ── query ──────────────────────────────────────────────────────────────
