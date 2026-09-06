@@ -103,11 +103,11 @@ sql:
   # both. Today every candidate comes from one plan, which is why 41 of 57
   # errors had unanimous agreement — candidates cannot disagree about a
   # decision none of them made. Costs one extra LLM call per hard question.
-  plan_diversity: false
+  plan_diversity: true
   # plan_rationale: make the linker name the answer's GRAIN and justify the
   # aggregate against the evidence (100% of these failures carried evidence
   # describing the computation). Costs a longer planner prompt, no extra call.
-  plan_rationale: false
+  plan_rationale: true
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
   # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):
