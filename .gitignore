@@ -227,3 +227,4 @@ backend/config/secrets.env
 
 # Reconstructed mini-DBs from smoke_examples.py
 backend/eval/_smoke_dbs/
+backend/eval/_multiturn_dbs/
