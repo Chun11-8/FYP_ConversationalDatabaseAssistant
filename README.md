@@ -447,6 +447,33 @@ exactly what a single-domain install has always done. Nothing here creates, move
 table: `db_name` is a **label** on a vector row, and queries always execute
 against the one database configured under `db:`.
 
+### How the chat UI and the BIRD harness stay aligned
+
+`backend/eval/bird.py` runs its own loop over `SQLCodeAgent` /
+`SchemaLinkingAgent` / `SQLValidatorAgent`; the chat UI runs the LangGraph in
+`db_agent.py`. They share the generation components, so any difference in what
+those components are *fed* shows up as a UI/eval gap. Two such differences have
+been closed (GH#85):
+
+| | BIRD harness | Chat UI |
+|---|---|---|
+| Schema | complete schema of the question's `db_id` | **complete schema of the active scope**, cosine top-k only as fallback |
+| Effort tier | the dataset's real difficulty label | **one fixed tier** (`sql.live_tier`, default `moderate`) — no inference |
+| Evidence | `<domain_context>` from the dataset | none — a live user types no evidence hint |
+
+The schema change matters because the table carrying a filter is often the one
+*least* similar to the question's wording, and a missing table does not fail:
+the model quietly drops the constraint and answers a different question. 80% of
+BIRD's gold SQL needs a join, so this is the common case.
+
+Cosine top-k (`retrieval.top_k_tables`) still runs when there is no active
+scope, when nothing is indexed for it, or when the scope's full schema exceeds
+`retrieval.max_schema_tokens`. Set `retrieval.full_schema_when_scoped: false`
+to A/B against pure top-k retrieval.
+
+Evidence remains the one real asymmetry: the benchmark supplies a domain hint
+for 148 of 150 questions and the deployed system has none.
+
 ### Step 3 — Start the backend API
 
 ```bash

@@ -30,6 +30,10 @@ def _agent(**attrs) -> OrchestrationAgent:
                     _fast_path=True, _answer_reuse=True,
                     _dialect="postgres", _db_name="FYP",
                     _fk_max_hops=2, _fk_max_expansion=5, _max_schema_tokens=4000,
+                    # These tests are about the cache path, not GH#85's
+                    # schema strategy — keep them on cosine retrieval so the
+                    # patched dbm.retrieve is what runs.
+                    _full_schema=False, _top_k_tables=5,
                     _fewshot_skeleton_blend=False)
     defaults.update(attrs)
     for k, v in defaults.items():

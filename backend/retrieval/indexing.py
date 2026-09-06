@@ -339,6 +339,71 @@ def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
         except Exception:
             pass
 
+# ── Full-schema retrieval (GH#85) ─────────────────────────────────────────────
+
+def fetch_full_schema(
+    db_name: str, store: str = "pgvector", store_conn=None,
+) -> Optional[dict]:
+    """
+    Every indexed table of ONE logical database, in :func:`retrieve`'s shape.
+
+    This is what the BIRD harness does: `extract_sqlite_schema(db_path)` hands
+    the generator the COMPLETE schema of the question's `db_id`, so a needed
+    table can never be missing. Cosine top-k cannot make that promise — the
+    table holding the filter ("who is in segment LAM?") often has low textual
+    similarity to the question, and once it is absent the model quietly drops
+    the constraint instead of failing.
+
+    Returns None when there is no scope, the store has nothing for it, or the
+    lookup fails — the caller falls back to cosine retrieval.
+
+    ``distance`` is 0.0 on every chunk: these were not ranked, and a fake
+    ranking would be read as one downstream.
+    """
+    if not db_name:
+        return None
+    backend = _get_backend(store)
+    if not hasattr(backend, "list_tables"):
+        return None                      # pinecone: no name lookup, use cosine
+    conn = None
+    try:
+        conn = store_conn or backend.get_store()
+        names = backend.list_tables(conn, db_name)
+        if not names:
+            return None
+        chunks = backend.get_chunks_by_tables(conn, names, db_name)
+        if not chunks:
+            return None
+        tables = [{
+            "chunk_id":   c["chunk_id"],
+            "db_name":    c["db_name"],
+            "table_name": c["table_name"],
+            "text":       c["content"],
+            "distance":   0.0,
+        } for c in chunks]
+    except Exception as exc:
+        _logger.warning(f"[FULL_SCHEMA] lookup failed for '{db_name}': {exc}")
+        return None
+    finally:
+        if store_conn is None and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    parts = ["### Relevant Table Schemas\n"]
+    for t in tables:
+        parts.append(t["text"])
+        parts.append("")
+    _logger.info(f"[FULL_SCHEMA] {len(tables)} table(s) for db '{db_name}'")
+    return {
+        "tables":         tables,
+        "knowledge_base": [],
+        "prompt_context": "\n".join(parts).strip(),
+        "full_schema":    True,
+    }
+
+
 # ── Backward schema linking (GH#49 P4) ────────────────────────────────────────
 
 def fetch_table_chunks(
