@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
+from backend.retrieval.db_catalog import load_catalog
 from backend.retrieval.internal_tables import filter_internal
 
 load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
@@ -60,8 +61,18 @@ def clean_text(text: str) -> str:
 
 # ── schema extraction ──────────────────────────────────────────────────────────
 
-def extract_schema_pg(conn, db_name: str) -> list[dict]:
+def extract_schema_pg(conn, db_name: str, catalog=None) -> list[dict]:
+    """
+    Introspect every user table in `public`.
+
+    GH#81: each table is tagged with the logical database that OWNS it (its
+    BIRD db_id) rather than with the PostgreSQL database name, so retrieval can
+    be scoped to one domain. *catalog* is a DBCatalog; None loads the default.
+    A table the catalog doesn't know keeps *db_name*, which reproduces the old
+    behaviour when no catalog file is present.
+    """
     cursor = conn.cursor()
+    catalog = load_catalog() if catalog is None else catalog
 
     # Get tables
     cursor.execute("""
@@ -135,7 +146,7 @@ def extract_schema_pg(conn, db_name: str) -> list[dict]:
             })
 
         tables.append({
-            "db_name": db_name,
+            "db_name": catalog.db_for_table(table_name, db_name),
             "table_name": table_name,
             "columns": columns,
             "foreign_keys": foreign_keys,
@@ -315,10 +326,13 @@ def resolve_column_meaning(meanings: dict, table_name: str, col_name: str) -> tu
 
 # ── main processor ─────────────────────────────────────────────────────────────
 
-def process_database(db_name: str) -> Optional[dict]:
+def process_database(db_name: str, catalog=None) -> Optional[dict]:
     """
     Process a single database directory.
     Returns a structured dict with all metadata, or None on failure.
+
+    *catalog* (GH#81) is a DBCatalog tagging each table with its owning db_id;
+    None loads the default. It affects the LABEL on each table only.
     """
     
     print(f"\n[INFO] Processing: {db_name}")
@@ -330,7 +344,7 @@ def process_database(db_name: str) -> Optional[dict]:
         return None
 
     # 1. Schema
-    tables = extract_schema_pg(conn, db_name)
+    tables = extract_schema_pg(conn, db_name, catalog=catalog)
     print(f"  → {len(tables)} tables found")
     # 3. Column meanings
 

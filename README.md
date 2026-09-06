@@ -411,6 +411,39 @@ This introspects your PostgreSQL schema, embeds table/column descriptions using 
 
 The assistant's own tables (`sessions`, `turns`, `query_sql_pairs`, `query_interactions`, `feedback`, `schema_embeddings`, `kb_embeddings`, `schema_version_store`) are **excluded** from the index — they are plumbing, not user data, and indexing them let them win a top-K retrieval slot over the tables that hold the answer. The list lives in `backend/retrieval/internal_tables.py`; add any new app-owned table to it. A rebuild also purges chunks for those tables left behind by an older index, so re-run the command above once after upgrading.
 
+### Step 2b — (Optional) Scope retrieval to one logical database
+
+Several BIRD mini-dev databases were loaded into the same PostgreSQL schema, so
+`public` holds 75 tables from 11 unrelated domains. An un-scoped search picks
+its top-5 tables out of all 75, while the BIRD harness only ever sees the 4
+tables of the question's own `db_id` — the same question, a strictly harder
+retrieval problem, and the reason the chat UI and the benchmark could disagree.
+
+The build now tags each schema chunk with the logical database that owns its
+table, read from a BIRD `tables.json`:
+
+```bash
+# auto-detected: $BIRD_TABLES_JSON, then outputs/dev_tables.json,
+# then dataset/minidev/MINIDEV/dev_tables.json
+python -m backend.retrieval.indexing build --db FYP
+python -m backend.retrieval.indexing build --db FYP --tables-json path/to/tables.json
+```
+
+The build prints the scopes it produced, and `GET /databases` lists what is
+indexed plus which scope is active. To answer questions against one domain —
+the benchmark's conditions — set it in `backend/config/config.yaml` and restart
+the API:
+
+```yaml
+retrieval:
+  active_db: debit_card_specializing
+```
+
+Leaving `active_db` unset searches every scope, which is exactly what a
+single-domain install has always done. Nothing here creates, moves or drops a
+table: `db_name` is a **label** on a vector row, and queries always execute
+against the one database configured under `db:`.
+
 ### Step 3 — Start the backend API
 
 ```bash
@@ -595,6 +628,26 @@ Returns the models the per-request picker (sidebar) may choose from.
 {
   "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
   "default": "gpt-4o-mini"
+}
+```
+
+---
+
+### `GET /databases`
+
+Lists the retrieval scopes present in the schema vector index, and which one is
+in force (`retrieval.active_db`, or every scope when unset). Read-only —
+switching scope is a config change plus a restart. `503` when the index cannot
+be read.
+
+**Response**
+```json
+{
+  "databases": [
+    { "name": "debit_card_specializing", "tables": 5,  "active": true  },
+    { "name": "superhero",               "tables": 10, "active": false }
+  ],
+  "active": "debit_card_specializing"
 }
 ```
 

@@ -39,7 +39,7 @@ from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, FeedbackRequest, HealthResponse, SessionResponse,
     SchemaResponse, SessionSummary, SchemaDiffResponse, SchemaSyncRequest,
-    SchemaSyncResponse, ModelsResponse,
+    SchemaSyncResponse, ModelsResponse, DatabaseInfo, DatabasesResponse,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -352,6 +352,38 @@ def list_models() -> ModelsResponse:
     """Models the frontend's per-request picker (GH#52) may choose from."""
     agent = _get_agent()
     return ModelsResponse(models=agent.selectable_models, default=agent.default_model)
+
+
+@app.get("/databases", response_model=DatabasesResponse, tags=["schema"])
+def list_databases() -> DatabasesResponse:
+    """
+    GH#81: the retrieval scopes present in the schema vector index, and which
+    one is in force. Several BIRD databases share one PostgreSQL schema, so
+    `retrieval.active_db` decides which of them a question is answered against.
+    Read-only: switching scope is a config change plus a restart.
+    """
+    agent = _get_agent()
+    active = agent.active_db
+    try:
+        import backend.retrieval.pgvector_store as pgstore
+        conn = pgstore.get_store()
+        try:
+            counts = pgstore.list_databases_with_counts(conn)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"[API] /databases could not read the index: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Schema vector index unavailable — is PostgreSQL running "
+                   "and has `indexing build` been run?",
+        )
+
+    return DatabasesResponse(
+        databases=[DatabaseInfo(name=n, tables=t, active=(n == active))
+                   for n, t in counts],
+        active=active,
+    )
 
 
 @app.get("/metrics-lite", tags=["ops"])

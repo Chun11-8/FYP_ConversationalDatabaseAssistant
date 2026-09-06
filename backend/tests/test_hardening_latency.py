@@ -257,9 +257,13 @@ class TestModelRoutingAndPrefetch:
         assert a.intent_llm is a.llm
         assert a._format_llm is a.llm
 
-    def test_db_name_from_config(self):
+    def test_retrieval_scope_defaults_to_every_indexed_database(self):
+        """GH#81: the PostgreSQL database name is NOT a retrieval scope — the
+        index can hold several logical databases. Unset active_db must search
+        all of them, which is what a single-domain install always did."""
         a = self._mk({"model": "big", "api_key": "k"})
-        assert a._db_name == "mydb"
+        assert a._db_name is None
+        assert a.active_db is None
 
     def test_prefetched_embedding_consumed(self):
         """run() consumes the prefetch future and hands the vector over in state
