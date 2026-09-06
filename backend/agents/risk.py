@@ -115,6 +115,117 @@ def check_ungrounded_literals(
     return out[:3]
 
 
+# ── 2b. question ↔ SQL coverage (GH#73) ───────────────────────────────────────
+
+# Spans that routinely appear in the SQL in a DIFFERENT form, so their textual
+# absence proves nothing. Dates are the big one: "between August and November
+# 2013" is correctly answered with a '201308'-style literal, and on the
+# labelled data every one of these produced a false alarm.
+_DATE_SHAPED_RE = re.compile(r"\d{1,4}\s*[/-]\s*\d{1,2}|\d{4}|\b\d{1,2}:\d{2}")
+_SENTENCE_STARTERS = {
+    "is", "if", "in", "on", "at", "what", "which", "who", "how", "the", "a",
+    "an", "and", "or", "of", "for", "list", "show", "give", "state", "name",
+    "please", "find", "calculate", "among", "between", "from", "to",
+}
+_MONTH_WORDS = {
+    "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may",
+    "jun", "june", "jul", "july", "aug", "august", "sep", "sept", "september",
+    "oct", "october", "nov", "november", "dec", "december",
+}
+
+
+def _span_is_untestable(span: str) -> bool:
+    """True when a span's absence from the SQL carries no information."""
+    low = span.casefold().strip()
+    if low in _SENTENCE_STARTERS:            # capitalised sentence opener, not a value
+        return True
+    if low in _MONTH_WORDS:                  # rendered as a date literal
+        return True
+    if _DATE_SHAPED_RE.search(span):         # reformatted (2012/8/24 → 2012-08-24)
+        return True
+    # A multi-word span whose first word is a sentence opener ("Is it true…")
+    first = low.split()[0] if low.split() else ""
+    return first in _SENTENCE_STARTERS
+
+
+
+def check_question_coverage(
+    sql: str, question: str, tables: Sequence[str], value_index: Any,
+) -> List[Dict[str, Any]]:
+    """
+    Every other check reads the SQL and asks whether it is well-formed against
+    the schema. This one reads the QUESTION and asks whether the SQL actually
+    used it.
+
+    The failure it exists for (GH#73): asked for "customers from the country
+    Wakanda" against a schema with no country column, the model dropped the
+    constraint entirely and substituted `segment = 'LAM' AND currency = 'EUR'`
+    — real columns, real values, internally consistent, and an answer to a
+    different question. Nothing downstream could see it, because every literal
+    in the SQL was legitimate: the constraint was not corrupted, it was
+    deleted.
+
+    Two distinct verdicts:
+      * ``unknown_value``    — the span matches nothing in the database at all.
+      * ``dropped_constraint`` — the span exists (or could not be checked) but
+        the SQL neither contains it nor the value it grounds to.
+
+    The grounded value must be checked, not just the literal span: value
+    grounding rewrites 'Brazil' to 'BRA' on purpose, and a naive
+    span-not-in-SQL test would fire on a correctly grounded query.
+    """
+    if not sql or not question:
+        return []
+    try:
+        from backend.retrieval.value_index import extract_value_spans
+        spans = extract_value_spans(question)
+        if not spans:
+            return []
+
+        # {} means the index could not answer — treated as "unknown", never as
+        # "nothing matched", so an index outage cannot manufacture alarms.
+        resolved: Dict[str, Any] = {}
+        if value_index is not None and tables:
+            try:
+                resolved = value_index.resolve_spans(question, list(tables)) or {}
+            except Exception as exc:
+                logger.warning("[RISK] span resolution failed: %s", exc)
+                resolved = {}
+
+        low_sql = sql.casefold()
+        out: List[Dict[str, Any]] = []
+        for span in spans:
+            if _span_is_untestable(span):
+                continue
+            if span.casefold() in low_sql:
+                continue                                  # used as written
+            actual = resolved.get(span)
+            if actual and actual.casefold() in low_sql:
+                continue                                  # used, correctly grounded
+            if span not in resolved:
+                # The index could not be consulted, so "absent from the SQL"
+                # cannot be distinguished from "expressed another way".
+                # Measured on the 150 labelled questions, guessing here drove
+                # false alarms to 54% and precision to 42% — silence is the
+                # only defensible answer without the data to check against.
+                continue
+            if actual is None:
+                out.append(_risk(
+                    "unknown_value", HIGH,
+                    f"{span!r} does not appear anywhere in this database, so "
+                    f"no query can filter on it.", span=span))
+            else:
+                out.append(_risk(
+                    "dropped_constraint", HIGH,
+                    f"Your question mentions {span!r} (stored as {actual!r}), "
+                    f"but the query does not filter on it — the answer may be "
+                    f"for a different question.", span=span, stored_as=actual))
+        return out[:3]
+    except Exception as exc:
+        logger.warning("[RISK] question-coverage check failed: %s", exc)
+        return []
+
+
 # ── 3. join fan-out ───────────────────────────────────────────────────────────
 
 def check_join_fanout(
@@ -302,6 +413,7 @@ def assess(
     checks = (
         lambda: check_zero_rows(rows),
         lambda: check_ungrounded_literals(sql, tables, value_index),
+        lambda: check_question_coverage(sql, question, tables, value_index),
         lambda: check_join_fanout(sql, rows),
         lambda: check_aggregate_grain(sql, question),
         lambda: check_limit_one_on_plural(sql, question),

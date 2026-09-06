@@ -121,6 +121,48 @@ class ValueIndex:
             return close[0], ratio
         return None
 
+    def resolve_spans(self, text: str, tables: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Every value-like span in *text* mapped to the closest real value in
+        *tables*, or to None when nothing in the data comes close (GH#73).
+
+        ``ground()`` deliberately returns nothing for a span that matches
+        nothing — there is no casing to correct — but "this value does not
+        exist in the database" is the more useful signal of the two, and
+        silence throws it away. This method exposes both outcomes so a caller
+        can tell "grounded to X" from "matches nothing at all".
+
+        Never raises: an empty dict means the index could not answer, which
+        callers must treat as "unknown", never as "nothing matched".
+        """
+        out: Dict[str, Optional[str]] = {}
+        try:
+            spans = extract_value_spans(text)
+            if not spans:
+                return {}
+            # _load_table swallows a failed load and returns {}, so an outage
+            # is indistinguishable from a table with no indexed columns. Both
+            # mean "could not check" — reporting None for every span would
+            # tell the user a value does not exist in the database on the
+            # strength of a connection error.
+            loaded = {t: self._load_table(t) for t in tables}
+            if not any(cols for cols in loaded.values()):
+                return {}
+            for span in spans:
+                out[span] = None
+                for cols in loaded.values():
+                    for _col, values in cols.items():
+                        m = self._best_match(span, values)
+                        if m:
+                            out[span] = m[0]
+                            break
+                    if out[span] is not None:
+                        break
+        except Exception as exc:
+            logger.warning(f"[VALUE_INDEX] span resolution failed: {exc}")
+            return {}
+        return out
+
     def ground(self, text: str, tables: List[str]) -> List[str]:
         """
         Return hint lines for spans in *text* whose closest real value in

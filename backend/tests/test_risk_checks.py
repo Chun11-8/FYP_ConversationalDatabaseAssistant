@@ -302,3 +302,110 @@ class TestAssessRiskNode:
             user_query="what about 2014?",
             standalone_query="How many orders for each customer in 2014?"))
         assert "missing_group_by" in {r["code"] for r in out["verification"]["risks"]}
+
+
+# ── 8/9. question ↔ SQL coverage (GH#73) ──────────────────────────────────────
+
+class _FakeIndex:
+    """Stands in for ValueIndex.resolve_spans: {span: matched value | None}."""
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def resolve_spans(self, text, tables):
+        return self.mapping
+
+
+class TestQuestionCoverage:
+    """
+    Every other check reads the SQL and asks whether it is well-formed. This
+    one reads the QUESTION and asks whether the SQL used it — the gap that let
+    the reported failure through: asked for "customers from the country
+    Wakanda" with no country column, the model dropped the constraint and
+    substituted `segment='LAM' AND currency='EUR'`. Every literal in that SQL
+    is real, so nothing SQL-side could object.
+    """
+
+    WAKANDA_Q = "Show me customers from the country Wakanda"
+    WAKANDA_SQL = ("SELECT DISTINCT c.customerid FROM customers AS c "
+                   "WHERE c.segment = 'LAM' AND c.currency = 'EUR' LIMIT 100")
+
+    def test_the_reported_failure_is_caught(self):
+        risks = R.check_question_coverage(
+            self.WAKANDA_SQL, self.WAKANDA_Q, ["customers"],
+            _FakeIndex({"Wakanda": None}))
+        assert codes(risks) == {"unknown_value"}
+        assert "Wakanda" in risks[0]["message"]
+
+    def test_a_dropped_constraint_on_a_real_value(self):
+        risks = R.check_question_coverage(
+            "SELECT n FROM players WHERE segment = 'LAM'",
+            "Show me customers from Brazil", ["players"],
+            _FakeIndex({"Brazil": "BRA"}))
+        assert codes(risks) == {"dropped_constraint"}
+        assert risks[0]["detail"]["stored_as"] == "BRA"
+
+    def test_a_correctly_grounded_value_is_silent(self):
+        """Value grounding rewrites 'Brazil' to 'BRA' on purpose. A naive
+        span-not-in-SQL test would fire on a CORRECT query."""
+        assert R.check_question_coverage(
+            "SELECT n FROM players WHERE country = 'BRA'",
+            "Show me customers from Brazil", ["players"],
+            _FakeIndex({"Brazil": "BRA"})) == []
+
+    def test_a_value_used_verbatim_is_silent(self):
+        assert R.check_question_coverage(
+            "SELECT n FROM c WHERE segment = 'LAM'",
+            "customers in the LAM segment", ["c"],
+            _FakeIndex({"LAM": "LAM"})) == []
+
+    def test_silent_without_a_value_index(self):
+        """Measured: guessing here drove false alarms to 54% and precision to
+        42% on the labelled data. Absent the index, "not in the SQL" cannot be
+        told from "expressed another way", so silence is the only defensible
+        answer."""
+        assert R.check_question_coverage(
+            self.WAKANDA_SQL, self.WAKANDA_Q, ["customers"], None) == []
+
+    def test_silent_when_the_index_cannot_answer(self):
+        assert R.check_question_coverage(
+            self.WAKANDA_SQL, self.WAKANDA_Q, ["customers"],
+            _FakeIndex({})) == []
+
+    def test_index_failure_is_swallowed(self):
+        class Boom:
+            def resolve_spans(self, text, tables):
+                raise RuntimeError("index down")
+        assert R.check_question_coverage(
+            self.WAKANDA_SQL, self.WAKANDA_Q, ["customers"], Boom()) == []
+
+    @pytest.mark.parametrize("span,question", [
+        ("August", "How much did customer 6 consume between August and November 2013?"),
+        ("2012/8/24", "What currency did the customer pay at 16:25:00 in 2012/8/24?"),
+        ("Is", "Is it true that more SMEs pay in Czech koruna than in euros?"),
+    ])
+    def test_untestable_spans_never_fire(self, span, question):
+        """Dates are rendered as '201308'-style literals and sentence openers
+        are not values at all. Every one of these produced a false alarm on
+        the labelled data before they were excluded."""
+        assert R._span_is_untestable(span)
+        assert R.check_question_coverage(
+            "SELECT SUM(x) FROM t WHERE Date = '201308'", question, ["t"],
+            _FakeIndex({span: None})) == []
+
+    def test_a_real_entity_span_is_still_testable(self):
+        assert not R._span_is_untestable("Wakanda")
+        assert not R._span_is_untestable("Brazil")
+
+    def test_no_spans_means_no_flags(self):
+        assert R.check_question_coverage(
+            "SELECT COUNT(*) FROM customers", "how many customers are there?",
+            ["customers"], _FakeIndex({})) == []
+
+    def test_reachable_through_assess(self):
+        out = R.assess(sql=self.WAKANDA_SQL, rows=[{"customerid": 1}],
+                       question=self.WAKANDA_Q,
+                       schema_context="Table customers: CustomerID, Segment, Currency",
+                       tables=["customers"], value_index=_FakeIndex({"Wakanda": None}))
+        assert "unknown_value" in codes(out["risks"])
+        assert out["risk_score"] > 0

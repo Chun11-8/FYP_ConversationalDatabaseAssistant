@@ -210,3 +210,41 @@ class TestRefineDepth:
         state = {"refine_level": 0, "tier": "challenging",
                  "execution_result": [{"x": 1}], "error": None}
         assert a.route_after_execution(state) == "format_response"
+
+
+class TestResolveSpans:
+    """
+    GH#73: ground() returns nothing for a span that matches nothing, because
+    there is no casing to correct — but "this value is not in the database" is
+    the more useful of the two signals, and silence discards it.
+    resolve_spans() exposes both outcomes.
+    """
+
+    IDX = {"customers": {"country": ["Brazil", "Spain"], "segment": ["LAM", "SME"]}}
+
+    def test_exact_match_resolves_to_itself(self):
+        vi = _index(self.IDX)
+        assert vi.resolve_spans("customers in Brazil", ["customers"]) == {"Brazil": "Brazil"}
+
+    def test_near_match_resolves_to_the_stored_spelling(self):
+        vi = _index({"customers": {"country": ["BRAZIL"]}})
+        assert vi.resolve_spans("customers in Brazil", ["customers"])["Brazil"] == "BRAZIL"
+
+    def test_a_value_absent_from_the_data_resolves_to_None(self):
+        """The signal that ground() throws away — and the reported failure."""
+        vi = _index(self.IDX)
+        assert vi.resolve_spans("customers from Wakanda", ["customers"]) == {"Wakanda": None}
+
+    def test_searches_every_candidate_table(self):
+        vi = _index({"a": {"x": ["nope"]}, "customers": {"country": ["Brazil"]}})
+        assert vi.resolve_spans("in Brazil", ["a", "customers"])["Brazil"] == "Brazil"
+
+    def test_no_spans_yields_an_empty_map(self):
+        assert _index(self.IDX).resolve_spans("how many are there", ["customers"]) == {}
+
+    def test_a_failing_connection_yields_an_empty_map_not_false_negatives(self):
+        """An empty map must read as "could not check", never as "nothing
+        matched" — callers gate their flags on the difference."""
+        def boom():
+            raise RuntimeError("db down")
+        assert ValueIndex(boom).resolve_spans("customers from Wakanda", ["customers"]) == {}
