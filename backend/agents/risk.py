@@ -524,13 +524,24 @@ def check_plan_conformance(
                 plan_group_by=plan_group))
 
     # ── grain (GH#76 emits it when plan_rationale is on) ──
+    #
+    # An ungrouped query is only WRONG for a per-group grain when it also
+    # AGGREGATES — that is what collapses many rows into one. A plain
+    # `SELECT name FROM player WHERE ...` already returns one row per player
+    # with no GROUP BY, because each source row IS a player; flagging it was a
+    # false positive on every "list the X" question (GH#93). DISTINCT groups
+    # too. Same guard check_aggregate_grain has always used.
     grain = str(query_plan.get("grain") or "").strip()
-    if grain and "group by" not in low_sql and re.search(
-            r"\bper\b|\beach\b|one row per", grain, re.IGNORECASE):
+    if (grain
+            and _AGG_RE.search(sql)
+            and "group by" not in low_sql
+            and not re.search(r"\bDISTINCT\b", sql, re.IGNORECASE)
+            and re.search(r"\bper\b|\beach\b|one row per", grain, re.IGNORECASE)):
         out.append(_risk(
             "plan_grain_mismatch", MEDIUM,
-            f"The plan describes the answer as {grain!r}, which needs one row "
-            f"per group, but the query returns an ungrouped result.",
+            f"The plan describes the answer as {grain!r}, but the query "
+            f"aggregates everything into a single row instead of one per "
+            f"group.",
             grain=grain))
     return out[:3]
 
