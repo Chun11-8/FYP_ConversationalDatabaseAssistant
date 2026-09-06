@@ -24,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import backend.agents.db_agent as dbm
+import backend.agents.llm_factory as llm_factory
 import backend.api.main as api_main
 
 
@@ -39,8 +40,13 @@ def _mk_agent(llm_cfg: dict, retrieval_cfg: dict | None = None):
     run() call under test (the per-request override) — a helper that exits
     its `with` block before returning would un-patch ChatOpenAI before run()
     ever executes, silently constructing the REAL client instead.
+
+    Patched on llm_factory, not db_agent: since GH#65 every query-stage client
+    is built by llm_factory.build_chat_llm(), so that module is the real (and
+    only) construction point. db_agent still imports ChatOpenAI, but purely as
+    a type annotation.
     """
-    with patch.object(dbm, "ChatOpenAI") as mc, \
+    with patch.object(llm_factory, "ChatOpenAI") as mc, \
          patch.object(dbm, "SQLCodeAgent", MagicMock()), \
          patch.object(dbm, "SQLValidatorAgent", MagicMock()), \
          patch.object(dbm, "SchemaLinkingAgent", MagicMock()), \

@@ -191,7 +191,12 @@ def _get_agent() -> OrchestrationAgent:
 # (e.g. "gpt-4o-mini", "ft:gpt-4o-mini-2024-07-18:org::abc123"). This is a shape
 # check, not an allow-list — it exists to reject garbage/injection attempts, not
 # to restrict which real models a user may type.
-_MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,63}$")
+# `/` is allowed (GH#65) because open-weight ids are vendor-namespaced —
+# meta-llama/Llama-3.3-70B-Instruct, deepseek-ai/…, Qwen/…, google/… — and
+# rejecting them here blocked OpenRouter and Together entirely. Still anchored
+# and charset-limited: the id is only ever a request payload field, never a
+# path segment or filename, so no traversal surface is opened.
+_MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{1,79}$")
 
 
 def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Optional[str]:
