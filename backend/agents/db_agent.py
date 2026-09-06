@@ -243,11 +243,26 @@ def _staged(name: str, fn):
 
 # Follow-ups that need condensation before retrieval (GH#40): pronouns /
 # comparative refs / short continuations embed to garbage on their own.
+#
+# GH#87: `that` was here and is now gone. In a question it is overwhelmingly a
+# RELATIVE pronoun, not a referential one — "schools THAT are among the top 5"
+# is self-contained — so it fired on any question carrying a relative clause,
+# and the condenser then merged the previous turn's filters into an unrelated
+# question. `those/these` are kept: as demonstratives they do refer back, and
+# their relative-clause use ("those that…") also carries `that`'s old job.
 _ANAPHORIC_RE = re.compile(
-    r"\b(it|that|those|them|these|same|previous|ones?)\b"
+    r"\b(it|those|them|these|same|previous|ones?)\b"
     r"|what about|how about|^and\b|^also\b|^only\b|^now\b",
     re.IGNORECASE,
 )
+
+# GH#87: the length rule is a heuristic for "too terse to stand alone", not a
+# statement that short questions are dependent. "Which customers pay in EUR?"
+# (27 chars) is complete. A genuine elliptical follow-up — "And CZK?", "what
+# about 2014?" — is far shorter than a well-formed question, so the threshold
+# sits below the shortest sensible standalone question rather than above it.
+_TERSE_FOLLOWUP_CHARS = 18
+
 
 # ─────────────────────────────────────────────
 # State Definition
@@ -271,6 +286,7 @@ class AgentState(TypedDict):
     session_id: str
     user_query: str
     conversation_history: List[Dict[str, str]]
+    topic_switch: bool               # GH#89: this turn is unrelated to the last
     intent: str                      # READ | GENERAL | WRITE_BLOCKED | AMBIGUOUS
     schema_context: str
     query_plan: Optional[Dict[str, Any]]   # structured plan from SchemaLinkingAgent (#17)
@@ -383,6 +399,10 @@ class OrchestrationAgent:
         # strategy over cosine top-k when retrieval is scoped. False restores
         # pure top-k retrieval for an A/B.
         self._full_schema = bool(_r.get("full_schema_when_scoped", True))
+        # GH#89: drop conversation history for a turn whose tables are
+        # disjoint from the previous answer's. False keeps history always.
+        self._topic_switch_detection = bool(
+            config.get("sql", {}).get("topic_switch_detection", True))
         # GH#85: the effort tier every live question gets. The BIRD harness
         # reads the real label from the dataset; live has none, so one uniform
         # tier replaces a guess that could only under-resource a hard question.
@@ -561,6 +581,48 @@ class OrchestrationAgent:
             )
         return result
 
+    def _detect_topic_switch(self, state: AgentState,
+                             tables: List[str]) -> bool:
+        """
+        GH#89: is this turn about something else entirely?
+
+        Compares the tables this question retrieved with the tables the
+        PREVIOUS answer actually queried (parsed from `previous_sql`, which
+        run() already loaded from durable memory — no extra retrieval, no
+        extra LLM call, nothing new to persist). Disjoint sets mean the
+        conversation moved, and carrying six turns of the old subject into
+        classification, planning and generation can only mislead them.
+
+        Under GH#85's full-schema mode the retrieved set is every table of the
+        active scope, so within one database this is always False and the
+        signal degenerates to "the scope changed". That is deliberate: a
+        same-database change of subject is handled by the condenser's own gate
+        (GH#87), and same-domain history is not what corrupted a turn.
+        """
+        prev_sql = state.get("previous_sql")
+        if not prev_sql or not tables:
+            return False
+        try:
+            prev = {t.casefold() for t in
+                    referenced_tables(prev_sql, getattr(self, "_dialect", "postgres"))}
+        except Exception as exc:
+            logger.warning(f"[TOPIC] could not parse previous SQL: {exc}")
+            return False
+        if not prev:
+            return False
+        return prev.isdisjoint({t.casefold() for t in tables})
+
+    @staticmethod
+    def _history_for(state: AgentState, limit: int = 4) -> List[Dict[str, str]]:
+        """
+        The conversation history a downstream stage should see. Empty on a
+        topic switch (GH#89) — the whole point is that the previous turns are
+        about something else.
+        """
+        if state.get("topic_switch"):
+            return []
+        return (state.get("conversation_history") or [])[-limit:]
+
     def _get_scope(self) -> Optional[str]:
         """
         The retrieval scope for THIS request (GH#83): the per-request
@@ -579,7 +641,16 @@ class OrchestrationAgent:
     def classify_intent(self, state: AgentState) -> AgentState:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
         history = state.get("conversation_history", [])
-        history_str = self._format_history(history[-6:])
+        # GH#89: this node runs BEFORE retrieval, so the table-overlap signal
+        # does not exist yet — but a question that carries no referential
+        # marker and is not terse can be classified on its own, and six turns
+        # about another subject can only push it toward a wrong AMBIGUOUS.
+        # Same predicate the condenser gates on, so the two agree by
+        # construction; history is still shown whenever it could matter,
+        # including the clarification-reply short circuit below.
+        relevant = (history if self._looks_anaphoric(state["user_query"], history)
+                    else [])
+        history_str = self._format_history(relevant[-6:])
 
         trace("\n" + "━" * 70)
         trace("🔍  PIPELINE START — classify_intent")
@@ -641,9 +712,63 @@ class OrchestrationAgent:
     
     @staticmethod
     def _looks_anaphoric(query: str, history: List[Dict]) -> bool:
+        """
+        Cheap pre-filter for "this turn may depend on the last one". Recall
+        matters more than precision here — a missed follow-up embeds to
+        garbage — but a false positive is no longer free-of-charge either:
+        see condense_query's merge veto (GH#87).
+        """
         if not history:
             return False
-        return len(query.strip()) < 30 or bool(_ANAPHORIC_RE.search(query))
+        return (len(query.strip()) < _TERSE_FOLLOWUP_CHARS
+                or bool(_ANAPHORIC_RE.search(query)))
+
+    @staticmethod
+    def _rewrite_merges_topics(raw: str, rewritten: str) -> Optional[str]:
+        """
+        GH#87: veto a rewrite that MERGED two questions instead of resolving a
+        reference. Returns a reason string when the rewrite must be discarded,
+        None when it is safe to use.
+
+        Defined in terms of the same signals as ``_looks_anaphoric``, so the
+        gate and its backstop cannot drift apart. A question reaches the
+        condenser because it is TERSE or carries a REFERENTIAL MARKER. When it
+        has neither — the gate fired for some other reason, or the marker was
+        a false positive — the question stands on its own, and a rewrite that
+        injects literals the question never mentioned is answering a different
+        question. That is the reported failure: 'SME' and '2013' appearing in
+        a question about virtual schools.
+
+        By construction this cannot veto the anaphora path: "what about 2014?"
+        and "how many of them?" both carry a marker, so their rewrites are
+        free to add every literal they need.
+        """
+        if not raw or not rewritten:
+            return None
+        if rewritten.strip().casefold() == raw.strip().casefold():
+            return None                      # declined to rewrite — nothing to veto
+
+        stripped = raw.strip()
+        if (len(stripped) < _TERSE_FOLLOWUP_CHARS
+                or _ANAPHORIC_RE.search(stripped)):
+            return None                      # a real dependent turn: let it through
+
+        try:
+            from backend.retrieval.value_index import extract_value_spans
+            raw_spans = {v.casefold() for v in extract_value_spans(raw)}
+            new_spans = {v.casefold() for v in extract_value_spans(rewritten)}
+        except Exception as exc:             # never block a turn on this
+            logger.warning(f"[CONDENSE] span check failed: {exc}")
+            return None
+
+        # Spans the rewrite added. The substring test tolerates re-wording
+        # ('top 5' → 'Top 5') without counting it as foreign material.
+        low_raw = raw.casefold()
+        foreign = {v for v in new_spans - raw_spans if v not in low_raw}
+        if not foreign:
+            return None
+        return (f"a self-contained question gained {sorted(foreign)[:4]} "
+                f"from the conversation")
 
     def condense_query(self, state: AgentState) -> AgentState:
         """
@@ -665,9 +790,13 @@ class OrchestrationAgent:
             template = PromptHarness.get_file("condense_query.md")
         except Exception:
             template = (
-                "Rewrite the user's follow-up as ONE self-contained question that "
-                "needs no conversation context. Preserve every constraint from the "
-                "history that the follow-up implies. Output ONLY the question."
+                "Rewrite the user's follow-up as ONE self-contained question "
+                "that needs no conversation context, preserving every "
+                "constraint from the history that the follow-up implies. "
+                "If the follow-up is ALREADY self-contained, or is about a "
+                "different subject from the earlier turns, return it VERBATIM "
+                "— carrying a filter into a question that never asked for it "
+                "answers a question nobody asked. Output ONLY the question."
             )
         messages = [
             SystemMessage(content=template),
@@ -687,11 +816,22 @@ class OrchestrationAgent:
         except Exception as exc:
             logger.warning(f"[CONDENSE] failed: {exc}")
             return state
-        if standalone and len(standalone) < 500:
-            trace(f"  ↪ standalone: {standalone}")
-            logger.info(f"[CONDENSE] '{q[:40]}' → '{standalone[:80]}'")
-            return {**state, "standalone_query": standalone}
-        return state
+        if not standalone or len(standalone) >= 500:
+            return state
+
+        # GH#87: the LLM is now allowed to decline (see condense_query.md), but
+        # a judgment needs a guard — an over-eager rewrite reinstates GH#63,
+        # which returns a confident wrong ANSWER rather than a refusal.
+        veto = self._rewrite_merges_topics(q, standalone)
+        if veto:
+            trace(f"  ⛔ Rewrite discarded — {veto}")
+            logger.info(f"[CONDENSE] vetoed: {veto} | raw={q[:60]!r} "
+                        f"rewrite={standalone[:60]!r}")
+            return state
+
+        trace(f"  ↪ standalone: {standalone}")
+        logger.info(f"[CONDENSE] '{q[:40]}' → '{standalone[:80]}'")
+        return {**state, "standalone_query": standalone}
 
     def ask_clarification(self, state: AgentState) -> AgentState:
         """
@@ -841,9 +981,19 @@ class OrchestrationAgent:
                         "cached_response": hit.get("response"),
                         "cached_fingerprint": hit.get("rows_fingerprint")}
 
+            # GH#89: decide here, where the retrieved set is already known,
+            # so no stage downstream pays for a second lookup.
+            switched = (self._detect_topic_switch(state, primary)
+                        if getattr(self, "_topic_switch_detection", True)
+                        else False)
+            if switched:
+                trace("  🔀 Topic switch — this turn runs without conversation "
+                      "history (previous turns query other tables)")
+                logger.info("[TOPIC] switch detected; history dropped for this turn")
+
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding,
-                    "unsatisfiable": unsatisfiable,
+                    "unsatisfiable": unsatisfiable, "topic_switch": switched,
                     "retrieved_tables": primary + fk_extra}
         except Exception as e:
             trace(f"  ❌ RAG retrieval failed: {e}")
@@ -1096,7 +1246,7 @@ class OrchestrationAgent:
             plan = self._get_linker().analyze(
                 query=state.get("standalone_query") or state["user_query"],
                 schema_context=state["schema_context"],
-                history=state["conversation_history"][-4:],
+                history=self._history_for(state),
             )
         except Exception as exc:  # pragma: no cover - defensive; analyze already guards
             trace(f"  ❌ schema linking failed: {exc}")
@@ -1149,7 +1299,7 @@ class OrchestrationAgent:
                     alt = self._get_linker().analyze_alternative(
                         query=question, schema_context=schema_context,
                         first_plan=plan,
-                        history=state["conversation_history"][-4:])
+                        history=self._history_for(state))
                 except Exception as exc:
                     logger.warning(f"[LINK-ALT] skipped: {exc}")
                 if alt:
@@ -1199,7 +1349,7 @@ class OrchestrationAgent:
                     query=state["user_query"],
                     schema_context=state["schema_context"],
                     few_shots=few_shots,
-                    history=state["conversation_history"][-4:],
+                    history=self._history_for(state),
                     query_plan=plan_for_this_batch,
                     tier=tier,
                     previous_sql=state.get("previous_sql"),
@@ -1561,7 +1711,7 @@ class OrchestrationAgent:
                 schema_context=state["schema_context"],
                 original_sql=state["best_sql"],
                 error=observation,
-                history=state["conversation_history"][-4:],
+                history=self._history_for(state),
             )
             best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"]) if sqls else ""
         except Exception as exc:
@@ -1805,6 +1955,9 @@ class OrchestrationAgent:
             k: bool(v) for k, v in validation.items()
             if k in ("syntax_ok", "safety_ok", "semantic_ok")
         }
+        # GH#89: dropping the conversation changes what the model was asked,
+        # so it belongs in the evidence rather than only in the server log.
+        ev["topic_switch"] = bool(final.get("topic_switch"))
         return ev
 
     def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:
@@ -2108,6 +2261,7 @@ class OrchestrationAgent:
             "session_id": session_id,
             "user_query": user_query,
             "conversation_history": history,
+            "topic_switch": False,
             "intent": "READ" if fast else "",
             "schema_context": fast["schema_context"] if fast else "",
             "query_plan": None,
