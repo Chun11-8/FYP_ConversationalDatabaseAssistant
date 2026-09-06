@@ -90,6 +90,15 @@ sql:
   # nothing — the comparison reuses the retrieved set and the previous SQL
   # that are already in state. false keeps history on every turn.
   topic_switch_detection: true
+  # GH#91 gate 5: read the winning SQL back into plain English WITHOUT showing
+  # the model the question, then compare the two. Every other check reads the
+  # SQL against the schema, the plan or itself, and all of them pass on a query
+  # that is valid, grounded, unanimous — and answers a different question
+  # (MIN where the question meant SUM; segment='LAM' for a question about
+  # Wakanda). This is the only check that sees that. Annotates only: no query
+  # is blocked, rewritten or retried. Costs two LLM calls per answered turn —
+  # the description on the main model, the comparison on the intent model.
+  back_translation: true
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.

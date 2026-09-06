@@ -461,6 +461,80 @@ def check_out_of_schema_tables(
                   tables=missing[:3])]
 
 
+# ── 10. plan conformance ──────────────────────────────────────────────────────
+
+_AGG_RE = re.compile(r"\b(count|sum|avg|min|max)\s*\(", re.IGNORECASE)
+
+
+def _plan_aggregates(plan: Dict[str, Any]) -> set:
+    """Aggregate functions the plan asked for, from its own wording."""
+    text = " ".join(str(plan.get(k) or "") for k in ("aggregation", "target"))
+    return {m.group(1).lower() for m in _AGG_RE.finditer(text)} | {
+        w for w in ("count", "sum", "avg", "average", "min", "minimum",
+                    "max", "maximum")
+        if re.search(rf"\b{w}\b", text, re.IGNORECASE)
+    }
+
+
+_AGG_SYNONYM = {"average": "avg", "minimum": "min", "maximum": "max"}
+
+
+def check_plan_conformance(
+    sql: str, query_plan: Optional[dict],
+) -> List[Dict[str, Any]]:
+    """
+    GH#91: did the SQL actually implement the plan the linker produced?
+
+    SQLCodeAgent._plan_penalty already diffs tables and join paths, but only
+    to RANK candidates — the winner's own discrepancies are then discarded.
+    Reported here instead, and extended to the two dimensions that caused most
+    of the observed failures: which aggregate was applied, and whether the
+    GROUP BY the plan named survived.
+
+    This is not a correctness proof. It says the query and the reasoning
+    behind it disagree, which is a fact the user can check in one glance —
+    "your plan said one row per customer, the SQL returns one row per month".
+    """
+    if not sql or not isinstance(query_plan, dict) or not query_plan:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    low_sql = sql.casefold()
+
+    # ── aggregate ──
+    plan_aggs = {_AGG_SYNONYM.get(a, a) for a in _plan_aggregates(query_plan)}
+    sql_aggs = {m.group(1).lower() for m in _AGG_RE.finditer(sql)}
+    if plan_aggs and sql_aggs and not (plan_aggs & sql_aggs):
+        out.append(_risk(
+            "plan_aggregate_mismatch", HIGH,
+            f"The plan called for {'/'.join(sorted(plan_aggs)).upper()} but the "
+            f"query uses {'/'.join(sorted(sql_aggs)).upper()} — these answer "
+            f"different questions.",
+            plan=sorted(plan_aggs), sql=sorted(sql_aggs)))
+
+    # ── grouping ──
+    plan_group = str(query_plan.get("group_by") or "").strip()
+    if plan_group and plan_group.lower() not in ("none", "null", "n/a", "(none)"):
+        if "group by" not in low_sql:
+            out.append(_risk(
+                "plan_group_by_dropped", MEDIUM,
+                f"The plan groups by {plan_group!r}, but the query has no "
+                f"GROUP BY — it returns a single overall figure instead of "
+                f"one row per group.",
+                plan_group_by=plan_group))
+
+    # ── grain (GH#76 emits it when plan_rationale is on) ──
+    grain = str(query_plan.get("grain") or "").strip()
+    if grain and "group by" not in low_sql and re.search(
+            r"\bper\b|\beach\b|one row per", grain, re.IGNORECASE):
+        out.append(_risk(
+            "plan_grain_mismatch", MEDIUM,
+            f"The plan describes the answer as {grain!r}, which needs one row "
+            f"per group, but the query returns an ungrouped result.",
+            grain=grain))
+    return out[:3]
+
+
 # ── combiner ──────────────────────────────────────────────────────────────────
 
 def assess(
@@ -495,6 +569,7 @@ def assess(
         lambda: check_limit_one_on_plural(sql, question),
         lambda: check_arity(rows, query_plan),
         lambda: check_out_of_schema_tables(tables, schema_context),
+        lambda: check_plan_conformance(sql, query_plan),
     )
     for run in checks:
         try:

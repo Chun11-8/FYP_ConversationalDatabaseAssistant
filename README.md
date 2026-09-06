@@ -888,6 +888,47 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
 | Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
 
+### Can this answer be trusted? (GH#91)
+
+Every answer carries a verdict, above the rows it judges:
+
+| | When | What the user is told |
+|---|---|---|
+| ✅ **Checks passed** | every gate green | "Every check we can run without knowing the right answer passed… but it is not a guarantee." |
+| ⚠️ **Needs your review** | candidates disagreed, plan mismatch, or a medium-severity flag | which check, in plain words |
+| ⛔ **Do not rely on this** | unknown value, dropped constraint, out-of-schema table, nothing executed, or a back-translation mismatch | which check, plus what would resolve it |
+
+Expanding it shows **how the grading was reached** — five gates, each with a
+pass/warn/fail mark, the reason, and a suggested remedy:
+
+| Gate | Question it answers |
+|---|---|
+| Safe and well-formed | read-only, parses, every table and column exists |
+| Matches your question | the nine gold-free checks in `risk.py` |
+| Follows its own plan | does the SQL implement the linker's plan? (aggregate, GROUP BY, grain) |
+| Agrees with itself | how many independently written candidates returned this result |
+| Describes what you asked | the SQL read back into plain English, compared with the question |
+
+Two deliberate constraints:
+
+- **No percentage.** Every signal is computed from *this* query, *this* schema
+  and *this* result. A hit rate measured on the BIRD databases describes the
+  **detector**, not an answer over your own data — that number belongs in the
+  evaluation, never beside an individual answer.
+- **"Not checked" never counts as "found wrong".** A gate that cannot run is
+  skipped and does not lower the verdict, so turning `back_translation` off
+  does not make every answer look untrustworthy.
+
+The read-back is shown under the SQL whether or not the comparison reached a
+verdict — *"This query returns the lowest single monthly reading for each
+customer"* against a question that meant the lowest yearly total is something
+a reader spots instantly, with no verdict needed. It is generated **without**
+showing the model the question; shown it, the model paraphrases the question
+back and the check becomes a mirror.
+
+`sql.back_translation: false` disables the round trip (two LLM calls per
+answered turn); everything else is deterministic and free.
+
 ### Keeping one turn out of another's way (GH#87 / GH#89)
 
 Conversation history reaches four stages — intent classification, follow-up
