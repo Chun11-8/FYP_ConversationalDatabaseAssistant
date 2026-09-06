@@ -83,6 +83,22 @@ sql:
   # They ANNOTATE only: no query is blocked, rewritten or retried. Set false
   # to A/B the flags against the labelled benchmark data.
   risk_checks: true
+  # GH#76 — both DEFAULT OFF. Attributing all 57 gpt-5-mini BIRD failures showed
+  # 74% had the right tables AND joins and differed only in projection,
+  # aggregation or grain; 52% of those picked the wrong aggregate. Both knobs
+  # below target that, and both change what the model is asked to produce, so
+  # their effect on accuracy is a HYPOTHESIS until the A/B is run.
+  #
+  # plan_diversity: on a hard question, ask the linker for a SECOND plan that
+  # deliberately disagrees on grain/aggregation and generate candidates from
+  # both. Today every candidate comes from one plan, which is why 41 of 57
+  # errors had unanimous agreement — candidates cannot disagree about a
+  # decision none of them made. Costs one extra LLM call per hard question.
+  plan_diversity: false
+  # plan_rationale: make the linker name the answer's GRAIN and justify the
+  # aggregate against the evidence (100% of these failures carried evidence
+  # describing the computation). Costs a longer planner prompt, no extra call.
+  plan_rationale: false
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
   # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):
