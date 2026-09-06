@@ -329,3 +329,29 @@ class TestRunCase:
             for k in ("standalone_query", "cache_hit", "pred_sql", "gold_sql",
                       "elapsed_ms", "category"):
                 assert k in r
+
+
+# ── the schema seam (GH#85 interaction) ───────────────────────────────────────
+
+class TestSchemaSeam:
+    """
+    GH#85 gave the graph a full-schema path that runs BEFORE retrieve()
+    whenever a scope is configured. build_agent must stub it: otherwise a
+    config.yaml carrying `retrieval.active_db` sends this harness to the live
+    pgvector index instead of the SQLite fixture it just built — silently,
+    because a failure there degrades to cosine rather than raising.
+    """
+
+    def test_build_agent_stubs_every_schema_entry_point(self):
+        import inspect
+        src = inspect.getsource(MT.build_agent)
+        for seam in ("dbm.retrieve", "dbm.execute_query",
+                     "dbm.expand_fk_tables", "dbm.fetch_full_schema"):
+            assert seam in src, seam
+
+    def test_the_stub_forces_the_fixture_path(self):
+        """Whatever a scope is set to, the full-schema lookup must decline so
+        fake_retrieve stays the single source of schema."""
+        import inspect
+        src = inspect.getsource(MT.build_agent)
+        assert "dbm.fetch_full_schema = lambda *a, **kw: None" in src

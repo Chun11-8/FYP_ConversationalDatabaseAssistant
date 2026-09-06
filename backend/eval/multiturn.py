@@ -291,9 +291,10 @@ def build_agent(model: Optional[str], base_url: Optional[str], db_root: Path):
     """
     An OrchestrationAgent wired to the SQLite fixtures.
 
-    ``execute_query`` and ``retrieve`` are redirected at module level in
-    db_agent — the graph calls them as free functions, so this is the only
-    seam — and the dialect is forced to sqlite so generation targets it.
+    ``execute_query``, ``retrieve``, ``expand_fk_tables`` and
+    ``fetch_full_schema`` are redirected at module level in db_agent — the
+    graph calls them as free functions, so that is the seam — and the dialect
+    is forced to sqlite so generation targets it.
     Returns (agent, set_active_db, cache_enabled).
     """
     import backend.agents.db_agent as dbm
@@ -337,6 +338,13 @@ def build_agent(model: Optional[str], base_url: Optional[str], db_root: Path):
     dbm.execute_query = fake_execute
     # expand_fk_tables would try to widen a schema we already injected whole.
     dbm.expand_fk_tables = lambda chunks, *a, **kw: chunks
+    # GH#85 gave _fetch_schema a full-schema path that runs BEFORE retrieve()
+    # whenever a scope is configured. Left unstubbed, a config.yaml carrying
+    # `retrieval.active_db` would send this harness to the live pgvector index
+    # instead of the SQLite fixture it just built — silently, since a failure
+    # there degrades to cosine rather than raising. Returning None keeps
+    # fake_retrieve as the single schema seam.
+    dbm.fetch_full_schema = lambda *a, **kw: None
 
     agent = dbm.OrchestrationAgent(config)
     cache_enabled = bool(getattr(agent.semantic_cache, "is_enabled", False))
