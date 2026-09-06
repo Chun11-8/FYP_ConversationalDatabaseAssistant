@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
+from backend.retrieval.internal_tables import filter_internal
+
 load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
 
 
@@ -68,7 +70,10 @@ def extract_schema_pg(conn, db_name: str) -> list[dict]:
         WHERE table_schema = 'public'
         ORDER BY table_name
     """)
-    table_names = [row[0] for row in cursor.fetchall()]
+    # GH#79: the assistant's own tables (sessions, cache, telemetry, and the
+    # schema_embeddings table itself) live in the same database. Indexing them
+    # lets plumbing win a top-K slot over the tables holding the answer.
+    table_names = filter_internal(row[0] for row in cursor.fetchall())
 
     tables = []
 

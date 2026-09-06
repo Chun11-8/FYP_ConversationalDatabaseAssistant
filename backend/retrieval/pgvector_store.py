@@ -24,6 +24,8 @@ import psycopg2.extras
 from typing import Optional
 from dotenv import load_dotenv
 
+from backend.retrieval.internal_tables import INTERNAL_TABLES, is_internal_table
+
 # Load secrets.env so this module works when imported standalone
 load_dotenv(Path(__file__).parent.parent / "config" / "secrets.env", override=False)
 
@@ -386,6 +388,10 @@ def get_fk_graph(conn: psycopg2.extensions.connection) -> tuple[dict, list[dict]
     edges: list[dict] = []
 
     for from_table, from_col, to_table, to_col in rows:
+        # GH#79: an edge touching one of the assistant's own tables can only
+        # walk BFS expansion into plumbing that is no longer indexed.
+        if is_internal_table(from_table) or is_internal_table(to_table):
+            continue
         # Bidirectional so BFS finds neighbours in both directions
         graph.setdefault(from_table, set()).add(to_table)
         graph.setdefault(to_table, set()).add(from_table)
@@ -506,6 +512,27 @@ def delete_table_chunks(
         n = cur.rowcount
     conn.commit()
     print(f"[INFO] Deleted {n} chunk(s) for {db_name}.{table_name}")
+    return n
+
+
+def purge_internal_chunks(
+    conn: psycopg2.extensions.connection, db_name: str
+) -> int:
+    """
+    Remove chunks for the assistant's OWN tables (GH#79). A rebuild upserts by
+    chunk_id, so without this an index built before the exclusion landed keeps
+    serving `sessions`/`turns`/`feedback` chunks forever. Returns rows deleted.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM schema_embeddings "
+            "WHERE db_name = %s AND lower(table_name) = ANY(%s);",
+            (db_name, sorted(INTERNAL_TABLES)),
+        )
+        n = cur.rowcount
+    conn.commit()
+    if n:
+        print(f"[INFO] Purged {n} chunk(s) for the assistant's own tables")
     return n
 
 
