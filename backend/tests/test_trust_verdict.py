@@ -169,6 +169,30 @@ class TestPlanConformance:
         assert check_plan_conformance(
             "SELECT AVG(x) FROM t", {"aggregation": "average of x"}) == []
 
+    def test_a_plain_list_is_not_a_grain_error(self):
+        """GH#93: `SELECT name FROM player WHERE ...` already returns one row
+        per player — no GROUP BY is needed, because each source row IS a
+        player. Flagging it fired on every "list the X" question."""
+        assert check_plan_conformance(
+            "SELECT player_name FROM player WHERE height > 180",
+            {"grain": "one row per player"}) == []
+
+    def test_distinct_counts_as_grouping(self):
+        assert check_plan_conformance(
+            "SELECT DISTINCT p.name FROM player p JOIN team t ON 1=1",
+            {"grain": "one row per player"}) == []
+
+    def test_an_aggregate_with_no_group_by_is_a_grain_error(self):
+        """The failure the check exists for: many rows collapsed into one."""
+        out = check_plan_conformance("SELECT SUM(consumption) FROM yearmonth",
+                                     {"grain": "one row per customer"})
+        assert out and out[0]["code"] == "plan_grain_mismatch"
+
+    def test_a_grouped_aggregate_is_fine(self):
+        assert check_plan_conformance(
+            "SELECT customerid, SUM(c) FROM yearmonth GROUP BY customerid",
+            {"grain": "one row per customer"}) == []
+
     def test_no_plan_means_no_opinion(self):
         assert check_plan_conformance("SELECT 1", None) == []
         assert check_plan_conformance("", {"aggregation": "SUM(x)"}) == []
