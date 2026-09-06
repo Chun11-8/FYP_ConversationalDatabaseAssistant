@@ -503,6 +503,7 @@ def run_bird_eval(
     linker: Any = None,
     exec_voting: bool = True,
     refine: bool = True,
+    plan_diversity: bool = False,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -597,14 +598,29 @@ def run_bird_eval(
         pred_sql = ""
         vote_info: Optional[Dict[str, Any]] = None
         try:
-            sqls = sql_agent.generate(
-                query=full_query,
-                schema_context=schema_context,
-                few_shots=[],
-                history=[],
-                query_plan=query_plan,
-                tier=difficulty,   # BIRD provides the real tier; agent gates via config
-            )
+            def _gen(plan_for_batch):
+                return sql_agent.generate(
+                    query=full_query,
+                    schema_context=schema_context,
+                    few_shots=[],
+                    history=[],
+                    query_plan=plan_for_batch,
+                    tier=difficulty,  # BIRD gives the real tier; agent gates via config
+                )
+
+            sqls = _gen(query_plan)
+            # GH#76: candidates from a SECOND plan that disagrees on grain or
+            # aggregation. Every candidate otherwise descends from one plan,
+            # so voting confirms that plan rather than testing it.
+            if plan_diversity and linker is not None and query_plan:
+                try:
+                    alt = linker.analyze_alternative(
+                        query=full_query, schema_context=schema_context,
+                        first_plan=query_plan)
+                    if alt:
+                        sqls = sqls + [x for x in _gen(alt) if x not in sqls]
+                except Exception as exc:
+                    logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
             pred_sql, vote_info = _select(sqls)
         except Exception as exc:
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
@@ -832,6 +848,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Disable the one-round ReAct refine on failure for A/B comparison")
     parser.add_argument("--model", default=None,
                         help="Override config.yaml's llm.model for this run (any model id)")
+    parser.add_argument("--plan-diversity", action="store_true",
+                        help="GH#76: ask the linker for a SECOND plan that "
+                             "disagrees on grain/aggregation and generate from "
+                             "both. Default off — run WITH and WITHOUT to A/B.")
+    parser.add_argument("--plan-rationale", action="store_true",
+                        help="GH#76: make the linker name the answer's grain and "
+                             "justify the aggregate against the evidence.")
     parser.add_argument("--base-url", default=None,
                         help="OpenAI-COMPATIBLE endpoint to benchmark against, e.g. "
                              "https://openrouter.ai/api/v1 or http://localhost:11434/v1. "
@@ -867,7 +890,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     use_linking = not args.no_schema_linking and bool(
         config.get("sql", {}).get("schema_linking", True)
     )
-    linker = SchemaLinkingAgent(bird_config, llm) if use_linking else None
+    linker = (SchemaLinkingAgent(bird_config, llm,
+                                 rationale=bool(args.plan_rationale))
+              if use_linking else None)
     logger.info("[BIRD] schema linking: %s", "ON" if linker else "OFF")
 
     use_voting = not args.no_exec_voting and bool(
@@ -889,6 +914,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         linker=linker,
         exec_voting=use_voting,
         refine=use_refine,
+        plan_diversity=bool(args.plan_diversity),
     )
     metrics = compute_bird_metrics(results)
     run_config = {
@@ -897,6 +923,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         # attributable — the same id can be served with different weights,
         # quantisation or sampling defaults.
         "base_url": base_url or "openai-default",
+        "plan_diversity": bool(args.plan_diversity),
+        "plan_rationale": bool(args.plan_rationale),
         "dialect": "sqlite",
         "schema_linking": bool(linker),
         "exec_voting": use_voting,

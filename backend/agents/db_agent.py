@@ -303,6 +303,9 @@ class AgentState(TypedDict):
     # Tables actually retrieved this turn — used to suggest real values when a
     # question names one that does not exist.
     retrieved_tables: List[str]
+    # GH#76: a second plan disagreeing on grain/aggregation, so voting
+    # sees decorrelated candidates instead of N copies of one guess.
+    query_plan_alt: Optional[Dict[str, Any]]
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
     tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
@@ -345,7 +348,9 @@ class OrchestrationAgent:
         self.llm = self._chat_llm(self._model, self._default_api_key)
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
-        self.linker = SchemaLinkingAgent(config, self.llm)
+        self.linker = SchemaLinkingAgent(
+            config, self.llm,
+            rationale=bool(config.get("sql", {}).get("plan_rationale", False)))
         # Schema linking is on by default; toggle via config `sql.schema_linking`.
         self._schema_linking = bool(config.get("sql", {}).get("schema_linking", True))
         # UI safety net: append LIMIT to executed queries. Disable when
@@ -359,6 +364,12 @@ class OrchestrationAgent:
         # GH#69: gold-free risk checks on the executed result. On by default;
         # off gives a clean A/B against the labelled benchmark data.
         self._risk_checks = bool(config.get("sql", {}).get("risk_checks", True))
+        # GH#76 Fixes 1 & 2 — default OFF. Both change what the model is asked
+        # to produce, so their effect on accuracy is a hypothesis until the
+        # BIRD ablation runs. Enabling them costs one extra LLM call per hard
+        # question (plan_diversity) and a longer planner prompt (plan_rationale).
+        self._plan_diversity = bool(config.get("sql", {}).get("plan_diversity", False))
+        self._plan_rationale = bool(config.get("sql", {}).get("plan_rationale", False))
         # FK-expansion / context-budget knobs (config `retrieval.*`).
         _r = config.get("retrieval", {}) or {}
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
@@ -1037,7 +1048,31 @@ class OrchestrationAgent:
                         + "\n\n".join(c["content"] for c in chunks)
                     )
 
-        return {**state, "query_plan": plan, "schema_context": schema_context}
+        # GH#76 Fix 1: a second reading that disagrees on grain/aggregation, so
+        # execution voting has decorrelated candidates. Every candidate today
+        # is built from this single plan, which is why 41 of 57 errors had
+        # unanimous agreement — the candidates cannot disagree about a decision
+        # none of them made. Only for questions worth the extra call.
+        alt = None
+        if getattr(self, "_plan_diversity", False):
+            question = state.get("standalone_query") or state["user_query"]
+            if _question_looks_hard(question):
+                try:
+                    alt = self._get_linker().analyze_alternative(
+                        query=question, schema_context=schema_context,
+                        first_plan=plan,
+                        history=state["conversation_history"][-4:])
+                except Exception as exc:
+                    logger.warning(f"[LINK-ALT] skipped: {exc}")
+                if alt:
+                    trace("  🔀 Alternative plan (disagrees on grain/aggregation):")
+                    for k in ("grain", "aggregation", "group_by", "target"):
+                        if alt.get(k):
+                            trace(f"     {k}: {alt[k]}")
+                    logger.info("[LINK-ALT] alternative plan produced")
+
+        return {**state, "query_plan": plan, "query_plan_alt": alt,
+                "schema_context": schema_context}
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
@@ -1065,15 +1100,31 @@ class OrchestrationAgent:
                 state.get("standalone_query") or state.get("user_query"))
             if tier:
                 trace(f"  🎚️  Inferred difficulty tier: {tier}")
-            sqls = sql_agent.generate(
-                query=state["user_query"],
-                schema_context=state["schema_context"],
-                few_shots=few_shots,
-                history=state["conversation_history"][-4:],
-                query_plan=state.get("query_plan"),
-                tier=tier,
-                previous_sql=state.get("previous_sql"),
-            )
+            def _gen(plan_for_this_batch):
+                return sql_agent.generate(
+                    query=state["user_query"],
+                    schema_context=state["schema_context"],
+                    few_shots=few_shots,
+                    history=state["conversation_history"][-4:],
+                    query_plan=plan_for_this_batch,
+                    tier=tier,
+                    previous_sql=state.get("previous_sql"),
+                )
+
+            alt_plan = state.get("query_plan_alt")
+            sqls = _gen(state.get("query_plan"))
+            if alt_plan:
+                # GH#76 Fix 1: candidates from a plan that DISAGREES on grain or
+                # aggregation. Concatenated, not merged — execution voting then
+                # decides between two genuine readings instead of confirming
+                # one. Failure here costs nothing: the first batch still stands.
+                try:
+                    alt_sqls = _gen(alt_plan)
+                    trace(f"  🔀 {len(alt_sqls)} candidate(s) from the alternative plan")
+                    sqls = sqls + [s for s in alt_sqls if s not in sqls]
+                except Exception as exc:
+                    logger.warning(f"[SQL_GEN] alternative-plan batch failed: {exc}")
+
             trace(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
             for i, sql in enumerate(sqls, 1):
                 trace(f"\n  ── Candidate {i} ──")
@@ -1962,7 +2013,9 @@ class OrchestrationAgent:
                 effective_model, api_key or self._default_api_key)
             _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
-            _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)
+            _tls.linker = SchemaLinkingAgent(
+                self._config, _tls.llm,
+                rationale=getattr(self, "_plan_rationale", False))
             _tls.optimizer = ResponseOptimizer(_tls.llm)
 
         # Prefetch the query embedding concurrently with the intent LLM call.
@@ -2015,6 +2068,7 @@ class OrchestrationAgent:
             "verification": None,
             "unsatisfiable": [],
             "retrieved_tables": [],
+            "query_plan_alt": None,
             "fallback_level": 0,
             "refine_level": 0,
             "tier": None,
