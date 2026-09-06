@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Plus, Menu, X, Database, MessageSquare, Eye, EyeOff, Download, ChevronDown } from 'lucide-react';
 import type { SessionSummary } from '../types';
+import type { DatabaseInfo } from '../api/client';
 
 export type AppTab = 'chat' | 'database';
 
@@ -20,6 +21,11 @@ interface ChatLayoutProps {
   models: string[];
   model: string;
   onModelChange: (model: string) => void;
+  /** Logical databases in the schema index (GH#81) */
+  databases: DatabaseInfo[];
+  /** Active retrieval scope; '' = search every database */
+  dbScope: string;
+  onDbScopeChange: (scope: string) => void;
 }
 
 export const ChatLayout: React.FC<ChatLayoutProps> = ({
@@ -37,6 +43,9 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   models,
   model,
   onModelChange,
+  databases,
+  dbScope,
+  onDbScopeChange,
 }) => {
   // Desktop: sidebar starts open. Mobile (<768px): sidebar starts closed (overlay).
   const isMobile = () => window.innerWidth < 768;
@@ -47,7 +56,9 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   // any well-formed OpenAI model id, not just the ones in `models`.
   const [customEntry, setCustomEntry] = useState(false);
   const [customValue, setCustomValue] = useState('');
+  const [dbPickerOpen, setDbPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const dbPickerRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
 
   const toggleSidebar = () => setSidebarOpen((v) => !v);
@@ -75,6 +86,18 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [pickerOpen]);
+
+  // Close the database picker on an outside click.
+  useEffect(() => {
+    if (!dbPickerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (dbPickerRef.current && !dbPickerRef.current.contains(e.target as Node)) {
+        setDbPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [dbPickerOpen]);
 
   // Focus the custom-model field the moment it appears.
   useEffect(() => {
@@ -149,8 +172,66 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             </>
           )}
 
-          {/* Model + API Key sections — pinned to bottom */}
+          {/* Database scope + Model + API Key — pinned to bottom */}
           <div className="sidebar-spacer" />
+
+          {/* GH#81: several logical databases share one PostgreSQL schema.
+              Hidden when there is only one — nothing to choose. */}
+          {databases.length > 1 && (
+            <div className="db-scope-section">
+              <div className="sidebar-section-label">Database</div>
+              <div className="db-scope-picker" ref={dbPickerRef}>
+                <button
+                  type="button"
+                  className="db-scope-trigger"
+                  onClick={() => setDbPickerOpen((v) => !v)}
+                  aria-haspopup="listbox"
+                  aria-expanded={dbPickerOpen}
+                  title={dbScope
+                    ? `Questions are answered from ${dbScope} only`
+                    : 'Questions search every indexed database'}
+                >
+                  <Database size={13} className="db-scope-icon" />
+                  <span className="db-scope-name">{dbScope || 'All databases'}</span>
+                  <ChevronDown size={14} />
+                </button>
+                {dbPickerOpen && (
+                  <div className="db-scope-menu" role="listbox">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={dbScope === ''}
+                      className={`db-scope-option${dbScope === '' ? ' db-scope-option--active' : ''}`}
+                      onClick={() => { onDbScopeChange(''); setDbPickerOpen(false); }}
+                    >
+                      <span className="db-scope-option-name">All databases</span>
+                      <span className="db-scope-option-count">
+                        {databases.reduce((n, d) => n + d.tables, 0)}
+                      </span>
+                    </button>
+                    {databases.map((d) => (
+                      <button
+                        key={d.name}
+                        type="button"
+                        role="option"
+                        aria-selected={d.name === dbScope}
+                        className={`db-scope-option${d.name === dbScope ? ' db-scope-option--active' : ''}`}
+                        onClick={() => { onDbScopeChange(d.name); setDbPickerOpen(false); }}
+                      >
+                        <span className="db-scope-option-name">{d.name}</span>
+                        <span className="db-scope-option-count">{d.tables}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="db-scope-hint">
+                {dbScope
+                  ? `Searching ${databases.find((d) => d.name === dbScope)?.tables ?? 0} tables`
+                  : `Searching all ${databases.reduce((n, d) => n + d.tables, 0)} tables`}
+              </div>
+            </div>
+          )}
 
           {models.length > 0 && (
             <div className="model-section">

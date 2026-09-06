@@ -266,3 +266,77 @@ class TestDatabasesEndpoint:
              patch.object(pgstore, "get_store", side_effect=OSError("no pg")):
             r = client.get("/databases")
         assert r.status_code == 503
+
+
+# ── per-request scope override (GH#83) ────────────────────────────────────────
+
+class TestPerRequestScope:
+
+    def test_request_scope_wins_over_the_configured_default(self):
+        import backend.agents.db_agent as dbm
+        agent = _agent_with({"active_db": "superhero"})
+        try:
+            dbm._tls.db_scope = "debit_card_specializing"
+            assert agent._get_scope() == "debit_card_specializing"
+        finally:
+            dbm._tls.db_scope = None
+        assert agent._get_scope() == "superhero"
+
+    def test_scope_is_cleared_after_a_request_so_threads_dont_leak_it(self):
+        """A pooled thread that served a scoped request must not silently
+        scope the next, unscoped one."""
+        from unittest.mock import patch
+        import backend.agents.db_agent as dbm
+        agent = _agent_with({})
+        agent.memory = MagicMock()
+        agent.memory.get_history.return_value = []
+        agent.semantic_cache = MagicMock()
+        agent.semantic_cache.embed.return_value = [0.0]
+        agent.semantic_cache.best_match.return_value = None
+        with patch.object(agent, "graph") as graph:
+            graph.invoke.return_value = {"response": "r", "intent": "READ",
+                                         "validation": {}, "best_sql": ""}
+            agent.run("s", "q", db_scope="superhero")
+        assert getattr(dbm._tls, "db_scope", None) is None
+        assert agent._get_scope() is None
+
+    def test_blank_scope_is_treated_as_no_scope(self):
+        import backend.agents.db_agent as dbm
+        agent = _agent_with({})
+        dbm._tls.db_scope = "   "
+        try:
+            assert agent._get_scope() is None
+        finally:
+            dbm._tls.db_scope = None
+
+
+class TestScopeValidation:
+
+    def test_unknown_scope_is_rejected_before_the_pipeline_runs(self):
+        from unittest.mock import patch
+        import backend.api.main as api_main
+        from fastapi import HTTPException
+        with patch.object(api_main, "_indexed_scopes",
+                          return_value=["superhero", "toxicology"]):
+            with pytest.raises(HTTPException) as exc:
+                api_main._validate_scope("debit_cart_specialising")
+        assert exc.value.status_code == 400
+        assert "superhero" in exc.value.detail
+
+    def test_known_scope_passes(self):
+        from unittest.mock import patch
+        import backend.api.main as api_main
+        with patch.object(api_main, "_indexed_scopes", return_value=["superhero"]):
+            assert api_main._validate_scope(" superhero ") == "superhero"
+
+    def test_empty_scope_means_every_database(self):
+        import backend.api.main as api_main
+        assert api_main._validate_scope(None) is None
+        assert api_main._validate_scope("   ") is None
+
+    def test_an_unreadable_index_does_not_block_chat(self):
+        """Ops failure must degrade to 'cannot verify', not 400 every message."""
+        from unittest.mock import patch
+        import backend.api.main as api_main
+        with patch.object(api_main, "_indexed_scopes", return_value=[]):
+            assert api_main._validate_scope("superhero") == "superhero"

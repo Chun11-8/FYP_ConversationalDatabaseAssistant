@@ -8,14 +8,15 @@ import { ChatInput } from './components/ChatInput';
 import { DatabaseTab } from './components/DatabaseTab';
 import {
   createSession, sendChat, sendChatStream, submitFeedback, listSessions, getHistory,
-  getModels,
+  getModels, getDatabases,
 } from './api/client';
-import type { ChatApiResponse } from './api/client';
+import type { ChatApiResponse, DatabaseInfo } from './api/client';
 
 const LS_API_KEY = 'db_assistant_api_key';
 const LS_SESSION_ID = 'db_assistant_session_id';
 const LS_MESSAGES = 'db_assistant_messages';
 const LS_MODEL = 'db_assistant_model';
+const LS_DB_SCOPE = 'db_assistant_db_scope';
 
 /** Human labels for pipeline stage events (GH#39). */
 const STAGE_LABELS: Record<string, string> = {
@@ -80,6 +81,10 @@ function App() {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState<string>('');
   const [model, setModel] = useState<string>(() => localStorage.getItem(LS_MODEL) ?? '');
+  // GH#83 retrieval scope. '' = search every indexed database, which is also
+  // what the backend does when no scope is sent.
+  const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
+  const [dbScope, setDbScope] = useState<string>(() => localStorage.getItem(LS_DB_SCOPE) ?? '');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Persist API key to localStorage whenever it changes
@@ -113,6 +118,29 @@ function App() {
         // was chosen at all. `models.includes(prev)` here would silently
         // discard every custom entry the moment the page refreshed.
         setModel((prev) => prev || def);
+      })
+      .catch(() => { /* picker stays hidden; chat still works */ });
+  }, []);
+
+  useEffect(() => {
+    if (dbScope) localStorage.setItem(LS_DB_SCOPE, dbScope);
+    else localStorage.removeItem(LS_DB_SCOPE);
+  }, [dbScope]);
+
+  // Fetch the indexed database scopes once at startup (GH#81). The picker
+  // stays hidden when the index holds a single scope — there is nothing to
+  // choose — or when the call fails; chat works either way.
+  useEffect(() => {
+    getDatabases()
+      .then(({ databases: dbs, active }) => {
+        setDatabases(dbs);
+        // A scope the index no longer has (renamed, re-indexed) must not be
+        // sent: the backend would 400 every message until localStorage is
+        // cleared by hand. Fall back to the server's configured default.
+        setDbScope((prev) => {
+          if (prev && dbs.some((d) => d.name === prev)) return prev;
+          return dbs.some((d) => d.name === active) ? active : '';
+        });
       })
       .catch(() => { /* picker stays hidden; chat still works */ });
   }, []);
@@ -175,10 +203,12 @@ function App() {
         result = await sendChatStream(
           sessionId, content, apiKey.trim() || undefined, modelOverride,
           (e) => { if (e.type === 'stage') { sawStage = true; setStage(e.stage); } },
+          dbScope || undefined,
         );
       } catch (streamErr) {
         if (sawStage) throw streamErr;
-        result = await sendChat(sessionId, content, apiKey.trim() || undefined, modelOverride);
+        result = await sendChat(sessionId, content, apiKey.trim() || undefined,
+                                modelOverride, dbScope || undefined);
       }
       const botMsg: TextMessage = {
         id: uuidv4(),
@@ -205,7 +235,7 @@ function App() {
       setIsLoading(false);
       setStage(null);
     }
-  }, [sessionId, isLoading, apiKey, model, defaultModel, refreshSessions]);
+  }, [sessionId, isLoading, apiKey, model, defaultModel, dbScope, refreshSessions]);
 
   const handleFeedback = useCallback(async (messageId: string, rating: 'up' | 'down') => {
     // Optimistic update — apply immediately, revert is not needed (feedback is best-effort)
@@ -302,6 +332,9 @@ function App() {
       models={availableModels}
       model={model || defaultModel}
       onModelChange={setModel}
+      databases={databases}
+      dbScope={dbScope}
+      onDbScopeChange={setDbScope}
     >
       {error && (
         <div className="error-banner">
@@ -311,7 +344,7 @@ function App() {
       )}
 
       {activeTab === 'database' ? (
-        <DatabaseTab />
+        <DatabaseTab dbScope={dbScope} />
       ) : (
         <>
           {messages.length === 0 && !isLoading ? (
@@ -329,6 +362,17 @@ function App() {
               <p className="welcome-subtitle">
                 Ask questions about your data in plain English.
               </p>
+              {/* GH#81: name the domain the answer will come from, so a
+                  question against the wrong database is obvious up front. */}
+              {databases.length > 1 && (
+                <p className="welcome-scope">
+                  {dbScope
+                    ? <>Answering from <strong>{dbScope}</strong>{' '}
+                        ({databases.find((d) => d.name === dbScope)?.tables ?? 0} tables)</>
+                    : <>Searching <strong>all {databases.length} databases</strong>{' '}
+                        ({databases.reduce((n, d) => n + d.tables, 0)} tables)</>}
+                </p>
+              )}
               <div className="welcome-examples">
                 {[
                   'Show the top 10 players by overall rating',

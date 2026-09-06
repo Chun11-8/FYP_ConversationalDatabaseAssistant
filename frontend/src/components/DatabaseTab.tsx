@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Key, Link, RefreshCw, Info } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { ChevronRight, ChevronDown, Key, Link, RefreshCw, Info, Database } from 'lucide-react';
 import type { SchemaInfo, SchemaTable, SchemaColumn } from '../types';
 import { getSchema, getSchemaDiff, syncSchema } from '../api/client';
 import type { SchemaDiff } from '../api/client';
@@ -76,6 +76,64 @@ function TableRow({ table }: { table: SchemaTable }) {
       )}
     </div>
   );
+}
+
+/** Tables that carry no domain tag (GH#83) — shown under this heading. */
+const UNGROUPED = 'Other tables';
+
+/**
+ * GH#81: 75 tables from 11 unrelated databases share one PostgreSQL schema,
+ * so a flat list buries the 5 tables a question is actually about. Group by
+ * the logical database that owns each table; the group matching the active
+ * retrieval scope opens by default because that is the one being queried.
+ */
+function DomainGroup({
+  domain, tables, active,
+}: { domain: string; tables: SchemaTable[]; active: boolean }) {
+  const [open, setOpen] = useState(active);
+
+  return (
+    <div className={`schema-domain${active ? ' schema-domain--active' : ''}`}>
+      <button className="schema-domain-header" onClick={() => setOpen((v) => !v)}>
+        <span className="schema-table-toggle">
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+        <Database size={13} className="schema-domain-icon" />
+        <span className="schema-domain-name">{domain}</span>
+        {active && (
+          <span className="schema-domain-badge" title="Questions are answered from this database">
+            answering
+          </span>
+        )}
+        <span className="schema-table-count">
+          {tables.length} table{tables.length !== 1 ? 's' : ''}
+        </span>
+      </button>
+
+      {open && (
+        <div className="schema-domain-tables">
+          {tables.map((t) => <TableRow key={t.table_name} table={t} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Stable {domain: tables} grouping — insertion order follows the API's. */
+function groupByDomain(tables: SchemaTable[]): [string, SchemaTable[]][] {
+  const groups = new Map<string, SchemaTable[]>();
+  for (const t of tables) {
+    const key = t.domain || UNGROUPED;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(t);
+    else groups.set(key, [t]);
+  }
+  // Untagged tables last; everything else alphabetical.
+  return [...groups.entries()].sort(([a], [b]) => {
+    if (a === UNGROUPED) return 1;
+    if (b === UNGROUPED) return -1;
+    return a.localeCompare(b);
+  });
 }
 
 const CHANGE_META: Partial<Record<string, { label: string; cls: string }>> = {
@@ -201,7 +259,7 @@ function IndexSyncPanel({
   );
 }
 
-export function DatabaseTab() {
+export function DatabaseTab({ dbScope = '' }: { dbScope?: string }) {
   const [schema, setSchema] = useState<SchemaInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,6 +279,9 @@ export function DatabaseTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  const grouped = useMemo(
+    () => groupByDomain(schema?.tables ?? []), [schema]);
+
   const handleSynced = useCallback((message: string) => {
     setSyncMessage(message);
     load();
@@ -234,6 +295,8 @@ export function DatabaseTab() {
           {schema && (
             <p className="db-tab-subtitle">
               <strong>{schema.db_name}</strong> — {schema.table_count} table{schema.table_count !== 1 ? 's' : ''}
+              {grouped.length > 1 && ` across ${grouped.length} databases`}
+              {dbScope && <> · answering from <strong>{dbScope}</strong></>}
             </p>
           )}
         </div>
@@ -264,7 +327,18 @@ export function DatabaseTab() {
         <div className="schema-browser">
           {schema.tables.length === 0 ? (
             <p className="db-tab-empty">No tables found in the database.</p>
+          ) : grouped.length > 1 ? (
+            grouped.map(([domain, tables]) => (
+              <DomainGroup
+                key={domain}
+                domain={domain}
+                tables={tables}
+                active={domain === dbScope}
+              />
+            ))
           ) : (
+            // One domain (or none tagged) — grouping would add a level of
+            // nesting that says nothing.
             schema.tables.map((t) => <TableRow key={t.table_name} table={t} />)
           )}
         </div>

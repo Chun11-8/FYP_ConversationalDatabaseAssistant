@@ -439,8 +439,11 @@ retrieval:
   active_db: debit_card_specializing
 ```
 
-Leaving `active_db` unset searches every scope, which is exactly what a
-single-domain install has always done. Nothing here creates, moves or drops a
+In the UI, the sidebar's **Database** picker overrides this per request (no
+restart needed), the welcome screen names the domain a question will be
+answered from, and the Database tab groups the schema browser by domain with
+the active one marked. Leaving `active_db` unset searches every scope, which is
+exactly what a single-domain install has always done. Nothing here creates, moves or drops a
 table: `db_name` is a **label** on a vector row, and queries always execute
 against the one database configured under `db:`.
 

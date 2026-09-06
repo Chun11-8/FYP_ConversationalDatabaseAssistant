@@ -16,6 +16,12 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     api_key: Optional[str] = Field(None, description="Override the default OpenAI key for this request")
     model: Optional[str] = Field(None, description="Override the default LLM model for this request")
+    db_scope: Optional[str] = Field(
+        None,
+        description="GH#83: answer this question against ONE logical database "
+                    "(a name from GET /databases). Omitted/empty searches "
+                    "every indexed scope.",
+    )
 
 
 class ModelsResponse(BaseModel):
@@ -97,6 +103,10 @@ class SchemaTable(BaseModel):
     table_name: str
     column_count: int
     columns: List[SchemaColumn]
+    # GH#83: the logical database (BIRD db_id) this table belongs to, so the
+    # schema browser can group 75 tables from 11 domains instead of listing
+    # them flat. None when no table catalog is configured.
+    domain: Optional[str] = None
 
 
 class SchemaResponse(BaseModel):
