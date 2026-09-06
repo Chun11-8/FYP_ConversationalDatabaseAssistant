@@ -403,6 +403,10 @@ class OrchestrationAgent:
         # disjoint from the previous answer's. False keeps history always.
         self._topic_switch_detection = bool(
             config.get("sql", {}).get("topic_switch_detection", True))
+        # GH#91 gate 5: SQL → plain English → compare with the question. Two
+        # LLM calls (the comparison on the cheap intent model). Annotates only.
+        self._back_translation = bool(
+            config.get("sql", {}).get("back_translation", True))
         # GH#85: the effort tier every live question gets. The BIRD harness
         # reads the real label from the dataset; live has none, so one uniform
         # tier replaces a guess that could only under-resource a hard question.
@@ -1873,7 +1877,46 @@ class OrchestrationAgent:
         ev = dict(state.get("verification") or {})
         ev["risks"] = risks
         ev["risk_score"] = out.get("risk_score", 0)
+
+        # GH#91 gate 5: every check above reads the SQL against the schema, the
+        # plan, or itself — and all of them pass on a query that is valid,
+        # grounded, consistent and answers a DIFFERENT question. The round trip
+        # is the only one that can see that.
+        if getattr(self, "_back_translation", True) and sql:
+            ev["back_translation"] = self._round_trip(state, sql)
         return {**state, "verification": ev}
+
+    def _round_trip(self, state: AgentState, sql: str) -> Dict[str, Any]:
+        """
+        GH#91: describe the SQL blind, then compare with the question.
+
+        The description is produced WITHOUT the question in the prompt — shown
+        it, the model paraphrases the question back instead of reading the
+        query, and the check becomes a mirror. Any failure returns
+        verdict="unknown", which the grader treats as not-checked rather than
+        as a fault found.
+        """
+        try:
+            from backend.agents.back_translation import round_trip
+            result = round_trip(
+                # Describing SQL is a reading task, so it runs on the main
+                # query-stage model; only the yes/no comparison is cheap
+                # enough for the intent model.
+                describe_llm=self._get_llm(),
+                compare_llm=self._get_intent_llm(),
+                sql=sql,
+                question=state.get("standalone_query") or state.get("user_query") or "",
+                schema_context=state.get("schema_context") or "",
+            )
+        except Exception as exc:
+            logger.warning(f"[BACKTRANS] round trip skipped: {exc}")
+            return {"description": None, "verdict": "unknown", "reason": None}
+        if result.get("description"):
+            trace(f"  🔁 Reads as: {result['description']}")
+        if result.get("verdict") == "mismatch":
+            trace(f"  ⚠️  Round-trip MISMATCH: {result.get('reason')}")
+            logger.info("[BACKTRANS] mismatch: %s", result.get("reason"))
+        return result
 
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
@@ -1958,6 +2001,10 @@ class OrchestrationAgent:
         # GH#89: dropping the conversation changes what the model was asked,
         # so it belongs in the evidence rather than only in the server log.
         ev["topic_switch"] = bool(final.get("topic_switch"))
+        # GH#91: the verdict is derived from the block above, so it is computed
+        # LAST and is always consistent with the evidence shown beside it.
+        from backend.agents.trust import grade
+        ev["trust"] = grade(ev)
         return ev
 
     def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:

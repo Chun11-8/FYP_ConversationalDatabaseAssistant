@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle, ShieldAlert, ShieldX, CircleHelp, MessageSquareQuote } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import type { Message, TextMessage, TurnUsage, TurnVerification, TurnRisk } from '../types';
+import type { Message, TextMessage, TurnUsage, TurnVerification, TurnRisk, TurnTrust, TrustGate } from '../types';
 import { downloadUrl } from '../api/client';
 
 interface ChatMessageProps {
@@ -231,6 +231,83 @@ function RiskNotes({ risks }: { risks: TurnRisk[] }) {
   );
 }
 
+const TRUST_ICON = {
+  passed: ShieldCheck,
+  review: ShieldAlert,
+  untrusted: ShieldX,
+  not_graded: CircleHelp,
+} as const;
+
+const GATE_MARK: Record<TrustGate['status'], string> = {
+  ok: '✓', warn: '!', fail: '✕', skipped: '–',
+};
+
+/**
+ * The verdict (GH#91). The one thing on screen that answers "can I use this?".
+ *
+ * Deliberately carries no percentage: every signal behind it is a check on
+ * THIS query, and a hit-rate measured on benchmark databases would say nothing
+ * about a question over the user's own data. The top level is worded as
+ * "checks passed", never "correct" — they are necessary conditions, not
+ * sufficient ones, and the statement says so.
+ */
+function TrustVerdict({ trust }: { trust: TurnTrust }) {
+  const [open, setOpen] = useState(trust.level !== 'passed');
+  if (trust.level === 'not_graded') return null;
+  const Icon = TRUST_ICON[trust.level];
+  const graded = trust.gates.filter((g) => g.status !== 'skipped');
+  const passed = graded.filter((g) => g.status === 'ok').length;
+
+  return (
+    <div className={`trust trust--${trust.level}`}>
+      <button
+        className="trust-head"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <Icon size={15} className="trust-icon" />
+        <span className="trust-headline">{trust.headline}</span>
+        <span className="trust-count">{passed}/{graded.length} checks passed</span>
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      </button>
+
+      <p className="trust-statement">{trust.statement}</p>
+
+      {open && (
+        <ul className="trust-gates">
+          {trust.gates.map((g) => (
+            <li key={g.id} className={`trust-gate trust-gate--${g.status}`}>
+              <span className="trust-gate-mark" aria-hidden>{GATE_MARK[g.status]}</span>
+              <div>
+                <span className="trust-gate-label">{g.label}</span>
+                <span className="trust-gate-detail">{g.detail}</span>
+                {g.remedy && g.status !== 'ok' && (
+                  <span className="trust-gate-remedy">Try: {g.remedy}</span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The SQL read back into plain English (GH#91), generated without showing the
+ * model the question. Shown whether or not the comparison reached a verdict:
+ * a user who reads "the lowest single monthly reading" against a question
+ * that meant "the lowest yearly total" needs no verdict at all.
+ */
+function ReadsAs({ text }: { text: string }) {
+  return (
+    <div className="reads-as">
+      <MessageSquareQuote size={13} className="reads-as-icon" />
+      <span><strong>This query returns:</strong> {text}</span>
+    </div>
+  );
+}
+
 /** Collapsed "why this answer" panel — the full evidence, on demand. */
 function EvidencePanel({ v }: { v: TurnVerification }) {
   const [open, setOpen] = useState(false);
@@ -378,8 +455,14 @@ function AssistantMessage({
             </ReactMarkdown>
           </div>
 
-          {/* 1b. Risk flags (GH#69) — a specific objection to THIS answer,
-                 placed before the rows it questions rather than behind a toggle. */}
+          {/* 1b. The verdict (GH#91) — before the rows it judges, because
+                 "can I use this?" is the first question a reader has. */}
+          {message.verification?.trust && (
+            <TrustVerdict trust={message.verification.trust} />
+          )}
+
+          {/* 1c. Risk flags (GH#69) — the specific objections behind a
+                 non-passing verdict, each one checkable on its own. */}
           {message.verification?.risks?.length ? (
             <RiskNotes risks={message.verification.risks} />
           ) : null}
@@ -401,8 +484,12 @@ function AssistantMessage({
             </a>
           )}
 
-          {/* 4. Toggleable SQL Used */}
+          {/* 4. Toggleable SQL Used, with its plain-English read-back (GH#91)
+                 directly beneath — the two belong together. */}
           {message.sql && <SqlPanel sql={message.sql} />}
+          {message.sql && message.verification?.back_translation?.description && (
+            <ReadsAs text={message.verification.back_translation.description} />
+          )}
 
           {/* 5. Why this answer (GH#67) — sits under the SQL, since it explains
                  how that particular query came to be chosen. */}

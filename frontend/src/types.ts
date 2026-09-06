@@ -87,6 +87,39 @@ export interface TurnVerification {
   /** GH#89: this turn was answered without the conversation — it was about
    *  a different subject from the previous one. */
   topic_switch?: boolean;
+  /** GH#91: SQL read back into plain English, and whether it matches the ask */
+  back_translation?: {
+    description?: string | null;
+    verdict?: 'match' | 'mismatch' | 'unknown';
+    reason?: string | null;
+  } | null;
+  /** GH#91: the verdict, derived from everything above */
+  trust?: TurnTrust | null;
+}
+
+/** One check that was run on this answer (GH#91). */
+export interface TrustGate {
+  id: string;
+  label: string;
+  /** ok = passed · warn = could not confirm · fail = found a problem ·
+   *  skipped = not applicable this turn (never counts against the verdict) */
+  status: 'ok' | 'warn' | 'fail' | 'skipped';
+  detail: string;
+  /** What the user could do to resolve it, when there is something */
+  remedy?: string | null;
+}
+
+/**
+ * Can this answer be trusted? Derived only from checks on THIS query — no
+ * benchmark statistic, and deliberately no percentage: the checks are
+ * necessary conditions for a right answer, not sufficient ones.
+ */
+export interface TurnTrust {
+  level: 'passed' | 'review' | 'untrusted' | 'not_graded';
+  headline: string;
+  statement: string;
+  gates: TrustGate[];
+  failed: string[];
 }
 
 /** One thing that looks wrong about an answer that nonetheless ran fine. */
