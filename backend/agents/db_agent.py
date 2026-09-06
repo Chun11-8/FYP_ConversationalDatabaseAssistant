@@ -60,6 +60,24 @@ def _intent_pattern(intent: str) -> str:
     return intent.replace("_", r"[\s_-]")
 
 
+def _prepend_caution(response: str, verification: Optional[Dict[str, Any]]) -> str:
+    """
+    Lead a doubtful answer with the doubt (GH#75).
+
+    Only HIGH-severity flags qualify. A caveat on every zero-row or
+    arity-mismatch turn would appear on roughly a fifth of all answers and be
+    tuned out, which is the failure mode the whole risk feature exists to
+    avoid. The structured flags still render in the UI either way; this is
+    about the sentence the user reads first.
+    """
+    risks = (verification or {}).get("risks") or []
+    high = [r for r in risks if r.get("severity") == "high"]
+    if not high or not response:
+        return response
+    note = high[0].get("message") or "This answer may not be reliable."
+    return f"⚠️ {note}\n\n{response}"
+
+
 def _normalize_intent(raw: str) -> str:
     """
     Reduce the classifier's reply to exactly one canonical intent.
@@ -251,6 +269,12 @@ class AgentState(TypedDict):
     # its answer. {candidates, executed, agreement, distinct_result_sets,
     # decided_by}; assembled for the response in run().
     verification: Optional[Dict[str, Any]]
+    # GH#75: question spans that match nothing in the retrieved tables — the
+    # question asks about data that does not exist, so no SQL can answer it.
+    unsatisfiable: List[str]
+    # Tables actually retrieved this turn — used to suggest real values when a
+    # question names one that does not exist.
+    retrieved_tables: List[str]
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
     tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
@@ -640,6 +664,7 @@ class OrchestrationAgent:
 
             # GH#49 P3: ground literal-looking spans against ACTUAL stored
             # values; a hint block tells the generator the exact casing/format.
+            unsatisfiable: List[str] = []
             if getattr(self, "value_index", None) is not None:
                 hints = self.value_index.ground(search_q, primary + fk_extra)
                 if hints:
@@ -647,6 +672,15 @@ class OrchestrationAgent:
                     schema_context = (
                         schema_context + "\n\n" + render_value_hints(hints)
                     )
+                # GH#75: ground() is silent for a span that matches NOTHING —
+                # there is no casing to correct — so the strongest signal
+                # available was computed here and thrown away. Asked for
+                # "customers from the country Wakanda", the pipeline knew
+                # before writing a line of SQL that no such value exists, and
+                # generated `segment='LAM' AND currency='EUR'` anyway. Once a
+                # question is classified READ there is no exit that produces
+                # no SQL, so the model is obliged to invent something.
+                unsatisfiable = self._unsatisfiable_spans(search_q, primary + fk_extra)
 
             # Print similarity distances for debugging retrieval quality
             trace("  📊 Retrieval distances (lower = more relevant):")
@@ -681,12 +715,95 @@ class OrchestrationAgent:
                         "cached_fingerprint": hit.get("rows_fingerprint")}
 
             return {**state, "schema_context": schema_context,
-                    "few_shot_examples": few_shots, "query_embedding": query_embedding}
+                    "few_shot_examples": few_shots, "query_embedding": query_embedding,
+                    "unsatisfiable": unsatisfiable,
+                    "retrieved_tables": primary + fk_extra}
         except Exception as e:
             trace(f"  ❌ RAG retrieval failed: {e}")
             logger.warning(f"[RAG] retrieval failed: {e}")
             return {**state, "schema_context": "", "few_shot_examples": few_shots,
                     "query_embedding": query_embedding, "fallback_level": 1}
+
+    def _unsatisfiable_spans(self, question: str, tables: List[str]) -> List[str]:
+        """
+        Value-like spans in the question that match NOTHING in the retrieved
+        tables (GH#75) — i.e. the question asks about data that does not exist.
+
+        Conservative by construction, because a wrong refusal is worse than a
+        wrong answer: it needs the value index to have actually loaded
+        (``resolve_spans`` returns {} when it could not check, never a wall of
+        Nones), and it skips spans whose absence proves nothing — dates, month
+        names and capitalised sentence openers. Those exclusions were not
+        guesses: without them the equivalent post-hoc check produced a 54 %
+        false-alarm rate on the labelled benchmark.
+        """
+        idx = getattr(self, "value_index", None)
+        if idx is None or not tables or not question:
+            return []
+        try:
+            from backend.agents.risk import _span_is_untestable
+            resolved = idx.resolve_spans(question, tables) or {}
+            return [s for s, v in resolved.items()
+                    if v is None and not _span_is_untestable(s)]
+        except Exception as exc:
+            logger.warning(f"[RAG] unsatisfiability check skipped: {exc}")
+            return []
+
+    def handle_unanswerable(self, state: AgentState) -> AgentState:
+        """
+        Terminal node for a question naming data that does not exist (GH#75).
+
+        Before this, the graph had no exit for a READ question that could not
+        be answered: WRITE_BLOCKED, GENERAL, AMBIGUOUS and intent-error all
+        terminate, but a well-formed READ question that happens to be
+        unsatisfiable had to produce SQL. That obligation is what made the
+        model drop the user's filter and substitute one that "worked".
+
+        Says which value is missing rather than refusing flatly, so the user
+        can correct it in one turn.
+        """
+        spans = state.get("unsatisfiable") or []
+        trace("\n" + "─" * 70)
+        trace(f"🚫  NODE: handle_unanswerable — no such value(s): {spans}")
+        trace("─" * 70)
+        logger.info(f"[UNANSWERABLE] {spans}")
+
+        quoted = ", ".join(f"**{s}**" for s in spans[:3])
+        nearest = self._nearest_values(spans[:1], state)
+        response = (
+            f"I could not find {quoted} anywhere in this database, so there is "
+            f"no query I can run that would filter on it."
+        )
+        if nearest:
+            response += f"\n\nThe closest values I do have are: {nearest}."
+        response += (
+            "\n\nIf you meant something else, tell me the value as it is stored "
+            "and I will run the query."
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"], user_query=state["user_query"],
+            response=response, valid=False,
+        )
+        return {**state, "response": response, "turn_id": turn_id, "best_sql": ""}
+
+    def _nearest_values(self, spans: List[str], state: AgentState) -> str:
+        """A few real values from the retrieved tables, to make the refusal
+        actionable. Best-effort — an empty string just omits the suggestion."""
+        idx = getattr(self, "value_index", None)
+        if not spans or idx is None:
+            return ""
+        try:
+            samples: List[str] = []
+            for table in (state.get("retrieved_tables") or [])[:2]:
+                for _col, values in idx._load_table(table).items():
+                    samples.extend(str(v) for v in values[:3])
+                    if len(samples) >= 6:
+                        break
+                if len(samples) >= 6:
+                    break
+            return ", ".join(f"`{v}`" for v in samples[:6])
+        except Exception:
+            return ""
 
     def _fast_path_state(self, hit: dict) -> Optional[Dict[str, Any]]:
         """
@@ -1474,6 +1591,12 @@ class OrchestrationAgent:
                 sql=state["best_sql"],
                 results=state["execution_result"],
             )
+            # GH#75: the formatter is given the rows but not the doubts, so it
+            # wrote "Here are the customers from Wakanda:" directly above a
+            # warning saying Wakanda does not exist. Prepending the caveat
+            # deterministically rather than asking the LLM to hedge — a model
+            # told to add a caveat can decline; a string cannot.
+            response = _prepend_caution(response, state.get("verification"))
 
         # Only record the SQL when it was actually valid and executed — not
         # when we arrived here via the graceful-fallback path (validation failed
@@ -1615,6 +1738,11 @@ class OrchestrationAgent:
             return "validate_sql"     # GH#38 shortcut: skip linking + generation
         if not state.get("schema_context") and state.get("fallback_level", 0) == 0:
             return "fallback_handler"
+        # GH#75: the question names a value that does not exist. Generating
+        # here is what produced the substituted filter — the model cannot
+        # satisfy the request, so it satisfies a different one.
+        if state.get("unsatisfiable"):
+            return "handle_unanswerable"
         return "generate_sql"
 
     def _refine_limit(self, state: AgentState) -> int:
@@ -1653,6 +1781,8 @@ class OrchestrationAgent:
         g.add_node("validate_sql", _staged("validate_sql", self.validate_sql))
         g.add_node("execute_sql", _staged("execute_sql", self.execute_sql))
         g.add_node("refine_sql", _staged("refine_sql", self.refine_sql))
+        g.add_node("handle_unanswerable",
+                   _staged("handle_unanswerable", self.handle_unanswerable))
         g.add_node("assess_risk", _staged("assess_risk", self.assess_risk))
         g.add_node("format_response", _staged("format_response", self.format_response))
         g.add_node("handle_general", _staged("handle_general", self.handle_general))
@@ -1685,7 +1815,9 @@ class OrchestrationAgent:
             "generate_sql": "link_schema",
             "fallback_handler": "fallback_handler",
             "validate_sql": "validate_sql",
+            "handle_unanswerable": "handle_unanswerable",
         })
+        g.add_edge("handle_unanswerable", END)
 
         g.add_edge("link_schema", "generate_sql")
         g.add_edge("generate_sql", "validate_sql")
@@ -1842,6 +1974,8 @@ class OrchestrationAgent:
             "vote_rows": None,
             "vote_rows_sql": None,
             "verification": None,
+            "unsatisfiable": [],
+            "retrieved_tables": [],
             "fallback_level": 0,
             "refine_level": 0,
             "tier": None,
@@ -1926,6 +2060,12 @@ class OrchestrationAgent:
             # reuse the fresh wording instead of re-formatting forever.
             and (not final.get("cache_hit")
                  or fingerprint != final.get("cached_fingerprint"))
+            # GH#75: never memorise an answer the system itself flagged. Without
+            # this the "customers from Wakanda" answer was stored and replayed
+            # from cache with zero LLM calls — the pipeline detected its own
+            # error and then learned it, so every later ask got the same wrong
+            # rows faster and the model never got another chance to do better.
+            and not (final.get("verification") or {}).get("risk_score")
         )
         # GH#63: store the CONDENSED question when there is one. The embedding
         # written alongside it is the condensed text's (retrieve_schema
