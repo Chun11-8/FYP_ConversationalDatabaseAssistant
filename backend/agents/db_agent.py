@@ -286,6 +286,7 @@ class AgentState(TypedDict):
     session_id: str
     user_query: str
     conversation_history: List[Dict[str, str]]
+    topic_switch: bool               # GH#89: this turn is unrelated to the last
     intent: str                      # READ | GENERAL | WRITE_BLOCKED | AMBIGUOUS
     schema_context: str
     query_plan: Optional[Dict[str, Any]]   # structured plan from SchemaLinkingAgent (#17)
@@ -398,6 +399,10 @@ class OrchestrationAgent:
         # strategy over cosine top-k when retrieval is scoped. False restores
         # pure top-k retrieval for an A/B.
         self._full_schema = bool(_r.get("full_schema_when_scoped", True))
+        # GH#89: drop conversation history for a turn whose tables are
+        # disjoint from the previous answer's. False keeps history always.
+        self._topic_switch_detection = bool(
+            config.get("sql", {}).get("topic_switch_detection", True))
         # GH#85: the effort tier every live question gets. The BIRD harness
         # reads the real label from the dataset; live has none, so one uniform
         # tier replaces a guess that could only under-resource a hard question.
@@ -576,6 +581,48 @@ class OrchestrationAgent:
             )
         return result
 
+    def _detect_topic_switch(self, state: AgentState,
+                             tables: List[str]) -> bool:
+        """
+        GH#89: is this turn about something else entirely?
+
+        Compares the tables this question retrieved with the tables the
+        PREVIOUS answer actually queried (parsed from `previous_sql`, which
+        run() already loaded from durable memory — no extra retrieval, no
+        extra LLM call, nothing new to persist). Disjoint sets mean the
+        conversation moved, and carrying six turns of the old subject into
+        classification, planning and generation can only mislead them.
+
+        Under GH#85's full-schema mode the retrieved set is every table of the
+        active scope, so within one database this is always False and the
+        signal degenerates to "the scope changed". That is deliberate: a
+        same-database change of subject is handled by the condenser's own gate
+        (GH#87), and same-domain history is not what corrupted a turn.
+        """
+        prev_sql = state.get("previous_sql")
+        if not prev_sql or not tables:
+            return False
+        try:
+            prev = {t.casefold() for t in
+                    referenced_tables(prev_sql, getattr(self, "_dialect", "postgres"))}
+        except Exception as exc:
+            logger.warning(f"[TOPIC] could not parse previous SQL: {exc}")
+            return False
+        if not prev:
+            return False
+        return prev.isdisjoint({t.casefold() for t in tables})
+
+    @staticmethod
+    def _history_for(state: AgentState, limit: int = 4) -> List[Dict[str, str]]:
+        """
+        The conversation history a downstream stage should see. Empty on a
+        topic switch (GH#89) — the whole point is that the previous turns are
+        about something else.
+        """
+        if state.get("topic_switch"):
+            return []
+        return (state.get("conversation_history") or [])[-limit:]
+
     def _get_scope(self) -> Optional[str]:
         """
         The retrieval scope for THIS request (GH#83): the per-request
@@ -594,7 +641,16 @@ class OrchestrationAgent:
     def classify_intent(self, state: AgentState) -> AgentState:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
         history = state.get("conversation_history", [])
-        history_str = self._format_history(history[-6:])
+        # GH#89: this node runs BEFORE retrieval, so the table-overlap signal
+        # does not exist yet — but a question that carries no referential
+        # marker and is not terse can be classified on its own, and six turns
+        # about another subject can only push it toward a wrong AMBIGUOUS.
+        # Same predicate the condenser gates on, so the two agree by
+        # construction; history is still shown whenever it could matter,
+        # including the clarification-reply short circuit below.
+        relevant = (history if self._looks_anaphoric(state["user_query"], history)
+                    else [])
+        history_str = self._format_history(relevant[-6:])
 
         trace("\n" + "━" * 70)
         trace("🔍  PIPELINE START — classify_intent")
@@ -925,9 +981,19 @@ class OrchestrationAgent:
                         "cached_response": hit.get("response"),
                         "cached_fingerprint": hit.get("rows_fingerprint")}
 
+            # GH#89: decide here, where the retrieved set is already known,
+            # so no stage downstream pays for a second lookup.
+            switched = (self._detect_topic_switch(state, primary)
+                        if getattr(self, "_topic_switch_detection", True)
+                        else False)
+            if switched:
+                trace("  🔀 Topic switch — this turn runs without conversation "
+                      "history (previous turns query other tables)")
+                logger.info("[TOPIC] switch detected; history dropped for this turn")
+
             return {**state, "schema_context": schema_context,
                     "few_shot_examples": few_shots, "query_embedding": query_embedding,
-                    "unsatisfiable": unsatisfiable,
+                    "unsatisfiable": unsatisfiable, "topic_switch": switched,
                     "retrieved_tables": primary + fk_extra}
         except Exception as e:
             trace(f"  ❌ RAG retrieval failed: {e}")
@@ -1180,7 +1246,7 @@ class OrchestrationAgent:
             plan = self._get_linker().analyze(
                 query=state.get("standalone_query") or state["user_query"],
                 schema_context=state["schema_context"],
-                history=state["conversation_history"][-4:],
+                history=self._history_for(state),
             )
         except Exception as exc:  # pragma: no cover - defensive; analyze already guards
             trace(f"  ❌ schema linking failed: {exc}")
@@ -1233,7 +1299,7 @@ class OrchestrationAgent:
                     alt = self._get_linker().analyze_alternative(
                         query=question, schema_context=schema_context,
                         first_plan=plan,
-                        history=state["conversation_history"][-4:])
+                        history=self._history_for(state))
                 except Exception as exc:
                     logger.warning(f"[LINK-ALT] skipped: {exc}")
                 if alt:
@@ -1283,7 +1349,7 @@ class OrchestrationAgent:
                     query=state["user_query"],
                     schema_context=state["schema_context"],
                     few_shots=few_shots,
-                    history=state["conversation_history"][-4:],
+                    history=self._history_for(state),
                     query_plan=plan_for_this_batch,
                     tier=tier,
                     previous_sql=state.get("previous_sql"),
@@ -1645,7 +1711,7 @@ class OrchestrationAgent:
                 schema_context=state["schema_context"],
                 original_sql=state["best_sql"],
                 error=observation,
-                history=state["conversation_history"][-4:],
+                history=self._history_for(state),
             )
             best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"]) if sqls else ""
         except Exception as exc:
@@ -1889,6 +1955,9 @@ class OrchestrationAgent:
             k: bool(v) for k, v in validation.items()
             if k in ("syntax_ok", "safety_ok", "semantic_ok")
         }
+        # GH#89: dropping the conversation changes what the model was asked,
+        # so it belongs in the evidence rather than only in the server log.
+        ev["topic_switch"] = bool(final.get("topic_switch"))
         return ev
 
     def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:
@@ -2192,6 +2261,7 @@ class OrchestrationAgent:
             "session_id": session_id,
             "user_query": user_query,
             "conversation_history": history,
+            "topic_switch": False,
             "intent": "READ" if fast else "",
             "schema_context": fast["schema_context"] if fast else "",
             "query_plan": None,

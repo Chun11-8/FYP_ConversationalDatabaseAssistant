@@ -82,6 +82,14 @@ sql:
   # agreed. One uniform tier replaces the guess. "challenging" buys 7
   # candidates and 2 refine rounds on every question — measure before paying.
   live_tier: moderate
+  # GH#89: when a turn's retrieved tables are disjoint from the tables the
+  # PREVIOUS answer queried, the conversation moved on — run that turn with no
+  # history at all (classification, planning, generation). History reaches all
+  # of those, not just the condenser, and carrying six turns about another
+  # subject degrades them silently: no refusal, just a worse plan. Costs
+  # nothing — the comparison reuses the retrieved set and the previous SQL
+  # that are already in state. false keeps history on every turn.
+  topic_switch_detection: true
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.

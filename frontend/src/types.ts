@@ -84,6 +84,9 @@ export interface TurnVerification {
   risks?: TurnRisk[];
   /** Severity-weighted flag count. A ranking aid, NOT a probability. */
   risk_score?: number;
+  /** GH#89: this turn was answered without the conversation — it was about
+   *  a different subject from the previous one. */
+  topic_switch?: boolean;
 }
 
 /** One thing that looks wrong about an answer that nonetheless ran fine. */

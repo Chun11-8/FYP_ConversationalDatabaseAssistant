@@ -888,6 +888,26 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
 | Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
 
+### Keeping one turn out of another's way (GH#87 / GH#89)
+
+Conversation history reaches four stages — intent classification, follow-up
+condensation, planning and generation — so a question about a different
+subject can be degraded by the previous turn in four places. Two layers guard
+against that:
+
+- **Condensation** only rewrites a follow-up that genuinely depends on the
+  conversation, and a deterministic veto discards a rewrite that *injects*
+  literals the question never mentioned (GH#87). A relative clause — "schools
+  **that** are among the top 5" — is no longer mistaken for a reference.
+- **Topic switch** (GH#89): when a turn's retrieved tables are disjoint from
+  the tables the previous answer queried, the turn runs with **no history** at
+  all. The comparison reuses the retrieved set and the previous SQL already in
+  state — no extra retrieval, no extra LLM call. It is reported in the answer's
+  evidence panel, and `sql.topic_switch_detection: false` turns it off.
+
+Both are covered by the `topic_switch` cases in the multi-turn harness below,
+including one that moves the conversation between databases mid-session.
+
 ### Multi-turn evaluation (GH#71)
 
 BIRD is single-turn, so the conversational half of the system — follow-up
