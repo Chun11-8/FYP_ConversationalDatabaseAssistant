@@ -39,7 +39,7 @@ from backend.agents.db_agent import OrchestrationAgent
 from backend.api.models import (
     ChatRequest, ChatResponse, FeedbackRequest, HealthResponse, SessionResponse,
     SchemaResponse, SessionSummary, SchemaDiffResponse, SchemaSyncRequest,
-    SchemaSyncResponse, ModelsResponse,
+    SchemaSyncResponse, ModelsResponse, DatabaseInfo, DatabasesResponse,
 )
 from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -191,7 +191,12 @@ def _get_agent() -> OrchestrationAgent:
 # (e.g. "gpt-4o-mini", "ft:gpt-4o-mini-2024-07-18:org::abc123"). This is a shape
 # check, not an allow-list — it exists to reject garbage/injection attempts, not
 # to restrict which real models a user may type.
-_MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,63}$")
+# `/` is allowed (GH#65) because open-weight ids are vendor-namespaced —
+# meta-llama/Llama-3.3-70B-Instruct, deepseek-ai/…, Qwen/…, google/… — and
+# rejecting them here blocked OpenRouter and Together entirely. Still anchored
+# and charset-limited: the id is only ever a request payload field, never a
+# path segment or filename, so no traversal surface is opened.
+_MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{1,79}$")
 
 
 def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Optional[str]:
@@ -212,6 +217,43 @@ def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Opti
     if not _MODEL_ID_RE.match(req_model):
         raise HTTPException(status_code=400, detail=f"Invalid model id: {req_model!r}")
     return req_model
+
+
+def _indexed_scopes() -> list[str]:
+    """
+    Logical databases present in the schema vector index (GH#83). [] on any
+    failure — callers treat that as "cannot verify", never as "none exist".
+    """
+    try:
+        import backend.retrieval.pgvector_store as pgstore
+        conn = pgstore.get_store()
+        try:
+            return [n for n, _ in pgstore.list_databases_with_counts(conn)]
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"[API] could not list retrieval scopes: {exc}")
+        return []
+
+
+def _validate_scope(req_scope: Optional[str]) -> Optional[str]:
+    """
+    GH#83: a per-request retrieval scope must name a database that is actually
+    indexed — unlike a model id, a typo here is not a downstream API error but
+    a silent zero-table retrieval that looks like "I don't have that data".
+    Empty/None = every scope. If the index can't be read we let the value
+    through rather than blocking chat on an ops failure.
+    """
+    if not req_scope or not req_scope.strip():
+        return None
+    scope = req_scope.strip()
+    known = _indexed_scopes()
+    if known and scope not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown database scope {scope!r}. Indexed: {', '.join(known)}",
+        )
+    return scope
 
 
 @app.middleware("http")
@@ -264,12 +306,14 @@ def chat(req: ChatRequest) -> ChatResponse:
     """
     agent = _get_agent()
     model = _validate_model(req.model, agent)
+    db_scope = _validate_scope(req.db_scope)
     try:
         result = agent.run(
             session_id=req.session_id,
             user_query=req.message,
             api_key=req.api_key or None,
             model=model,
+            db_scope=db_scope,
         )
     except Exception as exc:
         logger.exception("Agent error for session %s", req.session_id)
@@ -298,6 +342,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     # Validated before the worker thread starts (GH#52) so an unlisted model
     # returns a synchronous HTTP 400 rather than a mid-stream `error` event.
     model = _validate_model(req.model, agent)
+    db_scope = _validate_scope(req.db_scope)
     q: "queue.Queue[Optional[dict]]" = queue.Queue()
 
     def _cb(event_type: str, payload: Any) -> None:
@@ -317,6 +362,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 api_key=req.api_key or None,
                 model=model,
                 stage_callback=_cb,
+                db_scope=db_scope,
             )
             _record_turn(result)
             q.put({"type": "done", **result})
@@ -347,6 +393,39 @@ def list_models() -> ModelsResponse:
     """Models the frontend's per-request picker (GH#52) may choose from."""
     agent = _get_agent()
     return ModelsResponse(models=agent.selectable_models, default=agent.default_model)
+
+
+@app.get("/databases", response_model=DatabasesResponse, tags=["schema"])
+def list_databases() -> DatabasesResponse:
+    """
+    GH#81: the retrieval scopes present in the schema vector index, and which
+    one is in force. Several BIRD databases share one PostgreSQL schema, so
+    `retrieval.active_db` decides which of them a question is answered against.
+    Read-only: switching scope is a config change plus a restart.
+    """
+    agent = _get_agent()
+    active = agent.active_db
+    try:
+        import backend.retrieval.pgvector_store as pgstore
+        conn = pgstore.get_store()
+        try:
+            counts = pgstore.list_databases_with_counts(conn)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"[API] /databases could not read the index: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Schema vector index unavailable — is PostgreSQL running "
+                   "and has `indexing build` been run?",
+        )
+
+    return DatabasesResponse(
+        databases=[DatabaseInfo(name=n, tables=t, active=(n == active))
+                   for n, t in counts],
+        # "" = no configured default; the UI reads that as "All databases".
+        active=active or "",
+    )
 
 
 @app.get("/metrics-lite", tags=["ops"])

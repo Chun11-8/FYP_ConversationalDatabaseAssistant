@@ -3,6 +3,19 @@
 
 llm:
   model: gpt-4o-mini
+  # GH#65: point the QUERY STAGE at any OpenAI-COMPATIBLE endpoint to use
+  # open-weight models from other vendors (Llama, DeepSeek, Qwen, Mistral,
+  # Gemma, GPT-OSS). Unset → OpenAI. Overridden by $LLM_BASE_URL, and by
+  # --base-url on the eval CLIs. Embeddings ALWAYS stay on OpenAI: the
+  # pgvector columns are sized for text-embedding-3-small (1536 dims), so
+  # changing the embedder means a full re-index.
+  #   OpenRouter  https://openrouter.ai/api/v1      (one key, many vendors)
+  #   Groq        https://api.groq.com/openai/v1
+  #   DeepSeek    https://api.deepseek.com
+  #   Together    https://api.together.xyz/v1
+  #   Gemini      https://generativelanguage.googleapis.com/v1beta/openai/
+  #   Ollama      http://localhost:11434/v1         (local, no key)
+  # base_url:
   # GH#38 model routing (optional): cheaper models for one-token intent
   # classification and response formatting. Absent → main model reused.
   # intent_model: gpt-4o-mini
@@ -18,10 +31,21 @@ llm:
   # GH#57 cost accounting: USD per 1M tokens, merged over the built-in table in
   # backend/agents/usage.py. A model absent here still has its tokens counted,
   # it just contributes no dollar figure. Update when OpenAI changes prices.
+  # Non-OpenAI models (GH#65) have no built-in price, so cost reads $0.00 until
+  # you add them here — tokens are still counted either way. Namespaced ids
+  # must be quoted in YAML. The non-OpenAI figures below are ILLUSTRATIVE
+  # placeholders — look up your provider's current rates before trusting a
+  # cost number in a report.
   # pricing:
   #   gpt-4o-mini:
   #     input: 0.15
   #     output: 0.60
+  #   "deepseek-chat":
+  #     input: 0.28
+  #     output: 0.42
+  #   "meta-llama/Llama-3.3-70B-Instruct":
+  #     input: 0.12
+  #     output: 0.30
 
 db:
   dialect: postgres
@@ -43,16 +67,47 @@ sql:
   # Number of SQL candidates to generate per question (one LLM call).
   n_candidates: 5
   # Difficulty-adaptive prompting (Issue #27): strategy block + per-tier
-  # candidate counts. BIRD passes the real difficulty; live infers from the plan.
+  # candidate counts. BIRD passes the dataset's real difficulty label.
   adaptive_prompting: true
   candidates_by_tier:
     simple: 2
     moderate: 5
     challenging: 7
+  # GH#85: the tier every LIVE question gets. There is no difficulty label
+  # outside the benchmark, and the heuristic that used to infer one read it
+  # from the linker plan — the artefact that fails. A plan that collapsed a
+  # hard question to one table produced "simple" (2 candidates, no path
+  # diversity), under-resourcing the question precisely because the reasoning
+  # about it had already gone wrong; the two near-identical candidates then
+  # agreed. One uniform tier replaces the guess. "challenging" buys 7
+  # candidates and 2 refine rounds on every question — measure before paying.
+  live_tier: moderate
   # Execution-guided candidate selection (BIRD harness AND live pipeline):
   # run every valid candidate, plurality-vote on result fingerprints; the text
   # reranker only breaks ties. Set false (or --no-exec-voting) to A/B.
   execution_voting: true
+  # GH#69: gold-free risk checks on the executed result — zero rows,
+  # ungrounded WHERE literal, cross join, missing GROUP BY, LIMIT 1 on a
+  # plural question, arity vs the plan, table outside the retrieved schema.
+  # They ANNOTATE only: no query is blocked, rewritten or retried. Set false
+  # to A/B the flags against the labelled benchmark data.
+  risk_checks: true
+  # GH#76 — both DEFAULT OFF. Attributing all 57 gpt-5-mini BIRD failures showed
+  # 74% had the right tables AND joins and differed only in projection,
+  # aggregation or grain; 52% of those picked the wrong aggregate. Both knobs
+  # below target that, and both change what the model is asked to produce, so
+  # their effect on accuracy is a HYPOTHESIS until the A/B is run.
+  #
+  # plan_diversity: on a hard question, ask the linker for a SECOND plan that
+  # deliberately disagrees on grain/aggregation and generate candidates from
+  # both. Today every candidate comes from one plan, which is why 41 of 57
+  # errors had unanimous agreement — candidates cannot disagree about a
+  # decision none of them made. Costs one extra LLM call per hard question.
+  plan_diversity: false
+  # plan_rationale: make the linker name the answer's GRAIN and justify the
+  # aggregate against the evidence (100% of these failures carried evidence
+  # describing the computation). Costs a longer planner prompt, no extra call.
+  plan_rationale: false
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
   # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):
@@ -103,10 +158,40 @@ sql:
 retrieval:
   vector_store: pgvector
   top_k_tables: 5
+  # GH#81 retrieval scoping. All 75 BIRD mini-dev tables from 11 unrelated
+  # domains live in the same `public` schema, so an un-scoped top-5 picks from
+  # 75 candidates while the BIRD harness only ever sees the 4 tables of the
+  # question's own db_id. Tagging (below) records which db_id owns each table;
+  # active_db then narrows retrieval to one of them.
+  #
+  # active_db: the logical database to search. Unset → EVERY scope, which is
+  # exactly what a single-domain install always did (one label across the whole
+  # index made the filter a no-op). Set it to reproduce the benchmark's
+  # retrieval conditions in the chat UI, e.g.:
+  #   active_db: debit_card_specializing
+  # `GET /databases` lists what is actually indexed. This is a LABEL on the
+  # vector rows — queries always execute against the one database under `db:`.
+  # active_db:
+  #
+  # table_catalog: BIRD tables.json used at BUILD time to map table → db_id.
+  # Unset → $BIRD_TABLES_JSON, then outputs/dev_tables.json, then
+  # dataset/minidev/MINIDEV/dev_tables.json. No file found → every table keeps
+  # the --db name (pre-GH#81 behaviour). Changing this needs a re-index.
+  # table_catalog: outputs/dev_tables.json
   top_k_kb: 3
   # FK-aware context expansion: hop depth (2 reaches through bridge tables),
   # cap on FK-added tables, and an approximate token budget for the schema
   # context (FK tables are dropped farthest-hop-first; primaries never dropped).
+  # GH#85: when retrieval is scoped to one logical database (active_db, or a
+  # per-request pick in the UI), hand the generator that database's COMPLETE
+  # schema — what the BIRD harness does with extract_sqlite_schema(db_path) —
+  # instead of the cosine top-k below. The table carrying a filter is often
+  # the one LEAST similar to the question's wording ("who had the least
+  # consumption in LAM?" never says "customers"), and a missing table doesn't
+  # fail: the model drops the constraint and answers a different question.
+  # Cosine top-k still applies when there is no scope, nothing is indexed for
+  # it, or the full schema exceeds max_schema_tokens. false = always top-k.
+  full_schema_when_scoped: true
   fk_max_hops: 2
   fk_max_expansion: 5
   max_schema_tokens: 4000

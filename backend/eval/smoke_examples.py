@@ -184,18 +184,24 @@ def _find_db(db_dir: Path, db_id: str) -> str:
     raise FileNotFoundError(f"No database for {db_id} under {db_dir}")
 
 
-def run(db_dir: Path) -> int:
+def run(db_dir: Path, model: str | None = None,
+        base_url: str | None = None) -> int:
     # Build the agents exactly like bird.py (dialect → sqlite).
     from backend.config.config_loader import load_config
     from backend.agents.sql_code_agent import SQLCodeAgent
     from backend.agents.sql_validator_agent import SQLValidatorAgent
     from backend.agents.schema_linking_agent import SchemaLinkingAgent
-    from langchain_openai import ChatOpenAI
+    from backend.agents.llm_factory import (
+        build_chat_llm, describe_target, resolve_base_url,
+    )
 
     config = load_config()
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
-    llm = ChatOpenAI(model=config["llm"]["model"], temperature=0,
-                     api_key=config["llm"]["api_key"], max_retries=1)
+    model_name = (model or "").strip() or config["llm"]["model"]
+    base_url = resolve_base_url(config, base_url)
+    print(f"  Target: {describe_target(model_name, base_url)}")
+    llm = build_chat_llm(model_name, config["llm"]["api_key"], base_url,
+                         max_retries=1)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
     linker = SchemaLinkingAgent(bird_config, llm)
@@ -258,6 +264,12 @@ def main(argv=None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--db-dir", default=None,
                         help="Use real BIRD dev_databases instead of the reconstructions")
+    parser.add_argument("--model", default=None,
+                        help="Override config.yaml's llm.model for this run (any model id)")
+    parser.add_argument("--base-url", default=None,
+                        help="OpenAI-COMPATIBLE endpoint to smoke-test against, e.g. "
+                             "https://openrouter.ai/api/v1. Overrides $LLM_BASE_URL "
+                             "and config llm.base_url; omit for OpenAI (GH#65)")
     args = parser.parse_args(argv)
 
     if args.db_dir:
@@ -267,7 +279,7 @@ def main(argv=None) -> int:
         _prepare_reconstructed_dbs(scratch)
         db_dir = scratch
         print(f"[INFO] Using reconstructed mini-databases under {db_dir}")
-    return run(db_dir)
+    return run(db_dir, model=args.model, base_url=args.base_url)
 
 
 if __name__ == "__main__":

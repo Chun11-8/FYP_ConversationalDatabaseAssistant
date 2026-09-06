@@ -1,4 +1,4 @@
-import type { SchemaInfo, SessionSummary, TurnUsage } from '../types';
+import type { SchemaInfo, SessionSummary, TurnUsage, TurnVerification } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000';
 
@@ -13,6 +13,8 @@ export interface ChatApiResponse {
   turn_id: number | null;
   cache_hit?: boolean;
   usage?: TurnUsage | null;
+  /** How the winning SQL was chosen (GH#67) — evidence, not a verdict */
+  verification?: TurnVerification | null;
 }
 
 export interface Turn {
@@ -57,6 +59,7 @@ export async function sendChatStream(
   apiKey: string | undefined,
   model: string | undefined,
   onEvent: (e: StreamEvent) => void,
+  dbScope?: string,
 ): Promise<ChatApiResponse> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
@@ -66,6 +69,7 @@ export async function sendChatStream(
       message,
       ...(apiKey ? { api_key: apiKey } : {}),
       ...(model ? { model } : {}),
+      ...(dbScope ? { db_scope: dbScope } : {}),
     }),
   });
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -99,6 +103,7 @@ export async function sendChat(
   message: string,
   apiKey?: string,
   model?: string,
+  dbScope?: string,
 ): Promise<ChatApiResponse> {
   return request<ChatApiResponse>('/chat', {
     method: 'POST',
@@ -107,6 +112,7 @@ export async function sendChat(
       message,
       ...(apiKey ? { api_key: apiKey } : {}),
       ...(model ? { model } : {}),
+      ...(dbScope ? { db_scope: dbScope } : {}),
     }),
   });
 }
@@ -132,6 +138,25 @@ export interface ModelsInfo {
 
 export async function getModels(): Promise<ModelsInfo> {
   return request<ModelsInfo>('/models');
+}
+
+// ── Database scope (GH#81 / GH#83) ─────────────────────────────────────────
+
+/** One logical database in the schema vector index. */
+export interface DatabaseInfo {
+  name: string;
+  tables: number;
+  active: boolean;
+}
+
+export interface DatabasesInfo {
+  databases: DatabaseInfo[];
+  /** Configured default scope; '' means every database is searched. */
+  active: string;
+}
+
+export async function getDatabases(): Promise<DatabasesInfo> {
+  return request<DatabasesInfo>('/databases');
 }
 
 export async function submitFeedback(

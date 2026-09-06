@@ -24,7 +24,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from backend.agents.usage import invoke_tracked
-from backend.agents.utils import PromptHarness
+from backend.agents.utils import PromptHarness, strip_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,18 @@ logger = logging.getLogger(__name__)
 PLAN_KEYS = (
     "target", "tables", "join_path", "filters", "evidence_predicates",
     "evidence_formula", "aggregation", "group_by", "having", "order_by", "set_op",
+    # GH#76: 52% of the failures that had the right tables AND joins differed
+    # from gold only in which aggregate was applied, and 100% of them carried
+    # evidence describing the computation. Naming the grain and justifying the
+    # aggregate forces that evidence to be applied rather than paraphrased.
+    "grain", "aggregation_rationale",
 )
 
 # Fields rendered as bullet lists vs. scalars in the <query_plan> block.
 _LIST_FIELDS = ("tables", "join_path", "filters", "evidence_predicates")
 _SCALAR_FIELDS = ("target", "evidence_formula", "aggregation", "group_by",
-                  "having", "order_by", "set_op")
+                  "having", "order_by", "set_op", "grain",
+                  "aggregation_rationale")
 
 
 # ── value helpers ─────────────────────────────────────────────────────────────
@@ -62,6 +68,11 @@ def _extract_json(raw: str) -> Optional[dict]:
     if not raw:
         return None
 
+    # GH#65: a reasoning model's think block routinely contains braces, which
+    # makes the outermost-{...} fallback below span both the reasoning and the
+    # answer and fail to parse — losing the query plan silently.
+    raw = strip_reasoning(raw)
+
     # 1. Prefer an explicit ```json ... ``` (or bare ``` ... ```) fenced block.
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL | re.IGNORECASE)
     candidate = fenced.group(1) if fenced else None
@@ -79,6 +90,16 @@ def _extract_json(raw: str) -> Optional[dict]:
     except Exception:
         return None
     return obj if isinstance(obj, dict) else None
+
+
+def _same_shape(a: dict, b: dict) -> bool:
+    """True when two plans agree on the dimensions the alternative exists to
+    vary. Anything else — aliases, column order, wording — is not a real
+    disagreement and would spend candidates on a duplicate."""
+    def norm(p: dict, k: str) -> str:
+        return " ".join(str(p.get(k) or "").lower().split())
+    return all(norm(a, k) == norm(b, k)
+               for k in ("aggregation", "group_by", "having", "grain", "target"))
 
 
 def render_query_plan(plan: Optional[dict]) -> str:
@@ -118,8 +139,13 @@ def render_query_plan(plan: Optional[dict]) -> str:
     # GH#49 P5 (TA-SQL): the evidence formula is transcribed, never paraphrased.
     if _is_set(plan.get("evidence_formula")):
         lines.append(f"evidence_formula (COPY VERBATIM): {plan['evidence_formula']}")
+    # GH#76: grain is rendered BEFORE the aggregate deliberately — "the highest
+    # monthly X" means one row per month, summed, then the largest, and stating
+    # the row unit first is what stops MAX() over raw rows.
+    add_scalar("grain")
     for key in ("aggregation", "group_by", "having", "order_by", "set_op"):
         add_scalar(key)
+    add_scalar("aggregation_rationale")
 
     # Nothing beyond the opening tag → not worth injecting.
     if len(lines) <= 1:
@@ -147,11 +173,80 @@ class SchemaLinkingAgent:
     one shot. Never raises to the caller — returns None on any failure.
     """
 
-    def __init__(self, config: dict, llm: ChatOpenAI):
+    _RATIONALE_INSTRUCTION = (
+        "\n\nADDITIONALLY, emit two more keys:\n"
+        "  \"grain\": one phrase naming the row unit of the ANSWER — what one "
+        "output row represents (e.g. \"one row per month\", \"a single total "
+        "over all rows\", \"one row per customer\").\n"
+        "  \"aggregation_rationale\": one sentence saying WHY that aggregate "
+        "and that grain follow from the question and the <domain_context> "
+        "evidence. If the evidence states how to compute the value, quote the "
+        "relevant fragment verbatim inside this sentence.\n"
+        "Decide the grain BEFORE the aggregate: \"the highest monthly X\" "
+        "means one row per month, summed, then the largest — not the largest "
+        "single row."
+    )
+
+    def __init__(self, config: dict, llm: ChatOpenAI, rationale: bool = False):
         self.llm = llm
         self.dialect = config.get("db", {}).get("dialect", "postgres")
+        # GH#76, default OFF: changes what the planner emits, so its effect on
+        # accuracy is a hypothesis until the BIRD ablation is run.
+        self.rationale = bool(rationale)
+
+    # GH#76 Fix 1: a SECOND reading of the same question, differing on the one
+    # dimension that causes 52% of the structurally-correct failures. Not a
+    # "try again" — an instruction to disagree, so execution voting receives
+    # decorrelated inputs instead of N restatements of one guess.
+    _ALTERNATIVE_INSTRUCTION = (
+        "\n\nA FIRST reading of this question has already been produced:\n"
+        "{first}\n\n"
+        "Produce a DIFFERENT, equally defensible reading. It must differ from "
+        "the one above in its GRAIN or its AGGREGATION — not merely in "
+        "phrasing, aliases or column order. Typical disagreements worth "
+        "surfacing: one row per group versus a single overall total; summing "
+        "within a group then taking the extreme, versus an extreme over raw "
+        "rows; counting rows versus counting distinct entities. Keep the same "
+        "tables and join path unless the alternative reading genuinely "
+        "requires otherwise. If the question truly admits only one reading, "
+        "return exactly the same plan."
+    )
 
     # ── public API ──────────────────────────────
+
+    def analyze_alternative(
+        self,
+        query: str,
+        schema_context: str,
+        first_plan: dict,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> Optional[dict]:
+        """
+        An alternative plan disagreeing with ``first_plan`` on grain or
+        aggregation (GH#76). None when planning fails, or when the alternative
+        came back identical — in which case there is nothing to diversify and
+        the caller should not spend candidates on it.
+        """
+        if not query or not query.strip() or not isinstance(first_plan, dict):
+            return None
+        prompt = self._build_prompt(query, schema_context, history or [])
+        system_p = self._system_prompt() + self._ALTERNATIVE_INSTRUCTION.format(
+            first=json.dumps(first_plan, indent=1)[:1200])
+        try:
+            raw = invoke_tracked(
+                self.llm,
+                [SystemMessage(content=system_p), HumanMessage(content=prompt)],
+                "link_schema_alt").content
+        except Exception as exc:
+            logger.warning(f"[LINK-ALT] LLM call failed: {exc}")
+            return None
+        alt = _extract_json(raw)
+        if not alt or not any(_is_set(alt.get(k)) for k in PLAN_KEYS):
+            return None
+        if _same_shape(alt, first_plan):
+            logger.info("[LINK-ALT] alternative matched the first plan — discarded")
+            return None
+        return alt
 
     def analyze(
         self,
@@ -191,6 +286,10 @@ class SchemaLinkingAgent:
     # ── prompt construction ─────────────────────
 
     def _system_prompt(self) -> str:
+        return self._base_system_prompt() + (
+            self._RATIONALE_INSTRUCTION if self.rationale else "")
+
+    def _base_system_prompt(self) -> str:
         try:
             return PromptHarness.get("SCHEMA_LINKING_AGENT")
         except Exception:

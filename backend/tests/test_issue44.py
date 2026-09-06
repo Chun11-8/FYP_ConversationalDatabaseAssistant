@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.agents.db_agent import OrchestrationAgent
-from backend.agents.sql_code_agent import SQLCodeAgent, TIER_STRATEGIES
+from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.sql_validator_agent import SQLValidatorAgent
 from backend.eval.bird import select_by_execution, write_results
 from backend.eval.error_analysis import categorize, summarize
@@ -194,32 +194,38 @@ class TestAdaptivePrompting:
         assert "STRATEGY (" not in self._sent(a)
 
 
-# ── live tier heuristic ───────────────────────────────────────────────────────
+# ── live effort tier (GH#85: fixed, not inferred) ────────────────────────────
 
-class TestInferTier:
+class TestLiveTier:
+    """
+    The plan-derived heuristic is gone. It read the tier FROM the linker plan,
+    so a plan that collapsed a hard question to one table bought 2 candidates
+    and no path diversity — under-resourcing the question precisely because
+    the reasoning about it had already failed. The BIRD harness passes the
+    dataset's real label; live has none, so every live question now gets the
+    same budget.
+    """
 
-    def _tier(self, plan):
-        return OrchestrationAgent._infer_tier(plan)
+    def test_the_heuristic_is_gone(self):
+        assert not hasattr(OrchestrationAgent, "_infer_tier")
 
-    def test_no_plan_none(self):
-        assert self._tier(None) is None
-        assert self._tier({}) is None
+    def test_default_is_moderate(self):
+        a = _mk_agent()
+        assert a._live_tier == "moderate"
 
-    def test_single_table_simple(self):
-        assert self._tier({"tables": ["t"], "group_by": None}) == "simple"
+    def test_config_can_raise_it_for_an_ab(self):
+        a = _mk_agent({"live_tier": "challenging"})
+        assert a._live_tier == "challenging"
 
-    def test_set_op_challenging(self):
-        assert self._tier({"tables": ["a", "b"], "set_op": "EXCEPT ..."}) == "challenging"
+    def test_case_and_padding_are_normalised(self):
+        assert _mk_agent({"live_tier": "  Challenging "})._live_tier == "challenging"
 
-    def test_having_three_tables_challenging(self):
-        plan = {"tables": ["a", "b", "c"], "having": "COUNT(*) > 20"}
-        assert self._tier(plan) == "challenging"
 
-    def test_two_table_join_moderate(self):
-        assert self._tier({"tables": ["a", "b"]}) == "moderate"
-
-    def test_null_strings_treated_unset(self):
-        assert self._tier({"tables": ["t"], "group_by": "null", "having": "None"}) == "simple"
+def _mk_agent(sql_cfg=None):
+    from backend.agents.db_agent import OrchestrationAgent as _OA
+    return _OA({"llm": {"model": "gpt-4o-mini", "api_key": "k"},
+                "db": {"name": "FYP", "dialect": "postgres"},
+                "sql": sql_cfg or {}})
 
 
 # ── round-2 quick wins (from the 3-tier run analysis) ─────────────────────────

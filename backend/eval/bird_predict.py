@@ -173,7 +173,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                         choices=["simple", "moderate", "challenging"], default=None,
                         help="LOCAL SMOKE ONLY: filter by difficulty (breaks official alignment)")
     parser.add_argument("--model", default=None,
-                        help="Override config.yaml's llm.model for this run (any OpenAI model id)")
+                        help="Override config.yaml's llm.model for this run (any model id)")
+    parser.add_argument("--base-url", default=None,
+                        help="OpenAI-COMPATIBLE endpoint to predict against, e.g. "
+                             "https://openrouter.ai/api/v1. Overrides $LLM_BASE_URL "
+                             "and config llm.base_url; omit for OpenAI (GH#65)")
     args = parser.parse_args(argv)
 
     if args.subset is not None or args.difficulty is not None:
@@ -184,17 +188,18 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     from backend.config.config_loader import load_config
     from backend.agents.sql_code_agent import SQLCodeAgent
-    from langchain_openai import ChatOpenAI
+    from backend.agents.llm_factory import (
+        build_chat_llm, describe_target, resolve_base_url,
+    )
 
     config = load_config()
     # Target SQLite syntax so dialect normalization (Tier 1) kicks in.
     bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
 
-    llm = ChatOpenAI(
-        model=resolve_model(args.model, config),
-        temperature=0,
-        api_key=config["llm"]["api_key"],
-    )
+    model_name = resolve_model(args.model, config)
+    base_url = resolve_base_url(config, args.base_url)
+    logger.info("[BIRD-PREDICT] target → %s", describe_target(model_name, base_url))
+    llm = build_chat_llm(model_name, config["llm"]["api_key"], base_url)
     sql_agent = SQLCodeAgent(bird_config, llm)
 
     predictions = generate_predictions(

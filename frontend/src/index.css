@@ -476,6 +476,126 @@ body, html, #root {
   font-weight: 600;
 }
 
+/* ── Verification evidence (GH#67) ───────────────────────────────────────── */
+/* Amber = the candidates disagreed; grey-italic = the answer rests on weaker
+   evidence than an execution plurality. Deliberately NOT a red/green verdict:
+   whether agreement predicts correctness is not yet measured, and a
+   confident-looking badge on a wrong answer is worse than no badge at all. */
+
+.meta-chip--split {
+  background: rgba(234,179,8,0.10);
+  color: #fcd34d;
+  border-color: rgba(234,179,8,0.28);
+}
+
+.meta-chip--weak {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Risk flags (GH#69). Amber, not red: these are "worth checking", not
+   "this is wrong" — the checks are precise but far from exhaustive, and a
+   red alarm would imply a certainty they cannot support. */
+.risk-notes {
+  list-style: none;
+  margin: 0.625rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.risk-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(234,179,8,0.28);
+  background: rgba(234,179,8,0.08);
+  color: #fcd34d;
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
+.risk-note--low {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.risk-note-icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.evidence-panel {
+  margin-top: 0.5rem;
+}
+
+.evidence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.35rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+
+.evidence-toggle:hover {
+  color: var(--text-primary);
+}
+
+.evidence-body {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.evidence-body dt {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.evidence-body dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence-check {
+  margin-right: 0.6rem;
+  white-space: nowrap;
+  color: #34d399;
+}
+
+.evidence-check--fail {
+  color: #f87171;
+}
+
+/* Narrow screens: stack the term above its value rather than squeezing both. */
+@media (max-width: 560px) {
+  .evidence-body {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  .evidence-body dd {
+    margin-bottom: 0.35rem;
+  }
+}
+
 /* ── Row Count Chip ──────────────────────────────────────────────────────── */
 .row-count-chip {
   display: inline-flex;
@@ -915,6 +1035,170 @@ body, html, #root {
   color: var(--text-muted);
   padding-bottom: 0.75rem;
   text-align: center;
+}
+
+.welcome-scope {
+  margin-top: -0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.welcome-scope strong { color: var(--text-secondary); font-weight: 600; }
+
+/* ── Schema browser: grouping by logical database (GH#81) ────────────────── */
+
+.schema-domain {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.schema-domain--active { border-color: var(--accent); }
+
+.schema-domain-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.schema-domain-header:hover { background: var(--bg-hover); }
+
+.schema-domain-icon { flex-shrink: 0; color: var(--text-muted); }
+.schema-domain--active .schema-domain-icon { color: var(--accent); }
+
+.schema-domain-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schema-domain-badge {
+  flex-shrink: 0;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.schema-domain-tables { padding: 0.25rem 0.375rem 0.375rem; }
+
+/* ── Database scope picker (GH#81) ───────────────────────────────────────── */
+
+/* Several logical databases share one PostgreSQL schema; this row says which
+   one the assistant is answering from, and lets you switch per request. */
+
+.db-scope-section {
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.db-scope-picker { position: relative; }
+
+.db-scope-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.4375rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.db-scope-trigger:hover,
+.db-scope-trigger[aria-expanded="true"] { border-color: var(--border-strong); }
+
+.db-scope-icon { flex-shrink: 0; color: var(--accent); }
+
+/* The db_id can be longer than the sidebar is wide (debit_card_specializing). */
+.db-scope-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-scope-menu {
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  left: 0;
+  right: 0;
+  max-height: 15rem;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  z-index: 20;
+}
+
+.db-scope-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.db-scope-option:hover { background-color: var(--bg-hover); color: var(--text-primary); }
+
+.db-scope-option--active { color: var(--accent); font-weight: 500; }
+
+.db-scope-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-scope-option-count {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.db-scope-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
 }
 
 /* ── Sidebar spacer + Model picker + API Key section ─────────────────────── */

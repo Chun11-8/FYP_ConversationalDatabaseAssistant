@@ -19,6 +19,8 @@ import re
 import threading
 from typing import Dict, List, Optional, Tuple
 
+from backend.retrieval.internal_tables import is_internal_table
+
 logger = logging.getLogger(__name__)
 
 # Per-column cap: columns with more distinct values than this are skipped —
@@ -69,6 +71,11 @@ class ValueIndex:
     # ── loading ────────────────────────────────────────────────────────────
 
     def _load_table(self, table: str) -> Dict[str, List[str]]:
+        # GH#79: never scan the assistant's own tables for data values — the
+        # cache holds past SQL text, which fuzzy-matches user spans and yields
+        # "closest actual value" hints pointing at the plumbing.
+        if is_internal_table(table):
+            return {}
         with self._lock:
             if table in self._by_table:
                 return self._by_table[table]
@@ -120,6 +127,48 @@ class ValueIndex:
             ratio = difflib.SequenceMatcher(None, span, close[0]).ratio()
             return close[0], ratio
         return None
+
+    def resolve_spans(self, text: str, tables: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Every value-like span in *text* mapped to the closest real value in
+        *tables*, or to None when nothing in the data comes close (GH#73).
+
+        ``ground()`` deliberately returns nothing for a span that matches
+        nothing — there is no casing to correct — but "this value does not
+        exist in the database" is the more useful signal of the two, and
+        silence throws it away. This method exposes both outcomes so a caller
+        can tell "grounded to X" from "matches nothing at all".
+
+        Never raises: an empty dict means the index could not answer, which
+        callers must treat as "unknown", never as "nothing matched".
+        """
+        out: Dict[str, Optional[str]] = {}
+        try:
+            spans = extract_value_spans(text)
+            if not spans:
+                return {}
+            # _load_table swallows a failed load and returns {}, so an outage
+            # is indistinguishable from a table with no indexed columns. Both
+            # mean "could not check" — reporting None for every span would
+            # tell the user a value does not exist in the database on the
+            # strength of a connection error.
+            loaded = {t: self._load_table(t) for t in tables}
+            if not any(cols for cols in loaded.values()):
+                return {}
+            for span in spans:
+                out[span] = None
+                for cols in loaded.values():
+                    for _col, values in cols.items():
+                        m = self._best_match(span, values)
+                        if m:
+                            out[span] = m[0]
+                            break
+                    if out[span] is not None:
+                        break
+        except Exception as exc:
+            logger.warning(f"[VALUE_INDEX] span resolution failed: {exc}")
+            return {}
+        return out
 
     def ground(self, text: str, tables: List[str]) -> List[str]:
         """

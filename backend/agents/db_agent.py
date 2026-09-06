@@ -22,12 +22,14 @@ from backend.agents.safety import enforce_limit
 from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
-from backend.agents.utils import PromptHarness
+from backend.agents.llm_factory import build_chat_llm, describe_target, resolve_base_url
+from backend.agents.utils import PromptHarness, estimate_tokens, strip_reasoning
 
 from backend.memory.session_memory import SessionMemory
 from backend.memory.semantic_cache import SemanticCache, literals_conflict
 from backend.retrieval.indexing import (
     retrieve, execute_query, expand_fk_tables, fetch_table_chunks,
+    fetch_full_schema,
 )
 from backend.retrieval.value_index import ValueIndex, render_value_hints
 from backend.pipelines.postprocessing import ResponseOptimizer
@@ -59,6 +61,52 @@ def _intent_pattern(intent: str) -> str:
     return intent.replace("_", r"[\s_-]")
 
 
+# GH#76: markers that a question is harder than a one-table plan suggests.
+# Deliberately narrow — this can only ever RAISE the effort budget, but a
+# marker on every question would erase the simple tier's cost saving.
+_HARD_QUESTION_RE = re.compile(
+    r"\b(percentage|percent|proportion|ratio|average|"          # derived values
+    r"highest|lowest|most|least|peak|maximum|minimum|top|"      # superlatives
+    r"per\s+\w+|each\s+\w+|monthly|yearly|annual|"              # per-group grain
+    r"compared|difference|more\s+than|versus|vs\b|"             # comparisons
+    r"how\s+much\s+.*\bthan\b)\b",
+    re.IGNORECASE)
+
+
+def _question_looks_hard(question: Optional[str]) -> bool:
+    """
+    True when the question itself shows complexity a thin plan would hide.
+
+    Two independent signals: recognised markers, or more than one question
+    mark (a compound question — the linker has no sub-question field, so it
+    collapses both parts into one plan and the result looks deceptively
+    simple).
+    """
+    if not question:
+        return False
+    if question.count("?") > 1:
+        return True
+    return bool(_HARD_QUESTION_RE.search(question))
+
+
+def _prepend_caution(response: str, verification: Optional[Dict[str, Any]]) -> str:
+    """
+    Lead a doubtful answer with the doubt (GH#75).
+
+    Only HIGH-severity flags qualify. A caveat on every zero-row or
+    arity-mismatch turn would appear on roughly a fifth of all answers and be
+    tuned out, which is the failure mode the whole risk feature exists to
+    avoid. The structured flags still render in the UI either way; this is
+    about the sentence the user reads first.
+    """
+    risks = (verification or {}).get("risks") or []
+    high = [r for r in risks if r.get("severity") == "high"]
+    if not high or not response:
+        return response
+    note = high[0].get("message") or "This answer may not be reliable."
+    return f"⚠️ {note}\n\n{response}"
+
+
 def _normalize_intent(raw: str) -> str:
     """
     Reduce the classifier's reply to exactly one canonical intent.
@@ -71,7 +119,9 @@ def _normalize_intent(raw: str) -> str:
     Unrecognized text → AMBIGUOUS, matching the prompt's own safety-first rule
     (better to ask than to guess).
     """
-    stripped = (raw or "").strip()
+    # GH#65: a reasoning model weighs several labels aloud before deciding —
+    # strip the chain of thought so only the verdict is scanned.
+    stripped = strip_reasoning(raw or "").strip()
     text = stripped.upper()
 
     # Fast path: a fully-compliant reply is exactly one label (gpt-4o-mini
@@ -244,6 +294,19 @@ class AgentState(TypedDict):
     cache_pair: Optional[dict]          # what that search found (None = miss)
     vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
+    # GH#67: how the winning SQL was chosen — the system's own evidence about
+    # its answer. {candidates, executed, agreement, distinct_result_sets,
+    # decided_by}; assembled for the response in run().
+    verification: Optional[Dict[str, Any]]
+    # GH#75: question spans that match nothing in the retrieved tables — the
+    # question asks about data that does not exist, so no SQL can answer it.
+    unsatisfiable: List[str]
+    # Tables actually retrieved this turn — used to suggest real values when a
+    # question names one that does not exist.
+    retrieved_tables: List[str]
+    # GH#76: a second plan disagreeing on grain/aggregation, so voting
+    # sees decorrelated candidates instead of N copies of one guess.
+    query_plan_alt: Optional[Dict[str, Any]]
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
     tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
@@ -275,14 +338,20 @@ class OrchestrationAgent:
         self._selectable_models = list(config["llm"].get("selectable_models") or [self._model])
         if self._model not in self._selectable_models:
             self._selectable_models.insert(0, self._model)
-        self.llm = ChatOpenAI(
-            model=self._model,
-            temperature=0,
-            api_key=self._default_api_key,
-        )
+        # GH#65: optional OpenAI-COMPATIBLE endpoint (OpenRouter, Groq,
+        # DeepSeek, Together, Ollama…), which is what makes open-weight models
+        # from other vendors usable. Absent → OpenAI, unchanged. Query stage
+        # only: embeddings stay on OpenAI (pgvector columns are 1536-dim).
+        self._base_url = resolve_base_url(config)
+        if self._base_url:
+            logger.info("[LLM] query stage → %s",
+                        describe_target(self._model, self._base_url))
+        self.llm = self._chat_llm(self._model, self._default_api_key)
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
-        self.linker = SchemaLinkingAgent(config, self.llm)
+        self.linker = SchemaLinkingAgent(
+            config, self.llm,
+            rationale=bool(config.get("sql", {}).get("plan_rationale", False)))
         # Schema linking is on by default; toggle via config `sql.schema_linking`.
         self._schema_linking = bool(config.get("sql", {}).get("schema_linking", True))
         # UI safety net: append LIMIT to executed queries. Disable when
@@ -293,11 +362,32 @@ class OrchestrationAgent:
         # candidates against the DB and plurality-vote on result fingerprints;
         # the text reranker only breaks ties (config `sql.execution_voting`).
         self._exec_voting = bool(config.get("sql", {}).get("execution_voting", True))
+        # GH#69: gold-free risk checks on the executed result. On by default;
+        # off gives a clean A/B against the labelled benchmark data.
+        self._risk_checks = bool(config.get("sql", {}).get("risk_checks", True))
+        # GH#76 Fixes 1 & 2 — default OFF. Both change what the model is asked
+        # to produce, so their effect on accuracy is a hypothesis until the
+        # BIRD ablation runs. Enabling them costs one extra LLM call per hard
+        # question (plan_diversity) and a longer planner prompt (plan_rationale).
+        self._plan_diversity = bool(config.get("sql", {}).get("plan_diversity", False))
+        self._plan_rationale = bool(config.get("sql", {}).get("plan_rationale", False))
         # FK-expansion / context-budget knobs (config `retrieval.*`).
         _r = config.get("retrieval", {}) or {}
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        # Cosine top-k, used only when the full-schema path (GH#85) is not
+        # available — no scope, nothing indexed for it, or over the budget.
+        self._top_k_tables = int(_r.get("top_k_tables", 5))
+        # GH#85: prefer the BIRD harness's complete-schema-per-database
+        # strategy over cosine top-k when retrieval is scoped. False restores
+        # pure top-k retrieval for an A/B.
+        self._full_schema = bool(_r.get("full_schema_when_scoped", True))
+        # GH#85: the effort tier every live question gets. The BIRD harness
+        # reads the real label from the dataset; live has none, so one uniform
+        # tier replaces a guess that could only under-resource a hard question.
+        self._live_tier = str(
+            config.get("sql", {}).get("live_tier", "moderate")).strip().lower()
         # GH#49 P3: deterministic WHERE-literal grounding against real values.
         self._value_grounding = bool(_r.get("value_grounding", True))
         if self._value_grounding:
@@ -310,7 +400,17 @@ class OrchestrationAgent:
         self._backward_linking = bool(_r.get("backward_linking", True))
         # GH#38 latency + GH#41 hardening knobs.
         _sql = config.get("sql", {}) or {}
-        self._db_name = config.get("db", {}).get("name", "FYP")
+        # GH#81: the RETRIEVAL scope — the db_name label a schema chunk must
+        # carry to be searchable. `retrieval.active_db` narrows it to ONE
+        # logical database (e.g. "debit_card_specializing") when several were
+        # loaded into the same PostgreSQL schema, which is the condition the
+        # BIRD harness runs under. None searches every scope — identical to
+        # the old behaviour, where one label spanned the whole index and the
+        # filter was a no-op. It is a label, never a connection: queries always
+        # execute against the single database configured under `db:`.
+        self._db_name = _r.get("active_db") or None
+        # Public read-only view of the scope, for GET /databases.
+        self.active_db = self._db_name
         self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
         # GH#48: when execution voting is inconclusive, resolve with a
@@ -348,12 +448,12 @@ class OrchestrationAgent:
         # main LLM object is REUSED (identical behavior, no extra client).
         intent_model = config["llm"].get("intent_model")
         self.intent_llm = (
-            ChatOpenAI(model=intent_model, temperature=0, api_key=self._default_api_key)
+            self._chat_llm(intent_model, self._default_api_key)
             if intent_model and intent_model != self._model else self.llm
         )
         format_model = config["llm"].get("format_model")
         self._format_llm = (
-            ChatOpenAI(model=format_model, temperature=0, api_key=self._default_api_key)
+            self._chat_llm(format_model, self._default_api_key)
             if format_model and format_model != self._model else self.llm
         )
         self.optimizer = ResponseOptimizer(self._format_llm)
@@ -384,6 +484,10 @@ class OrchestrationAgent:
         """Return the per-request LLM if an api_key override is active, else the default."""
         return getattr(_tls, "llm", self.llm)
 
+    def _chat_llm(self, model: str, api_key: Optional[str]) -> ChatOpenAI:
+        """Build a query-stage client honouring this agent's base_url (GH#65)."""
+        return build_chat_llm(model, api_key, getattr(self, "_base_url", None))
+
     def _get_sql_agent(self) -> SQLCodeAgent:
         return getattr(_tls, "sql_agent", self.sql_agent)
 
@@ -399,6 +503,76 @@ class OrchestrationAgent:
 
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
+
+    def _fetch_schema(
+        self, search_q: str, embedding: Optional[list], top_k: int,
+    ) -> Dict[str, Any]:
+        """
+        Schema context for one question, FK-expanded and within the token
+        budget (GH#85).
+
+        Prefers the BIRD harness's strategy: when retrieval is scoped to one
+        logical database, hand the generator that database's COMPLETE schema,
+        the way `extract_sqlite_schema(db_path)` does. Cosine top-k is the
+        fallback — used when there is no scope, when the store has nothing for
+        it, or when the full schema does not fit `max_schema_tokens`.
+
+        Why the preference: the table carrying a filter is often the one least
+        similar to the question's wording ("who had the least consumption in
+        LAM?" never says "customers"), and a missing table does not fail — the
+        model silently drops the constraint and answers a different question.
+        80% of BIRD's gold SQL needs a join, so this is the common case.
+        """
+        scope = self._get_scope()
+        result = None
+        if scope and getattr(self, "_full_schema", True):
+            full = fetch_full_schema(scope, store="pgvector")
+            if full:
+                expanded = expand_fk_tables(
+                    full, scope,
+                    max_hops=self._fk_max_hops,
+                    max_expansion=self._fk_max_expansion,
+                    max_schema_tokens=self._max_schema_tokens,
+                )
+                # expand_fk_tables drops FK-expansion chunks to fit the budget,
+                # but here every table is primary and primaries are never
+                # dropped — so an over-budget scope must be caught here or the
+                # generator gets a context larger than it was configured for.
+                tokens = estimate_tokens(expanded["prompt_context"])
+                if tokens <= self._max_schema_tokens:
+                    trace(f"  🗂️  Full schema for '{scope}': "
+                          f"{len(full['tables'])} table(s), ~{tokens} tokens")
+                    result = expanded
+                else:
+                    logger.info(
+                        f"[RAG] full schema for '{scope}' is ~{tokens} tokens "
+                        f"(budget {self._max_schema_tokens}) — using cosine top-k")
+                    trace(f"  🗂️  Full schema too large (~{tokens} tokens) "
+                          f"→ falling back to top-{top_k} retrieval")
+
+        if result is None:
+            chunks = retrieve(search_q, scope, top_k_tables=top_k,
+                              store="pgvector", embedding=embedding)
+            result = expand_fk_tables(
+                chunks, scope,
+                max_hops=self._fk_max_hops,
+                max_expansion=self._fk_max_expansion,
+                max_schema_tokens=self._max_schema_tokens,
+            )
+        return result
+
+    def _get_scope(self) -> Optional[str]:
+        """
+        The retrieval scope for THIS request (GH#83): the per-request
+        `db_scope` when the caller picked one, else the configured
+        `retrieval.active_db`, else None = every indexed database.
+        """
+        per_request = getattr(_tls, "db_scope", None)
+        # Strip here too, not only in run(): a whitespace-only scope would be
+        # truthy and filter retrieval down to zero tables.
+        if per_request and per_request.strip():
+            return per_request.strip()
+        return getattr(self, "_db_name", None)
 
     # ── Nodes ──────────────────────────────────
 
@@ -504,8 +678,12 @@ class OrchestrationAgent:
             )),
         ]
         try:
-            standalone = invoke_tracked(self._get_intent_llm(), messages,
-                                        "condense_query").content.strip()
+            raw = invoke_tracked(self._get_intent_llm(), messages,
+                                 "condense_query").content
+            # GH#65: without stripping, a reasoning model's think block pushes
+            # the reply past the 500-char guard below, the rewrite is silently
+            # dropped, and multi-turn regresses to the GH#63 symptom.
+            standalone = strip_reasoning(raw or "").strip()
         except Exception as exc:
             logger.warning(f"[CONDENSE] failed: {exc}")
             return state
@@ -526,7 +704,7 @@ class OrchestrationAgent:
         trace("─" * 70)
         tables: List[str] = []
         try:
-            r = retrieve(state["user_query"], getattr(self, "_db_name", "FYP"),
+            r = retrieve(state["user_query"], self._get_scope(),
                          top_k_tables=3, store="pgvector",
                          embedding=state.get("query_embedding"))
             tables = [t["table_name"] for t in r.get("tables", [])][:3]
@@ -598,16 +776,9 @@ class OrchestrationAgent:
             trace("  💡 Few-shot examples: none")
 
         try:
-            db_name = getattr(self, "_db_name", "FYP")
-            schema_chunks = retrieve(search_q, db_name, top_k_tables=5,
-                                     store="pgvector", embedding=query_embedding)
-            # FK-aware expansion: pull in tables linked by FK to the retrieved set
-            schema_chunks = expand_fk_tables(
-                schema_chunks, db_name,
-                max_hops=self._fk_max_hops,
-                max_expansion=self._fk_max_expansion,
-                max_schema_tokens=self._max_schema_tokens,
-            )
+            schema_chunks = self._fetch_schema(
+                search_q, query_embedding,
+                top_k=getattr(self, "_top_k_tables", 5))
             schema_context = schema_chunks["prompt_context"]
 
             primary = [t["table_name"] for t in schema_chunks["tables"]]
@@ -618,6 +789,7 @@ class OrchestrationAgent:
 
             # GH#49 P3: ground literal-looking spans against ACTUAL stored
             # values; a hint block tells the generator the exact casing/format.
+            unsatisfiable: List[str] = []
             if getattr(self, "value_index", None) is not None:
                 hints = self.value_index.ground(search_q, primary + fk_extra)
                 if hints:
@@ -625,11 +797,22 @@ class OrchestrationAgent:
                     schema_context = (
                         schema_context + "\n\n" + render_value_hints(hints)
                     )
+                # GH#75: ground() is silent for a span that matches NOTHING —
+                # there is no casing to correct — so the strongest signal
+                # available was computed here and thrown away. Asked for
+                # "customers from the country Wakanda", the pipeline knew
+                # before writing a line of SQL that no such value exists, and
+                # generated `segment='LAM' AND currency='EUR'` anyway. Once a
+                # question is classified READ there is no exit that produces
+                # no SQL, so the model is obliged to invent something.
+                unsatisfiable = self._unsatisfiable_spans(search_q, primary + fk_extra)
 
-            # Print similarity distances for debugging retrieval quality
-            trace("  📊 Retrieval distances (lower = more relevant):")
-            for t in schema_chunks["tables"]:
-                trace(f"       {t['distance']:.4f}  {t['table_name']}")
+            # Print similarity distances for debugging retrieval quality.
+            # A full-schema fetch was not ranked, so there is nothing to print.
+            if not schema_chunks.get("full_schema"):
+                trace("  📊 Retrieval distances (lower = more relevant):")
+                for t in schema_chunks["tables"]:
+                    trace(f"       {t.get('distance', 0.0):.4f}  {t['table_name']}")
 
             trace("\n  📄 Schema context sent to LLM:")
             trace("  " + "·" * 60)
@@ -659,12 +842,95 @@ class OrchestrationAgent:
                         "cached_fingerprint": hit.get("rows_fingerprint")}
 
             return {**state, "schema_context": schema_context,
-                    "few_shot_examples": few_shots, "query_embedding": query_embedding}
+                    "few_shot_examples": few_shots, "query_embedding": query_embedding,
+                    "unsatisfiable": unsatisfiable,
+                    "retrieved_tables": primary + fk_extra}
         except Exception as e:
             trace(f"  ❌ RAG retrieval failed: {e}")
             logger.warning(f"[RAG] retrieval failed: {e}")
             return {**state, "schema_context": "", "few_shot_examples": few_shots,
                     "query_embedding": query_embedding, "fallback_level": 1}
+
+    def _unsatisfiable_spans(self, question: str, tables: List[str]) -> List[str]:
+        """
+        Value-like spans in the question that match NOTHING in the retrieved
+        tables (GH#75) — i.e. the question asks about data that does not exist.
+
+        Conservative by construction, because a wrong refusal is worse than a
+        wrong answer: it needs the value index to have actually loaded
+        (``resolve_spans`` returns {} when it could not check, never a wall of
+        Nones), and it skips spans whose absence proves nothing — dates, month
+        names and capitalised sentence openers. Those exclusions were not
+        guesses: without them the equivalent post-hoc check produced a 54 %
+        false-alarm rate on the labelled benchmark.
+        """
+        idx = getattr(self, "value_index", None)
+        if idx is None or not tables or not question:
+            return []
+        try:
+            from backend.agents.risk import _span_is_untestable
+            resolved = idx.resolve_spans(question, tables) or {}
+            return [s for s, v in resolved.items()
+                    if v is None and not _span_is_untestable(s)]
+        except Exception as exc:
+            logger.warning(f"[RAG] unsatisfiability check skipped: {exc}")
+            return []
+
+    def handle_unanswerable(self, state: AgentState) -> AgentState:
+        """
+        Terminal node for a question naming data that does not exist (GH#75).
+
+        Before this, the graph had no exit for a READ question that could not
+        be answered: WRITE_BLOCKED, GENERAL, AMBIGUOUS and intent-error all
+        terminate, but a well-formed READ question that happens to be
+        unsatisfiable had to produce SQL. That obligation is what made the
+        model drop the user's filter and substitute one that "worked".
+
+        Says which value is missing rather than refusing flatly, so the user
+        can correct it in one turn.
+        """
+        spans = state.get("unsatisfiable") or []
+        trace("\n" + "─" * 70)
+        trace(f"🚫  NODE: handle_unanswerable — no such value(s): {spans}")
+        trace("─" * 70)
+        logger.info(f"[UNANSWERABLE] {spans}")
+
+        quoted = ", ".join(f"**{s}**" for s in spans[:3])
+        nearest = self._nearest_values(spans[:1], state)
+        response = (
+            f"I could not find {quoted} anywhere in this database, so there is "
+            f"no query I can run that would filter on it."
+        )
+        if nearest:
+            response += f"\n\nThe closest values I do have are: {nearest}."
+        response += (
+            "\n\nIf you meant something else, tell me the value as it is stored "
+            "and I will run the query."
+        )
+        turn_id = self.memory.add(
+            session_id=state["session_id"], user_query=state["user_query"],
+            response=response, valid=False,
+        )
+        return {**state, "response": response, "turn_id": turn_id, "best_sql": ""}
+
+    def _nearest_values(self, spans: List[str], state: AgentState) -> str:
+        """A few real values from the retrieved tables, to make the refusal
+        actionable. Best-effort — an empty string just omits the suggestion."""
+        idx = getattr(self, "value_index", None)
+        if not spans or idx is None:
+            return ""
+        try:
+            samples: List[str] = []
+            for table in (state.get("retrieved_tables") or [])[:2]:
+                for _col, values in idx._load_table(table).items():
+                    samples.extend(str(v) for v in values[:3])
+                    if len(samples) >= 6:
+                        break
+                if len(samples) >= 6:
+                    break
+            return ", ".join(f"`{v}`" for v in samples[:6])
+        except Exception:
+            return ""
 
     def _fast_path_state(self, hit: dict) -> Optional[Dict[str, Any]]:
         """
@@ -771,7 +1037,7 @@ class OrchestrationAgent:
         tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
         if not tables:
             return ""
-        chunks = fetch_table_chunks(tables, getattr(self, "_db_name", "FYP"))
+        chunks = fetch_table_chunks(tables, self._get_scope())
         # A partial fetch would hand strict-semantic validation an incomplete
         # schema and fail a perfectly good cached query — take all or nothing.
         if len(chunks) < len(tables):
@@ -860,7 +1126,7 @@ class OrchestrationAgent:
             missing = [t for t in planned if t.casefold() not in ctx_low]
             if missing:
                 chunks = fetch_table_chunks(
-                    missing, getattr(self, "_db_name", "FYP"))
+                    missing, self._get_scope())
                 if chunks:
                     recovered = [c["table_name"] for c in chunks]
                     trace(f"  🔙 Backward-linked tables recovered: {recovered}")
@@ -870,7 +1136,31 @@ class OrchestrationAgent:
                         + "\n\n".join(c["content"] for c in chunks)
                     )
 
-        return {**state, "query_plan": plan, "schema_context": schema_context}
+        # GH#76 Fix 1: a second reading that disagrees on grain/aggregation, so
+        # execution voting has decorrelated candidates. Every candidate today
+        # is built from this single plan, which is why 41 of 57 errors had
+        # unanimous agreement — the candidates cannot disagree about a decision
+        # none of them made. Only for questions worth the extra call.
+        alt = None
+        if getattr(self, "_plan_diversity", False):
+            question = state.get("standalone_query") or state["user_query"]
+            if _question_looks_hard(question):
+                try:
+                    alt = self._get_linker().analyze_alternative(
+                        query=question, schema_context=schema_context,
+                        first_plan=plan,
+                        history=state["conversation_history"][-4:])
+                except Exception as exc:
+                    logger.warning(f"[LINK-ALT] skipped: {exc}")
+                if alt:
+                    trace("  🔀 Alternative plan (disagrees on grain/aggregation):")
+                    for k in ("grain", "aggregation", "group_by", "target"):
+                        if alt.get(k):
+                            trace(f"     {k}: {alt[k]}")
+                    logger.info("[LINK-ALT] alternative plan produced")
+
+        return {**state, "query_plan": plan, "query_plan_alt": alt,
+                "schema_context": schema_context}
 
     def generate_sql(self, state: AgentState) -> AgentState:
         """SQL Code Agent: generate top-K candidates then rerank."""
@@ -893,18 +1183,42 @@ class OrchestrationAgent:
         # the graceful fallback path instead of bubbling up a 500. An empty
         # best_sql is treated as invalid by validate_sql → fallback_handler.
         try:
-            tier = self._infer_tier(state.get("query_plan"))
-            if tier:
-                trace(f"  🎚️  Inferred difficulty tier: {tier}")
-            sqls = sql_agent.generate(
-                query=state["user_query"],
-                schema_context=state["schema_context"],
-                few_shots=few_shots,
-                history=state["conversation_history"][-4:],
-                query_plan=state.get("query_plan"),
-                tier=tier,
-                previous_sql=state.get("previous_sql"),
-            )
+            # GH#85: no tier inference. The BIRD harness is handed the real
+            # difficulty label; live has no such label, and guessing it from
+            # the linker plan actively hurt — a plan that collapsed a hard
+            # question to one table produced "simple", which meant 2
+            # candidates and no path diversity, so the question was
+            # under-resourced precisely because the reasoning about it had
+            # already gone wrong, and the two near-identical candidates then
+            # agreed with each other. Every live question now gets the same
+            # full budget (`sql.live_tier`, default "moderate").
+            tier = getattr(self, "_live_tier", "moderate")
+            trace(f"  🎚️  Effort tier: {tier} (fixed — no inference)")
+            def _gen(plan_for_this_batch):
+                return sql_agent.generate(
+                    query=state["user_query"],
+                    schema_context=state["schema_context"],
+                    few_shots=few_shots,
+                    history=state["conversation_history"][-4:],
+                    query_plan=plan_for_this_batch,
+                    tier=tier,
+                    previous_sql=state.get("previous_sql"),
+                )
+
+            alt_plan = state.get("query_plan_alt")
+            sqls = _gen(state.get("query_plan"))
+            if alt_plan:
+                # GH#76 Fix 1: candidates from a plan that DISAGREES on grain or
+                # aggregation. Concatenated, not merged — execution voting then
+                # decides between two genuine readings instead of confirming
+                # one. Failure here costs nothing: the first batch still stands.
+                try:
+                    alt_sqls = _gen(alt_plan)
+                    trace(f"  🔀 {len(alt_sqls)} candidate(s) from the alternative plan")
+                    sqls = sqls + [s for s in alt_sqls if s not in sqls]
+                except Exception as exc:
+                    logger.warning(f"[SQL_GEN] alternative-plan batch failed: {exc}")
+
             trace(f"\n  ✅ {len(sqls)} SQL candidate(s) generated:")
             for i, sql in enumerate(sqls, 1):
                 trace(f"\n  ── Candidate {i} ──")
@@ -915,13 +1229,29 @@ class OrchestrationAgent:
             # Execution-guided selection first (plurality over result sets);
             # the text reranker only decides when voting is inconclusive.
             best, vote_rows, vote_rows_sql = "", None, None
+            # GH#67: how the winner was chosen is the system's own evidence
+            # about its answer — recorded here rather than only traced, so the
+            # API and UI can show it alongside the result.
+            ev: Dict[str, Any] = {
+                "candidates": len(sqls), "executed": 0, "agreement": 0,
+                "distinct_result_sets": 0,
+                "decided_by": "single_candidate" if len(sqls) <= 1
+                              else "voting_disabled",
+            }
             if getattr(self, "_exec_voting", True) and len(sqls) > 1:
                 best, vote_rows, vote_rows_sql = self._vote_candidates(
                     sqls, state["schema_context"],
-                    query=state.get("standalone_query") or state["user_query"])
+                    query=state.get("standalone_query") or state["user_query"],
+                    evidence=ev)
             if not best:
                 best = sql_agent.rerank(sqls, state["user_query"], state["schema_context"])
                 trace(f"\n  🏆 Reranker selected:")
+                # The reranker reads text only, never result sets — so a turn
+                # decided here carries strictly weaker evidence than a
+                # plurality, and must not be reported as agreement.
+                if ev["decided_by"] in ("inconclusive", "none_executed"):
+                    ev["decided_by"] = "reranker"
+                    ev["agreement"] = 0
             else:
                 trace(f"\n  🗳️  Execution vote selected:")
             for line in best.splitlines():
@@ -930,34 +1260,19 @@ class OrchestrationAgent:
         except Exception as exc:
             trace(f"  ❌ SQL generation failed: {exc}")
             logger.warning(f"[SQL_GEN] generation failed, degrading gracefully: {exc}")
-            return {**state, "generated_sqls": [], "best_sql": ""}
+            return {**state, "generated_sqls": [], "best_sql": "",
+                    "verification": {"candidates": 0, "executed": 0,
+                                     "agreement": 0, "distinct_result_sets": 0,
+                                     "decided_by": "generation_failed"}}
 
         return {**state, "generated_sqls": sqls, "best_sql": best,
                 "vote_rows": vote_rows, "vote_rows_sql": vote_rows_sql,
-                "tier": tier}
+                "verification": ev, "tier": tier}
 
-    @staticmethod
-    def _infer_tier(plan: Optional[Dict[str, Any]]) -> Optional[str]:
-        """
-        Conservative difficulty tier from the linker plan (Issue #27). The BIRD
-        harness passes the real label; live queries get this heuristic. None
-        (no plan / unclear) → the generator's default (moderate) path.
-        """
-        if not plan or not isinstance(plan, dict):
-            return None
-
-        def _set(v: Any) -> bool:
-            return v is not None and str(v).strip().lower() not in ("", "null", "none")
-
-        tables = [t for t in (plan.get("tables") or []) if t]
-        if _set(plan.get("set_op")) or (_set(plan.get("having")) and len(tables) >= 3):
-            return "challenging"
-        if len(tables) <= 1 and not _set(plan.get("group_by")) and not _set(plan.get("having")):
-            return "simple"
-        return "moderate"
 
     def _vote_candidates(
-        self, sqls: List[str], schema_context: str, query: Optional[str] = None
+        self, sqls: List[str], schema_context: str, query: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, Optional[list], Optional[str]]:
         """
         Execution-guided selection for the live pipeline: validate each
@@ -968,7 +1283,19 @@ class OrchestrationAgent:
         Returns (winner_sql, winner_rows, executed_sql) — winner rows are reused by
         execute_sql so the winner runs ONCE per turn (GH#38). ("", None, None)
         when inconclusive (caller falls back to the reranker). Never raises.
+
+        GH#67: when an ``evidence`` dict is passed it is filled in place with
+        how the winner was chosen (agreement, distinct result sets, decided_by)
+        so the answer can be shown with the reasoning behind it. An out-param
+        rather than a fourth return value purely to leave the existing
+        three-tuple unpacking — and its tests — alone.
         """
+        def _record(**kw: Any) -> None:
+            if evidence is not None:
+                evidence.update(kw)
+
+        _record(candidates=len(sqls), executed=0, agreement=0,
+                distinct_result_sets=0, decided_by="none_executed")
         groups: Dict[frozenset, List[str]] = {}
         group_rows: Dict[frozenset, list] = {}   # first (rows, run_sql) per fingerprint
         group_run: Dict[frozenset, str] = {}
@@ -1012,18 +1339,24 @@ class OrchestrationAgent:
 
         if not groups:
             trace("  🗳️  Execution vote: no candidate executed — falling back to reranker")
+            _record(executed=0, decided_by="none_executed")
             return "", None, None
 
         best_size = max(len(s) for s in groups.values())
+        _record(executed=executed, distinct_result_sets=len(groups),
+                agreement=best_size)
         tied = [fp for fp, s in groups.items() if len(s) == best_size]
         if len(tied) == 1 and (best_size >= 2 or len(groups) == 1):
             trace(f"  🗳️  Execution vote: {best_size}/{executed} candidates agree "
                   f"({len(groups)} distinct result sets)")
+            _record(decided_by="plurality")
             return _win(tied[0])
         non_empty = [fp for fp in tied if len(fp) > 0]
         if len(non_empty) == 1:
             trace(f"  🗳️  Execution vote: tie broken toward non-empty result "
                   f"({len(groups[non_empty[0]])}/{executed})")
+            _record(decided_by="non_empty_tiebreak",
+                    agreement=len(groups[non_empty[0]]))
             return _win(non_empty[0])
 
         # GH#48: genuinely inconclusive — unit-test screen + pairwise
@@ -1035,15 +1368,19 @@ class OrchestrationAgent:
                 passing = self._unit_test_screen(query, fps, groups, group_rows)
                 if len(passing) == 1:
                     trace("  🧪 Unit-test screen: single surviving result set")
+                    _record(decided_by="unit_test",
+                            agreement=len(groups[passing[0]]))
                     return _win(passing[0])
                 if len(passing) >= 2:
                     fps = passing
             winner_fp = self._pairwise_select(query, fps, groups, group_rows)
             if winner_fp is not None:
                 trace("  ⚖️  Pairwise comparison selected the winner")
+                _record(decided_by="pairwise", agreement=len(groups[winner_fp]))
                 return _win(winner_fp)
 
         trace("  🗳️  Execution vote: tie between distinct result sets — reranker decides")
+        _record(decided_by="inconclusive")
         return "", None, None
 
     # ── GH#48: unit-test screen + pairwise selection ───────────────────────
@@ -1342,6 +1679,52 @@ class OrchestrationAgent:
         )
         return {**state, "response": response, "turn_id": turn_id}
 
+    def assess_risk(self, state: AgentState) -> AgentState:
+        """
+        GH#69: gold-free checks on the executed result — the signals that do
+        NOT depend on candidate agreement.
+
+        Phase 1's agreement signal cannot see the dominant failure: 41 of
+        gpt-5-mini's 57 BIRD errors happened on turns where every candidate
+        agreed, wrong together. These checks look at the query and its rows
+        directly instead.
+
+        Annotates only. Nothing here suppresses, rewrites or retries the
+        answer, and a failure inside the checks costs nothing but the flags.
+        """
+        if not getattr(self, "_risk_checks", True):
+            return state
+        try:
+            from backend.agents import risk as risk_mod
+            sql = state.get("best_sql") or ""
+            tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
+            out = risk_mod.assess(
+                sql=sql,
+                rows=state.get("execution_result"),
+                question=state.get("standalone_query") or state.get("user_query") or "",
+                schema_context=state.get("schema_context") or "",
+                query_plan=state.get("query_plan"),
+                tables=tables,
+                value_index=getattr(self, "value_index", None),
+            )
+        except Exception as exc:
+            logger.warning(f"[RISK] assessment skipped: {exc}")
+            return state
+
+        risks = out.get("risks") or []
+        if risks:
+            trace("\n" + "─" * 70)
+            trace(f"⚠️   NODE: assess_risk — {len(risks)} flag(s)")
+            for r in risks:
+                trace(f"     [{r['severity']}] {r['code']}: {r['message']}")
+            logger.info("[RISK] %s flag(s): %s", len(risks),
+                        ", ".join(r["code"] for r in risks))
+
+        ev = dict(state.get("verification") or {})
+        ev["risks"] = risks
+        ev["risk_score"] = out.get("risk_score", 0)
+        return {**state, "verification": ev}
+
     def format_response(self, state: AgentState) -> AgentState:
         """Format execution results into natural language response."""
         trace("\n" + "─" * 70)
@@ -1364,6 +1747,12 @@ class OrchestrationAgent:
                 sql=state["best_sql"],
                 results=state["execution_result"],
             )
+            # GH#75: the formatter is given the rows but not the doubts, so it
+            # wrote "Here are the customers from Wakanda:" directly above a
+            # warning saying Wakanda does not exist. Prepending the caveat
+            # deterministically rather than asking the LLM to hedge — a model
+            # told to add a caveat can decline; a string cannot.
+            response = _prepend_caution(response, state.get("verification"))
 
         # Only record the SQL when it was actually valid and executed — not
         # when we arrived here via the graceful-fallback path (validation failed
@@ -1379,6 +1768,44 @@ class OrchestrationAgent:
         )
         return {**state, "response": response, "csv_path": csv_path,
                 "turn_id": turn_id, "rows_fingerprint": rows_hash}
+
+    @staticmethod
+    def _verification_block(final: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        GH#67: the evidence behind this turn's answer, assembled for the API.
+
+        Always returns a well-formed block so no consumer has to special-case a
+        missing one. Turns that never generate — a cache hit, a blocked write,
+        a clarifying question — are labelled by what actually happened rather
+        than reported as zero agreement, which would read as "5 candidates
+        disagreed" when nothing was voted on at all.
+        """
+        stored = final.get("verification")
+        # Defaults are merged UNDER whatever was recorded, per key rather than
+        # all-or-nothing: assess_risk (GH#69) writes risks into this block on
+        # paths where generate_sql never ran — a cache hit — leaving it a
+        # partial dict that consumers would otherwise find missing the Phase 1
+        # counts entirely.
+        ev = {"candidates": 0, "executed": 0, "agreement": 0,
+              "distinct_result_sets": 0,
+              "decided_by": "cache_hit" if final.get("cache_hit") else "not_generated",
+              "risks": [], "risk_score": 0}
+        if isinstance(stored, dict):
+            ev.update(stored)
+            # A cached SQL that got re-validated and re-executed was not chosen
+            # by this turn's voting, whatever generate_sql last recorded.
+            if final.get("cache_hit"):
+                ev["decided_by"] = "cache_hit"
+            elif "decided_by" not in stored:
+                ev["decided_by"] = "not_generated"
+        validation = final.get("validation") or {}
+        ev["refine_rounds"] = int(final.get("refine_level") or 0)
+        ev["validated"] = bool(validation.get("valid"))
+        ev["validation_checks"] = {
+            k: bool(v) for k, v in validation.items()
+            if k in ("syntax_ok", "safety_ok", "semantic_ok")
+        }
+        return ev
 
     def _can_reuse_answer(self, state: AgentState, rows_hash: Optional[str]) -> bool:
         """A stored answer is reusable only if THESE rows are byte-identical to it."""
@@ -1402,9 +1829,8 @@ class OrchestrationAgent:
             # Broaden schema scan
             # Same search text retrieval used, so the reused vector matches it.
             search_q = state.get("standalone_query") or state["user_query"]
-            schema_chunks = retrieve(search_q, getattr(self, "_db_name", "FYP"),
-                                     top_k_tables=10, store="pgvector",
-                                     embedding=state.get("query_embedding"))
+            schema_chunks = self._fetch_schema(
+                search_q, state.get("query_embedding"), top_k=10)
             schema_context = schema_chunks["prompt_context"]
             return {**state, "schema_context": schema_context, "fallback_level": 1}
 
@@ -1467,6 +1893,11 @@ class OrchestrationAgent:
             return "validate_sql"     # GH#38 shortcut: skip linking + generation
         if not state.get("schema_context") and state.get("fallback_level", 0) == 0:
             return "fallback_handler"
+        # GH#75: the question names a value that does not exist. Generating
+        # here is what produced the substituted filter — the model cannot
+        # satisfy the request, so it satisfies a different one.
+        if state.get("unsatisfiable"):
+            return "handle_unanswerable"
         return "generate_sql"
 
     def _refine_limit(self, state: AgentState) -> int:
@@ -1505,6 +1936,9 @@ class OrchestrationAgent:
         g.add_node("validate_sql", _staged("validate_sql", self.validate_sql))
         g.add_node("execute_sql", _staged("execute_sql", self.execute_sql))
         g.add_node("refine_sql", _staged("refine_sql", self.refine_sql))
+        g.add_node("handle_unanswerable",
+                   _staged("handle_unanswerable", self.handle_unanswerable))
+        g.add_node("assess_risk", _staged("assess_risk", self.assess_risk))
         g.add_node("format_response", _staged("format_response", self.format_response))
         g.add_node("handle_general", _staged("handle_general", self.handle_general))
         g.add_node("handle_write_blocked", _staged("handle_write_blocked", self.handle_write_blocked))
@@ -1536,7 +1970,9 @@ class OrchestrationAgent:
             "generate_sql": "link_schema",
             "fallback_handler": "fallback_handler",
             "validate_sql": "validate_sql",
+            "handle_unanswerable": "handle_unanswerable",
         })
+        g.add_edge("handle_unanswerable", END)
 
         g.add_edge("link_schema", "generate_sql")
         g.add_edge("generate_sql", "validate_sql")
@@ -1549,10 +1985,13 @@ class OrchestrationAgent:
         })
 
         # ReAct: after execution, refine once on error/empty result, else format.
+        # GH#69: risk assessment sits on the answer path, AFTER any refine
+        # rounds, so it judges the result the user will actually be shown.
         g.add_conditional_edges("execute_sql", self.route_after_execution, {
             "refine_sql": "refine_sql",
-            "format_response": "format_response",
+            "format_response": "assess_risk",
         })
+        g.add_edge("assess_risk", "format_response")
         # Refined SQL re-enters validation (safety must run on it) → execute.
         g.add_edge("refine_sql", "validate_sql")
 
@@ -1595,7 +2034,8 @@ class OrchestrationAgent:
         return final["response"]
     """
     def run(self, session_id: str, user_query: str, api_key: str | None = None,
-            model: str | None = None, stage_callback=None) -> Dict[str, Any]:
+            model: str | None = None, stage_callback=None,
+            db_scope: str | None = None) -> Dict[str, Any]:
         """
         Run the full pipeline for one user turn.
 
@@ -1632,13 +2072,16 @@ class OrchestrationAgent:
         # tokens/cost in that same row were actually billed against.
         effective_model = model.strip() if (model and model.strip()) else self._model
         if has_override:
-            _tls.llm = ChatOpenAI(
-                model=effective_model, temperature=0,
-                api_key=(api_key or self._default_api_key),
-            )
+            # Must go through _chat_llm too (GH#65): a bare ChatOpenAI here
+            # would silently send a bring-your-own-key request to OpenAI while
+            # every other stage talks to the configured provider.
+            _tls.llm = self._chat_llm(
+                effective_model, api_key or self._default_api_key)
             _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
-            _tls.linker = SchemaLinkingAgent(self._config, _tls.llm)
+            _tls.linker = SchemaLinkingAgent(
+                self._config, _tls.llm,
+                rationale=getattr(self, "_plan_rationale", False))
             _tls.optimizer = ResponseOptimizer(_tls.llm)
 
         # Prefetch the query embedding concurrently with the intent LLM call.
@@ -1688,6 +2131,10 @@ class OrchestrationAgent:
             "cache_pair": cache_pair,
             "vote_rows": None,
             "vote_rows_sql": None,
+            "verification": None,
+            "unsatisfiable": [],
+            "retrieved_tables": [],
+            "query_plan_alt": None,
             "fallback_level": 0,
             "refine_level": 0,
             "tier": None,
@@ -1695,6 +2142,10 @@ class OrchestrationAgent:
             "error": None,
         }
         _tls.stage_cb = stage_callback
+        # GH#83: retrieval scope for this request only. Set unconditionally
+        # (not just when non-empty) so a thread reused from a previous scoped
+        # request cannot leak that scope into an unscoped one.
+        _tls.db_scope = db_scope.strip() if (db_scope and db_scope.strip()) else None
         tracker = usage_tracking.start_request()
         t0 = time.perf_counter()
         try:
@@ -1703,6 +2154,7 @@ class OrchestrationAgent:
             # Clear the per-request overrides so the thread can be reused cleanly.
             # Only needed when we set them.
             _tls.stage_cb = None
+            _tls.db_scope = None
             if has_override:
                 _tls.llm = self.llm
                 _tls.intent_llm = self.intent_llm
@@ -1736,6 +2188,8 @@ class OrchestrationAgent:
             # GH#63: what the follow-up was condensed into, so a bad rewrite is
             # visible rather than silently producing a confusing answer.
             "standalone_query": final.get("standalone_query"),
+            # GH#67: the evidence behind this answer, not just the answer.
+            "verification": self._verification_block(final),
             "latency_ms": latency_ms,
             "timings":    final.get("timings") or {},
             "usage":      tracker.as_dict(),
@@ -1770,6 +2224,12 @@ class OrchestrationAgent:
             # reuse the fresh wording instead of re-formatting forever.
             and (not final.get("cache_hit")
                  or fingerprint != final.get("cached_fingerprint"))
+            # GH#75: never memorise an answer the system itself flagged. Without
+            # this the "customers from Wakanda" answer was stored and replayed
+            # from cache with zero LLM calls — the pipeline detected its own
+            # error and then learned it, so every later ask got the same wrong
+            # rows faster and the model never got another chance to do better.
+            and not (final.get("verification") or {}).get("risk_score")
         )
         # GH#63: store the CONDENSED question when there is one. The embedding
         # written alongside it is the condensed text's (retrieve_schema

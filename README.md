@@ -132,6 +132,7 @@ instead of re-asking indefinitely.
 | Schema RAG | `backend/retrieval/` | pgvector store, FK expansion, value index, indexing CLI |
 | Memory | `backend/memory/session_memory.py` | Session turn history (in-RAM, optional Postgres) with rolling summaries |
 | Semantic cache | `backend/memory/semantic_cache.py` | Validated question→SQL pairs; few-shots, hit shortcut, cached answers |
+| LLM factory | `backend/agents/llm_factory.py` | Single construction point for query-stage clients; OpenAI-compatible `base_url` |
 | Query skeletons | `backend/memory/skeleton.py` | Structural-shape signatures used to blend few-shot selection |
 | Tools | `backend/tools/` | Web-search tool + registry, used by the `GENERAL` intent path |
 | Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) + output guardrail |
@@ -408,6 +409,71 @@ python -m backend.retrieval.indexing build --db FYP
 
 This introspects your PostgreSQL schema, embeds table/column descriptions using `text-embedding-3-small`, and stores the vectors in pgvector for retrieval.
 
+The assistant's own tables (`sessions`, `turns`, `query_sql_pairs`, `query_interactions`, `feedback`, `schema_embeddings`, `kb_embeddings`, `schema_version_store`) are **excluded** from the index — they are plumbing, not user data, and indexing them let them win a top-K retrieval slot over the tables that hold the answer. The list lives in `backend/retrieval/internal_tables.py`; add any new app-owned table to it. A rebuild also purges chunks for those tables left behind by an older index, so re-run the command above once after upgrading.
+
+### Step 2b — (Optional) Scope retrieval to one logical database
+
+Several BIRD mini-dev databases were loaded into the same PostgreSQL schema, so
+`public` holds 75 tables from 11 unrelated domains. An un-scoped search picks
+its top-5 tables out of all 75, while the BIRD harness only ever sees the 4
+tables of the question's own `db_id` — the same question, a strictly harder
+retrieval problem, and the reason the chat UI and the benchmark could disagree.
+
+The build now tags each schema chunk with the logical database that owns its
+table, read from a BIRD `tables.json`:
+
+```bash
+# auto-detected: $BIRD_TABLES_JSON, then outputs/dev_tables.json,
+# then dataset/minidev/MINIDEV/dev_tables.json
+python -m backend.retrieval.indexing build --db FYP
+python -m backend.retrieval.indexing build --db FYP --tables-json path/to/tables.json
+```
+
+The build prints the scopes it produced, and `GET /databases` lists what is
+indexed plus which scope is active. To answer questions against one domain —
+the benchmark's conditions — set it in `backend/config/config.yaml` and restart
+the API:
+
+```yaml
+retrieval:
+  active_db: debit_card_specializing
+```
+
+In the UI, the sidebar's **Database** picker overrides this per request (no
+restart needed), the welcome screen names the domain a question will be
+answered from, and the Database tab groups the schema browser by domain with
+the active one marked. Leaving `active_db` unset searches every scope, which is
+exactly what a single-domain install has always done. Nothing here creates, moves or drops a
+table: `db_name` is a **label** on a vector row, and queries always execute
+against the one database configured under `db:`.
+
+### How the chat UI and the BIRD harness stay aligned
+
+`backend/eval/bird.py` runs its own loop over `SQLCodeAgent` /
+`SchemaLinkingAgent` / `SQLValidatorAgent`; the chat UI runs the LangGraph in
+`db_agent.py`. They share the generation components, so any difference in what
+those components are *fed* shows up as a UI/eval gap. Two such differences have
+been closed (GH#85):
+
+| | BIRD harness | Chat UI |
+|---|---|---|
+| Schema | complete schema of the question's `db_id` | **complete schema of the active scope**, cosine top-k only as fallback |
+| Effort tier | the dataset's real difficulty label | **one fixed tier** (`sql.live_tier`, default `moderate`) — no inference |
+| Evidence | `<domain_context>` from the dataset | none — a live user types no evidence hint |
+
+The schema change matters because the table carrying a filter is often the one
+*least* similar to the question's wording, and a missing table does not fail:
+the model quietly drops the constraint and answers a different question. 80% of
+BIRD's gold SQL needs a join, so this is the common case.
+
+Cosine top-k (`retrieval.top_k_tables`) still runs when there is no active
+scope, when nothing is indexed for it, or when the scope's full schema exceeds
+`retrieval.max_schema_tokens`. Set `retrieval.full_schema_when_scoped: false`
+to A/B against pure top-k retrieval.
+
+Evidence remains the one real asymmetry: the benchmark supplies a domain hint
+for 148 of 150 questions and the deployed system has none.
+
 ### Step 3 — Start the backend API
 
 ```bash
@@ -551,6 +617,7 @@ Sends a user message and returns a structured response.
 | `csv_path` | string \| null | CSV filename for large result sets (>100 rows) |
 | `turn_id` | integer \| null | Turn id, used to submit feedback |
 | `cache_hit` | boolean | Answered via the semantic-cache shortcut |
+| `verification` | object | How this answer was chosen — `candidates`, `executed`, `agreement`, `distinct_result_sets`, `decided_by`, `refine_rounds`, `validated`, `validation_checks` (GH#67) |
 | `standalone_query` | string \| null | A follow-up rewritten as a self-contained question; `null` when the turn needed no context |
 | `latency_ms` | integer | End-to-end turn latency |
 | `timings` | object | Per-stage wall-clock ms |
@@ -591,6 +658,26 @@ Returns the models the per-request picker (sidebar) may choose from.
 {
   "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
   "default": "gpt-4o-mini"
+}
+```
+
+---
+
+### `GET /databases`
+
+Lists the retrieval scopes present in the schema vector index, and which one is
+in force (`retrieval.active_db`, or every scope when unset). Read-only —
+switching scope is a config change plus a restart. `503` when the index cannot
+be read.
+
+**Response**
+```json
+{
+  "databases": [
+    { "name": "debit_card_specializing", "tables": 5,  "active": true  },
+    { "name": "superhero",               "tables": 10, "active": false }
+  ],
+  "active": "debit_card_specializing"
 }
 ```
 
@@ -739,6 +826,52 @@ MODEL=gpt-4o bash backend/eval/run_bird.sh
 python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP --model gpt-4o
 ```
 
+### Benchmarking across providers (GH#65)
+
+`--base-url` points a run at any **OpenAI-compatible** endpoint, so the same
+BIRD harness can score open-weight models from different vendors against the
+identical prompt stack, schema linking and voting configuration:
+
+```bash
+export OPENAI_API_KEY=sk-...            # still required — embeddings/RAG use OpenAI
+export PROVIDER_KEY=sk-or-...           # your OpenRouter / Groq / DeepSeek key
+
+# Baseline
+python -m backend.eval.bird --output out/gpt4omini.json --model gpt-4o-mini
+
+# Meta Llama via Groq
+python -m backend.eval.bird --output out/llama33.json \
+  --model llama-3.3-70b-versatile --base-url https://api.groq.com/openai/v1
+
+# DeepSeek direct
+python -m backend.eval.bird --output out/deepseek.json \
+  --model deepseek-chat --base-url https://api.deepseek.com
+
+# Alibaba Qwen via OpenRouter (one key reaches many vendors)
+python -m backend.eval.bird --output out/qwen.json \
+  --model qwen/qwen-2.5-coder-32b-instruct --base-url https://openrouter.ai/api/v1
+
+# Fully local, no API cost
+python -m backend.eval.bird --output out/local.json \
+  --model qwen2.5-coder --base-url http://localhost:11434/v1
+```
+
+`--base-url` also works on `bird_predict.py` and `smoke_examples.py`, and can
+be set once via `$LLM_BASE_URL` or `llm.base_url` in `config.yaml`. Each run
+records both `model` and `base_url` in the results file's `run_config` — the
+same model id served by two providers can differ in weights, quantisation and
+sampling defaults, so a number without its endpoint isn't reproducible.
+
+Two things to know before reading the numbers:
+
+- **Cost shows `$0.00` for non-OpenAI models** until you add them to the
+  `llm.pricing` block in `config.yaml`. Token counts are still accurate.
+- **Reasoning models** (DeepSeek-R1, QwQ, Qwen-thinking, GPT-OSS) emit a
+  chain of thought before the answer. `strip_reasoning()`
+  (`backend/agents/utils.py`) removes it ahead of all four free-text parsers —
+  intent, query plan, SQL extraction and follow-up condensation — so a `<think>`
+  block doesn't get mistaken for the answer.
+
 Research-backed techniques implemented to raise accuracy **without a stronger
 model** (all config-gated) — see GitHub issues #48/#49/#50:
 
@@ -798,6 +931,66 @@ them is the actual measure of conversational competence — and gives
 "returned the previous answer" is a specific diagnosable failure and burying it
 in `disjoint` is what let it ship. Each failure line prints what the follow-up
 was rewritten into, so a bad condensation is visible immediately.
+
+### Showing the evidence behind an answer (GH#67)
+
+A text-to-SQL system gets no natural signal telling it whether its own answer
+is right. Syntax errors are self-reporting and safety violations are
+detectable, but a query that joins the wrong table parses cleanly, executes,
+and returns plausible rows. The 150-question runs in `outputs/` bear this out:
+
+| Run | Failed validation | Failed execution | Wrong but executed |
+|---|---|---|---|
+| gpt-4o-mini (EX 82/62/42) | 1 | 2 | 54 |
+| gpt-5-mini (EX 76/58/46) | 0 | 0 | **57 (100 %)** |
+
+Every failure a user actually meets runs cleanly. The pipeline already
+manufactures evidence about which answer to trust — execution voting over
+candidate result sets, a unit-test screen, pairwise comparison — so each turn
+now reports it in `verification` and the UI shows it: an agreement chip
+(*"4/5 agreed"*) beside the answer and a collapsed **Why this answer** panel
+with the full breakdown.
+
+These are **facts, not a verdict**. There is deliberately no High/Medium/Low
+confidence badge: a miscalibrated badge would teach users to trust exactly the
+answers they should question.
+
+Measured against the labelled `error_category` data, agreement is a real
+signal — and has a hard ceiling:
+
+| | unanimous | candidates disagreed |
+|---|---|---|
+| gpt-5-mini | 67.5 % EX (n=126) | 23.8 % EX (n=21) |
+| gpt-4o-mini | 69.6 % EX (n=115) | 40.6 % EX (n=32) |
+
+**41 of gpt-5-mini's 57 errors happened on turns where every candidate
+agreed** — wrong together. Agreement can never catch those.
+
+### Risk checks (GH#69)
+
+An `assess_risk` node runs seven checks that need no ground truth: zero rows,
+a WHERE literal absent from the data (via the GH#49 value index), an
+unconstrained cross join, an aggregate with no GROUP BY on a per-group
+question, `LIMIT 1` on a plural question, column count against the linker
+plan, and a table outside the retrieved schema. Flags are attached to
+`verification.risks` and shown above the result rows — each stating one
+specific, checkable objection (*"'Brazil' does not appear in the data — use
+'BRA'"*) rather than a generic warning.
+
+They **annotate only**: nothing is blocked, rewritten or retried. Config gate
+`sql.risk_checks`.
+
+Replayed over the 150 labelled questions (agreement OR a risk flag):
+
+| | errors caught | turns flagged | precision |
+|---|---|---|---|
+| agreement alone | 28.1 % | 14.3 % | 76.2 % |
+| **+ risk checks** | **40.4 %** | 19.0 % | **82.1 %** |
+
+Zero false alarms on the 85 unanimous-and-correct answers. This is a **floor**:
+the two checks aimed at the largest error class (`disjoint`, 25 of the 41)
+need a live database and stored schema context, so they could not be replayed
+offline and contribute nothing to the figure above.
 
 ### Cost & minimum execution (GH#57)
 
