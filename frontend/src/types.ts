@@ -122,6 +122,8 @@ export interface SchemaTable {
   table_name: string;
   column_count: number;
   columns: SchemaColumn[];
+  /** Logical database (BIRD db_id) owning this table (GH#83); null if untagged */
+  domain?: string | null;
 }
 
 export interface SchemaInfo {

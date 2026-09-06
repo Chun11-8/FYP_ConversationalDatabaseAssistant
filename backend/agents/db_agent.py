@@ -491,6 +491,19 @@ class OrchestrationAgent:
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
 
+    def _get_scope(self) -> Optional[str]:
+        """
+        The retrieval scope for THIS request (GH#83): the per-request
+        `db_scope` when the caller picked one, else the configured
+        `retrieval.active_db`, else None = every indexed database.
+        """
+        per_request = getattr(_tls, "db_scope", None)
+        # Strip here too, not only in run(): a whitespace-only scope would be
+        # truthy and filter retrieval down to zero tables.
+        if per_request and per_request.strip():
+            return per_request.strip()
+        return getattr(self, "_db_name", None)
+
     # ── Nodes ──────────────────────────────────
 
     def classify_intent(self, state: AgentState) -> AgentState:
@@ -621,7 +634,7 @@ class OrchestrationAgent:
         trace("─" * 70)
         tables: List[str] = []
         try:
-            r = retrieve(state["user_query"], getattr(self, "_db_name", None),
+            r = retrieve(state["user_query"], self._get_scope(),
                          top_k_tables=3, store="pgvector",
                          embedding=state.get("query_embedding"))
             tables = [t["table_name"] for t in r.get("tables", [])][:3]
@@ -693,7 +706,7 @@ class OrchestrationAgent:
             trace("  💡 Few-shot examples: none")
 
         try:
-            db_name = getattr(self, "_db_name", None)
+            db_name = self._get_scope()
             schema_chunks = retrieve(search_q, db_name, top_k_tables=5,
                                      store="pgvector", embedding=query_embedding)
             # FK-aware expansion: pull in tables linked by FK to the retrieved set
@@ -959,7 +972,7 @@ class OrchestrationAgent:
         tables = referenced_tables(sql, getattr(self, "_dialect", "postgres"))
         if not tables:
             return ""
-        chunks = fetch_table_chunks(tables, getattr(self, "_db_name", None))
+        chunks = fetch_table_chunks(tables, self._get_scope())
         # A partial fetch would hand strict-semantic validation an incomplete
         # schema and fail a perfectly good cached query — take all or nothing.
         if len(chunks) < len(tables):
@@ -1048,7 +1061,7 @@ class OrchestrationAgent:
             missing = [t for t in planned if t.casefold() not in ctx_low]
             if missing:
                 chunks = fetch_table_chunks(
-                    missing, getattr(self, "_db_name", None))
+                    missing, self._get_scope())
                 if chunks:
                     recovered = [c["table_name"] for c in chunks]
                     trace(f"  🔙 Backward-linked tables recovered: {recovered}")
@@ -1773,7 +1786,7 @@ class OrchestrationAgent:
             # Broaden schema scan
             # Same search text retrieval used, so the reused vector matches it.
             search_q = state.get("standalone_query") or state["user_query"]
-            schema_chunks = retrieve(search_q, getattr(self, "_db_name", None),
+            schema_chunks = retrieve(search_q, self._get_scope(),
                                      top_k_tables=10, store="pgvector",
                                      embedding=state.get("query_embedding"))
             schema_context = schema_chunks["prompt_context"]
@@ -1979,7 +1992,8 @@ class OrchestrationAgent:
         return final["response"]
     """
     def run(self, session_id: str, user_query: str, api_key: str | None = None,
-            model: str | None = None, stage_callback=None) -> Dict[str, Any]:
+            model: str | None = None, stage_callback=None,
+            db_scope: str | None = None) -> Dict[str, Any]:
         """
         Run the full pipeline for one user turn.
 
@@ -2086,6 +2100,10 @@ class OrchestrationAgent:
             "error": None,
         }
         _tls.stage_cb = stage_callback
+        # GH#83: retrieval scope for this request only. Set unconditionally
+        # (not just when non-empty) so a thread reused from a previous scoped
+        # request cannot leak that scope into an unscoped one.
+        _tls.db_scope = db_scope.strip() if (db_scope and db_scope.strip()) else None
         tracker = usage_tracking.start_request()
         t0 = time.perf_counter()
         try:
@@ -2094,6 +2112,7 @@ class OrchestrationAgent:
             # Clear the per-request overrides so the thread can be reused cleanly.
             # Only needed when we set them.
             _tls.stage_cb = None
+            _tls.db_scope = None
             if has_override:
                 _tls.llm = self.llm
                 _tls.intent_llm = self.intent_llm

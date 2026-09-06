@@ -219,6 +219,43 @@ def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Opti
     return req_model
 
 
+def _indexed_scopes() -> list[str]:
+    """
+    Logical databases present in the schema vector index (GH#83). [] on any
+    failure — callers treat that as "cannot verify", never as "none exist".
+    """
+    try:
+        import backend.retrieval.pgvector_store as pgstore
+        conn = pgstore.get_store()
+        try:
+            return [n for n, _ in pgstore.list_databases_with_counts(conn)]
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"[API] could not list retrieval scopes: {exc}")
+        return []
+
+
+def _validate_scope(req_scope: Optional[str]) -> Optional[str]:
+    """
+    GH#83: a per-request retrieval scope must name a database that is actually
+    indexed — unlike a model id, a typo here is not a downstream API error but
+    a silent zero-table retrieval that looks like "I don't have that data".
+    Empty/None = every scope. If the index can't be read we let the value
+    through rather than blocking chat on an ops failure.
+    """
+    if not req_scope or not req_scope.strip():
+        return None
+    scope = req_scope.strip()
+    known = _indexed_scopes()
+    if known and scope not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown database scope {scope!r}. Indexed: {', '.join(known)}",
+        )
+    return scope
+
+
 @app.middleware("http")
 async def _request_id_middleware(request, call_next):
     rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
@@ -269,12 +306,14 @@ def chat(req: ChatRequest) -> ChatResponse:
     """
     agent = _get_agent()
     model = _validate_model(req.model, agent)
+    db_scope = _validate_scope(req.db_scope)
     try:
         result = agent.run(
             session_id=req.session_id,
             user_query=req.message,
             api_key=req.api_key or None,
             model=model,
+            db_scope=db_scope,
         )
     except Exception as exc:
         logger.exception("Agent error for session %s", req.session_id)
@@ -303,6 +342,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     # Validated before the worker thread starts (GH#52) so an unlisted model
     # returns a synchronous HTTP 400 rather than a mid-stream `error` event.
     model = _validate_model(req.model, agent)
+    db_scope = _validate_scope(req.db_scope)
     q: "queue.Queue[Optional[dict]]" = queue.Queue()
 
     def _cb(event_type: str, payload: Any) -> None:
@@ -322,6 +362,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 api_key=req.api_key or None,
                 model=model,
                 stage_callback=_cb,
+                db_scope=db_scope,
             )
             _record_turn(result)
             q.put({"type": "done", **result})
@@ -382,7 +423,8 @@ def list_databases() -> DatabasesResponse:
     return DatabasesResponse(
         databases=[DatabaseInfo(name=n, tables=t, active=(n == active))
                    for n, t in counts],
-        active=active,
+        # "" = no configured default; the UI reads that as "All databases".
+        active=active or "",
     )
 
 

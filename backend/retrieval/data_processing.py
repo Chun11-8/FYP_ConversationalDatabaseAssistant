@@ -428,6 +428,11 @@ def get_schema_info(db_name: str | None = None) -> dict:
             "table_name": t["table_name"],
             "column_count": len(t["columns"]),
             "columns": columns,
+            # GH#83: extract_schema_pg already tagged the table with the
+            # logical database that owns it — surface it so the schema browser
+            # can group 75 tables from 11 domains. None when the tag is just
+            # the PostgreSQL database name (no catalog configured).
+            "domain": t["db_name"] if t["db_name"] != resolved_db else None,
         })
 
     return {
