@@ -888,6 +888,50 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
 | Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
 
+### Multi-turn evaluation (GH#71)
+
+BIRD is single-turn, so the conversational half of the system — follow-up
+condensation, the clarification loop, cross-turn cache reuse — shipped without
+regression coverage. `backend/eval/multiturn.py` closes that gap: it replays
+scripted conversations through the **full orchestration graph** and scores
+every turn against gold SQL.
+
+```bash
+python -m backend.eval.multiturn --output out/multiturn.json
+python -m backend.eval.multiturn --case literal-swap-month     # one case
+python -m backend.eval.multiturn --model deepseek-chat \
+    --base-url https://api.deepseek.com
+```
+
+Self-contained: it builds the reconstructed SQLite fixtures from
+`smoke_examples.py`, so it needs **no BIRD download and no PostgreSQL** — only
+a key for SQL generation. Retrieval is bypassed (the whole three-table schema
+is injected) so a failure is attributable to the conversation rather than to
+RAG noise.
+
+13 cases / 27 turns across seven categories, each targeting a distinct way
+multi-turn breaks:
+
+| Category | Example follow-up | Catches |
+|---|---|---|
+| `literal_swap` | "What about 201207?" | **the GH#63 bug** |
+| `ellipsis` | "And CZK?" | constraint not carried over |
+| `anaphora` | "How many of them wear Medium?" | referent lost |
+| `refinement` | "Only those with a Large t-shirt." | prior scope dropped |
+| `topic_switch` | an unrelated question | stale context wrongly kept |
+| `clarification_reply` | a terse answer to our own question | the GH#62 loop |
+| `legitimate_repeat` | the same question again | **cache SHOULD hit** |
+
+`legitimate_repeat` is the control: without it the metric would reward turning
+the semantic cache off, which is the wrong lesson to draw from GH#63.
+
+The report separates **first-turn from follow-up accuracy** — the gap between
+them is the actual measure of conversational competence — and gives
+`stale_repeat` its own verdict, distinct from generic wrongness, because
+"returned the previous answer" is a specific diagnosable failure and burying it
+in `disjoint` is what let it ship. Each failure line prints what the follow-up
+was rewritten into, so a bad condensation is visible immediately.
+
 ### Showing the evidence behind an answer (GH#67)
 
 A text-to-SQL system gets no natural signal telling it whether its own answer

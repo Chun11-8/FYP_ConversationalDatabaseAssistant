@@ -1,0 +1,225 @@
+[
+  {
+    "id": "literal-swap-month",
+    "db_id": "debit_card_specializing",
+    "category": "literal_swap",
+    "why": "The reported GH#63 bug verbatim. The condensed follow-up differs from turn 1 by one token, which sits inside the semantic cache's 0.03 hit threshold, so the cached turn-1 SQL was returned and the 201208 answer replayed for 201207.",
+    "turns": [
+      {
+        "question": "What was the consumption of customer 1 in 201208?",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 1 AND Date = '201208'"
+      },
+      {
+        "question": "What about 201207?",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 1 AND Date = '201207'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "literal-swap-entity",
+    "db_id": "debit_card_specializing",
+    "category": "literal_swap",
+    "why": "Same class as the month swap but on the entity id — confirms the fix generalises beyond dates.",
+    "turns": [
+      {
+        "question": "What was the consumption of customer 1 in 201208?",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 1 AND Date = '201208'"
+      },
+      {
+        "question": "And customer 2?",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 2 AND Date = '201208'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "ellipsis-currency",
+    "db_id": "debit_card_specializing",
+    "category": "ellipsis",
+    "why": "A two-word follow-up carrying no verb. The whole question has to be recovered from turn 1.",
+    "turns": [
+      {
+        "question": "Which customers pay in EUR?",
+        "gold_sql": "SELECT CustomerID FROM customers WHERE Currency = 'EUR'"
+      },
+      {
+        "question": "And CZK?",
+        "gold_sql": "SELECT CustomerID FROM customers WHERE Currency = 'CZK'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "ellipsis-then-second-followup",
+    "db_id": "debit_card_specializing",
+    "category": "ellipsis",
+    "why": "Three turns. A follow-up to a follow-up must resolve against the resolved question, not the raw previous text — the failure mode where context decays after one hop.",
+    "turns": [
+      {
+        "question": "Which customers pay in EUR?",
+        "gold_sql": "SELECT CustomerID FROM customers WHERE Currency = 'EUR'"
+      },
+      {
+        "question": "And CZK?",
+        "gold_sql": "SELECT CustomerID FROM customers WHERE Currency = 'CZK'",
+        "expect_differs_from_previous": true
+      },
+      {
+        "question": "How many of those are there?",
+        "gold_sql": "SELECT COUNT(*) FROM customers WHERE Currency = 'CZK'"
+      }
+    ]
+  },
+  {
+    "id": "anaphora-attendees",
+    "db_id": "student_club",
+    "category": "anaphora",
+    "why": "\"them\" refers to a row set established in turn 1, not to any noun in turn 2. Requires carrying the join, not just a literal.",
+    "turns": [
+      {
+        "question": "Which members attended the Women's Soccer event?",
+        "gold_sql": "SELECT m.member_id FROM member m JOIN attendance a ON a.link_to_member = m.member_id JOIN event e ON e.event_id = a.link_to_event WHERE e.event_name = 'Women''s Soccer'"
+      },
+      {
+        "question": "How many of them wear a Medium t-shirt?",
+        "gold_sql": "SELECT COUNT(*) FROM member m JOIN attendance a ON a.link_to_member = m.member_id JOIN event e ON e.event_id = a.link_to_event WHERE e.event_name = 'Women''s Soccer' AND m.t_shirt_size = 'Medium'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "anaphora-size-swap",
+    "db_id": "student_club",
+    "category": "literal_swap",
+    "why": "A literal swap layered on an anaphoric reference — both mechanisms have to work at once.",
+    "turns": [
+      {
+        "question": "How many members who attended the Women's Soccer event wear a Medium t-shirt?",
+        "gold_sql": "SELECT COUNT(*) FROM member m JOIN attendance a ON a.link_to_member = m.member_id JOIN event e ON e.event_id = a.link_to_event WHERE e.event_name = 'Women''s Soccer' AND m.t_shirt_size = 'Medium'"
+      },
+      {
+        "question": "What about Small?",
+        "gold_sql": "SELECT COUNT(*) FROM member m JOIN attendance a ON a.link_to_member = m.member_id JOIN event e ON e.event_id = a.link_to_event WHERE e.event_name = 'Women''s Soccer' AND m.t_shirt_size = 'Small'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "refinement-filter",
+    "db_id": "student_club",
+    "category": "refinement",
+    "why": "Turn 2 narrows turn 1 rather than replacing it. The prior scope must survive.",
+    "turns": [
+      {
+        "question": "How many members are in the club?",
+        "gold_sql": "SELECT COUNT(*) FROM member"
+      },
+      {
+        "question": "Only those with a Large t-shirt.",
+        "gold_sql": "SELECT COUNT(*) FROM member WHERE t_shirt_size = 'Large'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "refinement-date-window",
+    "db_id": "student_club",
+    "category": "refinement",
+    "why": "Adds a constraint absent from turn 1; the original SELECT target must be preserved.",
+    "turns": [
+      {
+        "question": "What are the names of all events?",
+        "gold_sql": "SELECT event_name FROM event"
+      },
+      {
+        "question": "Just the ones in November 2019.",
+        "gold_sql": "SELECT event_name FROM event WHERE event_date LIKE '2019-11%'",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "topic-switch",
+    "db_id": "debit_card_specializing",
+    "category": "topic_switch",
+    "why": "The opposite failure: turn 2 is self-contained, so carrying turn 1's customer/date filters over would be wrong. Guards against over-eager condensation.",
+    "turns": [
+      {
+        "question": "What was the consumption of customer 1 in 201208?",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 1 AND Date = '201208'"
+      },
+      {
+        "question": "How many customers are there in total?",
+        "gold_sql": "SELECT COUNT(*) FROM customers",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "topic-switch-across-tables",
+    "db_id": "student_club",
+    "category": "topic_switch",
+    "why": "A switch that also changes table. Retrieval must re-run rather than reuse turn 1's schema subset.",
+    "turns": [
+      {
+        "question": "How many members wear a Small t-shirt?",
+        "gold_sql": "SELECT COUNT(*) FROM member WHERE t_shirt_size = 'Small'"
+      },
+      {
+        "question": "What types of events does the club hold?",
+        "gold_sql": "SELECT DISTINCT type FROM event",
+        "expect_differs_from_previous": true
+      }
+    ]
+  },
+  {
+    "id": "legitimate-repeat",
+    "db_id": "debit_card_specializing",
+    "category": "legitimate_repeat",
+    "why": "The control. Asking the same question again SHOULD reuse the cached SQL — without this case the metric would reward disabling the cache outright, which is the wrong lesson from GH#63.",
+    "turns": [
+      {
+        "question": "How many customers are there in total?",
+        "gold_sql": "SELECT COUNT(*) FROM customers"
+      },
+      {
+        "question": "How many customers are there in total?",
+        "gold_sql": "SELECT COUNT(*) FROM customers",
+        "expect_cache_hit": true
+      }
+    ]
+  },
+  {
+    "id": "reworded-repeat",
+    "db_id": "student_club",
+    "category": "legitimate_repeat",
+    "why": "Same question, different words and no changed literals — the cache should still hit. Distinguishes the GH#63 literal guard from a blanket cache disable.",
+    "turns": [
+      {
+        "question": "How many members are in the club?",
+        "gold_sql": "SELECT COUNT(*) FROM member"
+      },
+      {
+        "question": "What is the total number of club members?",
+        "gold_sql": "SELECT COUNT(*) FROM member"
+      }
+    ]
+  },
+  {
+    "id": "clarification-reply",
+    "db_id": "debit_card_specializing",
+    "category": "clarification_reply",
+    "why": "A deliberately vague opener. If the agent asks for clarification, the terse reply must resolve to a real answer instead of looping (the GH#62 bug). If the agent answers turn 1 outright, turn 2 still has to work as an ordinary follow-up.",
+    "turns": [
+      {
+        "question": "What is the consumption?",
+        "allow_clarification": true
+      },
+      {
+        "question": "customer 3, 201208",
+        "gold_sql": "SELECT Consumption FROM yearmonth WHERE CustomerID = 3 AND Date = '201208'"
+      }
+    ]
+  }
+]
