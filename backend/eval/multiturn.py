@@ -203,13 +203,24 @@ def load_cases(path: Path = CASES_PATH, only: Optional[str] = None
 
 
 def run_case(agent: Any, case: Dict[str, Any], db_path: str,
-             cache_enabled: bool) -> List[Dict[str, Any]]:
-    """Replay one conversation in a single session and score every turn."""
+             cache_enabled: bool, switch_db=None) -> List[Dict[str, Any]]:
+    """
+    Replay one conversation in a single session and score every turn.
+
+    A turn may carry its own ``db_id`` (GH#87) to move the conversation to a
+    different database mid-session — the sharpest form of topic switch, and
+    the one the reported contamination bug took. ``switch_db(db_id) -> path``
+    repoints the agent's fixtures; without it a per-turn db_id is ignored and
+    the case runs entirely against ``db_path``.
+    """
     session_id = f"mt-{case['id']}-{uuid.uuid4().hex[:8]}"
     out: List[Dict[str, Any]] = []
     prev_pred_rows: Optional[List[tuple]] = None
+    turn_db = db_path
 
     for i, turn in enumerate(case["turns"]):
+        if turn.get("db_id") and switch_db is not None:
+            turn_db = switch_db(turn["db_id"])
         t0 = time.perf_counter()
         try:
             result = agent.run(session_id=session_id, user_query=turn["question"])
@@ -238,9 +249,9 @@ def run_case(agent: Any, case: Dict[str, Any], db_path: str,
             prev_pred_rows = None
             continue
 
-        pred_rows, pred_err = (run_sqlite(db_path, pred_sql) if pred_sql
+        pred_rows, pred_err = (run_sqlite(turn_db, pred_sql) if pred_sql
                                else (None, None))
-        gold_rows, gold_err = run_sqlite(db_path, gold_sql)
+        gold_rows, gold_err = run_sqlite(turn_db, gold_sql)
         if gold_err:      # a broken fixture must not be scored as a model error
             out.append(_record(case, i, turn, result, SKIPPED, pred_rows, gold_rows,
                                elapsed, note=f"gold SQL failed: {gold_err}"))
@@ -391,7 +402,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         set_active_db(case["db_id"])
         print(f"  • {case['id']} ({case['category']}) …", flush=True)
         results.extend(run_case(agent, case, db_path_for(db_root, case["db_id"]),
-                                cache_enabled))
+                                cache_enabled, switch_db=set_active_db))
 
     metrics = summarize(results)
     _print_report(metrics, results)
