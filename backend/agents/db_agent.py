@@ -1138,21 +1138,23 @@ class OrchestrationAgent:
         return {**state, "response": response, "turn_id": turn_id, "best_sql": ""}
 
     def _nearest_values(self, spans: List[str], state: AgentState) -> str:
-        """A few real values from the retrieved tables, to make the refusal
-        actionable. Best-effort — an empty string just omits the suggestion."""
+        """
+        Real values CLOSEST to what the user typed, so the refusal names
+        alternatives they might have meant (GH#97).
+
+        This used to take the first few values of whatever column came first,
+        which offered a list of Airtable record ids against a question about a
+        person's name. Ranking by similarity to the span answers the question
+        the sentence claims to answer. Best-effort — an empty string just
+        omits the suggestion.
+        """
         idx = getattr(self, "value_index", None)
         if not spans or idx is None:
             return ""
         try:
-            samples: List[str] = []
-            for table in (state.get("retrieved_tables") or [])[:2]:
-                for _col, values in idx._load_table(table).items():
-                    samples.extend(str(v) for v in values[:3])
-                    if len(samples) >= 6:
-                        break
-                if len(samples) >= 6:
-                    break
-            return ", ".join(f"`{v}`" for v in samples[:6])
+            tables = (state.get("retrieved_tables") or [])[:4]
+            values = idx.nearest_values(spans[0], tables, limit=6)
+            return ", ".join(f"`{v}`" for v in values)
         except Exception:
             return ""
 

@@ -51,6 +51,25 @@ class _Index:
     def _load_table(self, table):
         return self._tables.get(table, {})
 
+    def nearest_values(self, span, tables, limit=6):
+        """Mirrors ValueIndex.nearest_values (GH#97): stored values ranked by
+        similarity to the span the user actually typed."""
+        import difflib
+        scored = []
+        for t in tables:
+            for values in self._tables.get(t, {}).values():
+                for v in values:
+                    scored.append((difflib.SequenceMatcher(
+                        None, str(span).casefold(), str(v).casefold()).ratio(), v))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        out = []
+        for _s, v in scored:
+            if v not in out:
+                out.append(v)
+            if len(out) >= limit:
+                break
+        return out
+
 
 # ── Fix 1: never cache an answer the system flagged ───────────────────────────
 

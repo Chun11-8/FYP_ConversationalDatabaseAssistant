@@ -34,6 +34,38 @@ _SPAN_RES = (
     re.compile(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b"),
     re.compile(r"\b([A-Z0-9][A-Z0-9\-/]{1,15})\b"),
 )
+# GH#97: opaque identifiers — Airtable record ids ("recmbOVHSyzXQZpQr"),
+# UUIDs, hashes. A user never *means* one of these, so a column full of them
+# is dead weight in the index: it cannot correct a literal the user wrote, it
+# can fuzzy-match one spuriously, and it was being offered as "the closest
+# values I do have" in a refusal, which reads as nonsense.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_HEX_RE = re.compile(r"^[0-9a-f]{16,}$", re.I)
+# A column is dropped only when this share of its values look opaque, so one
+# odd entry cannot disqualify a column of real values.
+OPAQUE_COLUMN_SHARE = 0.8
+
+
+def _looks_opaque(value: str) -> bool:
+    """True for machine-generated identifiers — never something a user typed."""
+    v = (value or "").strip()
+    if len(v) < 12 or any(c.isspace() for c in v):
+        return False                      # short, or a phrase a human wrote
+    if _UUID_RE.match(v) or _HEX_RE.match(v):
+        return True
+    # Mixed case with no word boundaries: 'recmbOVHSyzXQZpQr', not 'Emery
+    # Secondary' (has a space) or 'debit_card_specializing' (single case).
+    return any(c.isupper() for c in v) and any(c.islower() for c in v)
+
+
+def _column_is_opaque(values: List[str]) -> bool:
+    if not values:
+        return False
+    opaque = sum(1 for v in values if _looks_opaque(v))
+    return opaque / len(values) >= OPAQUE_COLUMN_SHARE
+
+
 # Words that match the Capitalized pattern but are never data values.
 _STOPWORDS = {
     "what", "which", "who", "how", "many", "list", "show", "give", "the",
@@ -99,8 +131,16 @@ class ValueIndex:
                         (MAX_DISTINCT_PER_COLUMN + 1,),
                     )
                     values = [str(r[0]) for r in cur.fetchall()]
-                    if 0 < len(values) <= MAX_DISTINCT_PER_COLUMN:
-                        cols[col] = values
+                    if not (0 < len(values) <= MAX_DISTINCT_PER_COLUMN):
+                        continue
+                    # GH#97: a column of record ids / UUIDs / hashes holds
+                    # nothing a user could have meant.
+                    if _column_is_opaque(values):
+                        logger.debug(
+                            f"[VALUE_INDEX] {table}.{col} looks like an "
+                            f"identifier column — not indexed")
+                        continue
+                    cols[col] = values
         except Exception as exc:  # degraded mode: no hints for this table
             logger.warning(f"[VALUE_INDEX] load failed for '{table}': {exc}")
         finally:
@@ -165,9 +205,76 @@ class ValueIndex:
                             break
                     if out[span] is not None:
                         break
+                if out[span] is None and self._parts_all_match(span, loaded):
+                    # GH#97: a person's name is stored across two columns, so
+                    # no single column contains "Elijah Allen" — reporting it
+                    # absent refused a question about a member who exists.
+                    out[span] = span
         except Exception as exc:
             logger.warning(f"[VALUE_INDEX] span resolution failed: {exc}")
             return {}
+        return out
+
+    def _parts_all_match(
+        self, span: str, loaded: Dict[str, Dict[str, List[str]]]
+    ) -> bool:
+        """
+        GH#97: does every word of a multi-word span exist as a stored value?
+
+        "Elijah Allen" appears in no column — the database holds `first_name`
+        = 'Elijah' and `last_name` = 'Allen' — so a whole-span lookup reports
+        it absent and the pipeline refuses a question about a member who is
+        right there. Splitting the span recovers it.
+
+        Deliberately strict: EVERY word must match, in the same table, and a
+        single-word span is not eligible (that case is the whole-span lookup
+        above). One matching word out of two would make "Elijah Baggins"
+        resolve, which is the false-negative this guards against.
+        """
+        words = [w for w in re.split(r"\s+", span.strip()) if len(w) >= 2]
+        if len(words) < 2:
+            return False
+        for cols in loaded.values():
+            if not cols:
+                continue
+            if all(any(self._best_match(w, values) for values in cols.values())
+                   for w in words):
+                return True
+        return False
+
+    def nearest_values(
+        self, span: str, tables: List[str], limit: int = 6
+    ) -> List[str]:
+        """
+        The stored values most similar to *span*, for a refusal that names
+        real alternatives (GH#97).
+
+        Previously the caller took the first few values of whatever column
+        came first, which — with identifier columns still indexed — offered
+        the user a list of Airtable record ids as "the closest values I do
+        have". Ranking by similarity to what they actually typed makes the
+        suggestion answer the question it claims to.
+        """
+        if not span or not tables:
+            return []
+        scored: List[Tuple[float, str]] = []
+        try:
+            for table in tables:
+                for _col, values in self._load_table(table).items():
+                    for v in values:
+                        scored.append(
+                            (difflib.SequenceMatcher(None, span.casefold(),
+                                                     v.casefold()).ratio(), v))
+        except Exception as exc:
+            logger.warning(f"[VALUE_INDEX] nearest lookup failed: {exc}")
+            return []
+        scored.sort(key=lambda t: t[0], reverse=True)
+        out: List[str] = []
+        for _score, v in scored:
+            if v not in out:
+                out.append(v)
+            if len(out) >= limit:
+                break
         return out
 
     def ground(self, text: str, tables: List[str]) -> List[str]:
