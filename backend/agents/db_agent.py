@@ -1093,6 +1093,17 @@ class OrchestrationAgent:
             return []
         try:
             from backend.agents.risk import _span_is_untestable
+            # GH#99: a table with a column above the index's cardinality cap
+            # has values that were never loaded — a real name in a 50 000-row
+            # `customers.full_name` matches nothing for exactly the same
+            # reason a fictional one does. Absence from the index is then no
+            # evidence of absence from the database, and a refusal built on it
+            # tells the user their own data does not exist.
+            if idx.has_unindexed_values(tables):
+                logger.info("[RAG] unsatisfiability check skipped — the "
+                            "retrieved tables hold unindexed high-cardinality "
+                            "columns")
+                return []
             resolved = idx.resolve_spans(question, tables) or {}
             return [s for s, v in resolved.items()
                     if v is None and not _span_is_untestable(s)]

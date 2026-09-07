@@ -165,3 +165,49 @@ class TestRefusalUsesIt:
         a.value_index = MagicMock()
         a.value_index.nearest_values.side_effect = RuntimeError("x")
         assert a._nearest_values(["q"], {"retrieved_tables": ["t"]}) == ""
+
+
+# ── high-cardinality columns make absence unprovable (GH#99) ───────────────────
+
+class TestUnindexedValuesBlockRefusal:
+    """
+    A column above the 2 000-value cap is not indexed, so a real value in it
+    matches nothing — for exactly the same reason a fictional value matches
+    nothing. Refusing on that evidence tells the user their own data does not
+    exist, which is the most expensive mistake this system can make.
+    """
+
+    def _big_table(self, n=2001):
+        return {"customers": {"full_name": [f"Person {i}" for i in range(n)],
+                              "segment": ["LAM", "SME"]}}
+
+    def test_an_overflow_column_is_recorded_not_silently_dropped(self):
+        idx = _index(self._big_table())
+        cols = idx._load_table("customers")
+        assert "full_name" not in cols          # not indexed
+        assert "segment" in cols                # small column still is
+        assert idx._overflow["customers"] == ["full_name"]
+
+    def test_has_unindexed_values_reports_it(self):
+        assert _index(self._big_table()).has_unindexed_values(["customers"])
+
+    def test_a_fully_indexed_table_reports_nothing_unindexed(self):
+        assert not _index().has_unindexed_values(["member"])
+
+    def test_no_refusal_when_values_could_not_be_checked(self):
+        from backend.agents.db_agent import OrchestrationAgent
+        a = OrchestrationAgent.__new__(OrchestrationAgent)
+        a.value_index = _index(self._big_table())
+        assert a._unsatisfiable_spans("spend by Elijah Allen", ["customers"]) == []
+
+    def test_a_refusal_still_fires_when_everything_was_checkable(self):
+        from backend.agents.db_agent import OrchestrationAgent
+        a = OrchestrationAgent.__new__(OrchestrationAgent)
+        a.value_index = _index()
+        assert a._unsatisfiable_spans(
+            "members from Wakanda", ["member"]) == ["Wakanda"]
+
+    def test_a_column_exactly_at_the_cap_is_still_indexed(self):
+        idx = _index(self._big_table(n=2000))
+        assert "full_name" in idx._load_table("customers")
+        assert not idx.has_unindexed_values(["customers"])

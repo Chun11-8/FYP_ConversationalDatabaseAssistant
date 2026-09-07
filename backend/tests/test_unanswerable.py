@@ -51,6 +51,12 @@ class _Index:
     def _load_table(self, table):
         return self._tables.get(table, {})
 
+    def has_unindexed_values(self, tables):
+        """GH#99: this fake indexes everything it is given, so nothing is
+        unverifiable. A table whose columns exceed the cardinality cap is
+        covered in test_opaque_ids_and_name_spans.py against the real index."""
+        return False
+
     def nearest_values(self, span, tables, limit=6):
         """Mirrors ValueIndex.nearest_values (GH#97): stored values ranked by
         similarity to the span the user actually typed."""

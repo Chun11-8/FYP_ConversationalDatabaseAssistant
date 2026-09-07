@@ -98,6 +98,10 @@ class ValueIndex:
         self._conn_factory = conn_factory
         # table -> {column: [values]} (loaded once per table, thread-safe)
         self._by_table: Dict[str, Dict[str, List[str]]] = {}
+        # GH#99: columns skipped for exceeding MAX_DISTINCT_PER_COLUMN. Their
+        # absence from the index means "not checked", NOT "value not present",
+        # and only a record of them keeps those two apart.
+        self._overflow: Dict[str, List[str]] = {}
         self._lock = threading.Lock()
 
     # ── loading ────────────────────────────────────────────────────────────
@@ -112,6 +116,7 @@ class ValueIndex:
             if table in self._by_table:
                 return self._by_table[table]
         cols: Dict[str, List[str]] = {}
+        overflowed: List[str] = []
         conn = None
         try:
             conn = self._conn_factory()
@@ -131,7 +136,13 @@ class ValueIndex:
                         (MAX_DISTINCT_PER_COLUMN + 1,),
                     )
                     values = [str(r[0]) for r in cur.fetchall()]
-                    if not (0 < len(values) <= MAX_DISTINCT_PER_COLUMN):
+                    if len(values) > MAX_DISTINCT_PER_COLUMN:
+                        # A high-cardinality column — customer names, free
+                        # text. Not indexed, and therefore not something whose
+                        # contents this index can make any claim about.
+                        overflowed.append(col)
+                        continue
+                    if not values:
                         continue
                     # GH#97: a column of record ids / UUIDs / hashes holds
                     # nothing a user could have meant.
@@ -151,7 +162,30 @@ class ValueIndex:
                 pass
         with self._lock:
             self._by_table[table] = cols
+            self._overflow[table] = overflowed
+        if overflowed:
+            logger.info(
+                f"[VALUE_INDEX] {table}: {len(overflowed)} column(s) over the "
+                f"{MAX_DISTINCT_PER_COLUMN}-value cap ({', '.join(overflowed[:3])}) "
+                f"— values there cannot be verified")
         return cols
+
+    def has_unindexed_values(self, tables: List[str]) -> bool:
+        """
+        GH#99: does any of *tables* hold a text column too high-cardinality to
+        index?
+
+        If so, this index cannot prove a value is absent from those tables — a
+        name in a 50 000-row `customers.full_name` was never loaded, so it
+        matches nothing for the same reason a fictional name matches nothing.
+        Callers that would otherwise tell the user "this value does not exist"
+        must stay silent instead.
+        """
+        for t in tables or []:
+            self._load_table(t)                     # populates _overflow
+            if self._overflow.get(t):
+                return True
+        return False
 
     # ── grounding ──────────────────────────────────────────────────────────
 
