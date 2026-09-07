@@ -20,7 +20,8 @@ def _agent(**attrs) -> OrchestrationAgent:
     a = OrchestrationAgent.__new__(OrchestrationAgent)
     defaults = dict(_db_name="debit_card_specializing", _full_schema=True,
                     _top_k_tables=5, _fk_max_hops=2, _fk_max_expansion=5,
-                    _max_schema_tokens=4000, _live_tier="moderate")
+                    _max_schema_tokens=12000, _live_tier="moderate",
+                    _auto_scope=True)
     defaults.update(attrs)
     for k, v in defaults.items():
         setattr(a, k, v)
@@ -167,3 +168,97 @@ def test_the_broaden_fallback_uses_the_same_schema_strategy():
     src = inspect.getsource(OrchestrationAgent.fallback_handler)
     assert "_fetch_schema" in src
     assert "retrieve(" not in src
+
+
+# ── automatic domain routing (GH#95) ──────────────────────────────────────────
+
+def _ranking(*db_names):
+    return [{"chunk_id": f"c{i}", "db_name": d, "table_name": f"t{i}",
+             "text": "T", "distance": 0.1 * i}
+            for i, d in enumerate(db_names)]
+
+
+class TestInferScope:
+    """The ranking already names its own domain — every chunk carries the
+    db_id that owns its table, so routing costs nothing."""
+
+    def test_the_reported_question_routes_to_student_club(self):
+        # The retrieval ranking from the reported failure, verbatim.
+        assert OrchestrationAgent._infer_scope(_ranking(
+            "student_club", "student_club", "california_schools",
+            "debit_card_specializing", "european_football_2")
+        ) == "student_club"
+
+    def test_two_agreeing_tables_beat_a_rank_one_distractor(self):
+        assert OrchestrationAgent._infer_scope(_ranking(
+            "card_games", "student_club", "student_club", "x", "y")
+        ) == "student_club"
+
+    def test_a_lone_chunk_never_commits_a_whole_domain(self):
+        """Five domains, one chunk each: the ranking has no view, and guessing
+        would exclude the right table from the context entirely."""
+        assert OrchestrationAgent._infer_scope(
+            _ranking("a", "b", "c", "d", "e")) is None
+
+    def test_a_single_domain_install_always_routes(self):
+        assert OrchestrationAgent._infer_scope(_ranking("a", "a", "a")) == "a"
+
+    def test_empty_or_untagged_rankings_are_safe(self):
+        assert OrchestrationAgent._infer_scope([]) is None
+        assert OrchestrationAgent._infer_scope([{"table_name": "t"}]) is None
+
+
+class TestRoutingInFetchSchema:
+
+    def test_an_unscoped_question_is_routed_then_gets_the_full_schema(self):
+        a = _agent(_db_name=None, _auto_scope=True)
+        cosine = {"tables": _ranking("student_club", "student_club", "frpm_db"),
+                  "prompt_context": "top-k"}
+        with patch.object(dbm, "retrieve", return_value=cosine) as ret, \
+             patch.object(dbm, "fetch_full_schema",
+                          return_value={**_FULL, "prompt_context": "full"}) as full, \
+             patch.object(dbm, "expand_fk_tables", side_effect=lambda c, *_, **__: c):
+            out = a._fetch_schema("q", [0.1], top_k=5)
+        ret.assert_called_once()                       # one cosine query
+        full.assert_called_once_with("student_club", store="pgvector")
+        assert out["prompt_context"] == "full"
+
+    def test_no_clear_winner_keeps_the_cosine_result(self):
+        a = _agent(_db_name=None, _auto_scope=True)
+        cosine = {"tables": _ranking("a", "b", "c"), "prompt_context": "top-k"}
+        with patch.object(dbm, "retrieve", return_value=cosine), \
+             patch.object(dbm, "fetch_full_schema") as full, \
+             patch.object(dbm, "expand_fk_tables", side_effect=lambda c, *_, **__: c):
+            out = a._fetch_schema("q", [0.1], top_k=5)
+        full.assert_not_called()
+        assert out["prompt_context"] == "top-k"
+
+    def test_a_configured_scope_is_not_overridden_by_the_ranking(self):
+        """Explicit intent — config or the UI picker — always wins."""
+        a = _agent(_db_name="superhero", _auto_scope=True)
+        with patch.object(dbm, "fetch_full_schema", return_value=_FULL) as full, \
+             patch.object(dbm, "retrieve") as ret, \
+             patch.object(dbm, "expand_fk_tables", side_effect=lambda c, *_, **__: c):
+            a._fetch_schema("q", [0.1], top_k=5)
+        full.assert_called_once_with("superhero", store="pgvector")
+        ret.assert_not_called()
+
+    def test_routing_can_be_switched_off(self):
+        a = _agent(_db_name=None, _auto_scope=False)
+        cosine = {"tables": _ranking("a", "a"), "prompt_context": "top-k"}
+        with patch.object(dbm, "retrieve", return_value=cosine), \
+             patch.object(dbm, "fetch_full_schema") as full, \
+             patch.object(dbm, "expand_fk_tables", side_effect=lambda c, *_, **__: c):
+            out = a._fetch_schema("q", [0.1], top_k=5)
+        full.assert_not_called()
+        assert out["prompt_context"] == "top-k"
+
+    def test_an_over_budget_routed_domain_falls_back_to_its_cosine_result(self):
+        a = _agent(_db_name=None, _auto_scope=True, _max_schema_tokens=50)
+        cosine = {"tables": _ranking("a", "a"), "prompt_context": "top-k"}
+        with patch.object(dbm, "retrieve", return_value=cosine), \
+             patch.object(dbm, "fetch_full_schema",
+                          return_value={**_FULL, "prompt_context": "x" * 5000}), \
+             patch.object(dbm, "expand_fk_tables", side_effect=lambda c, *_, **__: c):
+            out = a._fetch_schema("q", [0.1], top_k=5)
+        assert out["prompt_context"] == "top-k"

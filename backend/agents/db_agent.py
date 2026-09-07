@@ -391,7 +391,7 @@ class OrchestrationAgent:
         _r = config.get("retrieval", {}) or {}
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
-        self._max_schema_tokens = int(_r.get("max_schema_tokens", 4000))
+        self._max_schema_tokens = int(_r.get("max_schema_tokens", 12000))
         # Cosine top-k, used only when the full-schema path (GH#85) is not
         # available — no scope, nothing indexed for it, or over the budget.
         self._top_k_tables = int(_r.get("top_k_tables", 5))
@@ -399,6 +399,9 @@ class OrchestrationAgent:
         # strategy over cosine top-k when retrieval is scoped. False restores
         # pure top-k retrieval for an A/B.
         self._full_schema = bool(_r.get("full_schema_when_scoped", True))
+        # GH#95: with no scope configured, infer the question's database from
+        # the retrieval ranking and use that domain's full schema.
+        self._auto_scope = bool(_r.get("auto_scope", True))
         # GH#89: drop conversation history for a turn whose tables are
         # disjoint from the previous answer's. False keeps history always.
         self._topic_switch_detection = bool(
@@ -528,18 +531,92 @@ class OrchestrationAgent:
     def _get_optimizer(self) -> ResponseOptimizer:
         return getattr(_tls, "optimizer", self.optimizer)
 
+    @staticmethod
+    def _infer_scope(tables: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        GH#95: which logical database is this question about?
+
+        Read off the cosine result that has already been fetched: each chunk
+        carries the db_id that owns its table (GH#81), so the ranking IS a
+        vote. Chunks are weighted by rank — the nearest match counts most —
+        and a scope is returned only when one database wins outright, so an
+        evenly split ranking falls back to plain top-k rather than guessing.
+
+        Costs nothing: no embedding, no LLM, no second query.
+        """
+        if not tables:
+            return None
+        scores: Dict[str, float] = {}
+        counts: Dict[str, int] = {}
+        for rank, t in enumerate(tables):
+            db = t.get("db_name")
+            if not db:
+                continue
+            scores[db] = scores.get(db, 0.0) + 1.0 / (rank + 1)
+            counts[db] = counts.get(db, 0) + 1
+        if not scores:
+            return None
+        if len(scores) == 1:
+            # A single-domain install lands here on every question.
+            return next(iter(scores))
+
+        # A lone chunk must not commit a whole domain. A rank-1 chunk outweighs
+        # any single lower-ranked one by construction, so without this every
+        # question would route to whichever domain happened to top the list —
+        # including one distractor beating two agreeing tables. Requiring two
+        # tables from the same database means the ranking agreed with itself.
+        candidates = {db: sc for db, sc in scores.items() if counts[db] >= 2}
+        if not candidates:
+            return None
+        ranked = sorted(candidates.items(), key=lambda kv: kv[1], reverse=True)
+        if len(ranked) > 1 and ranked[0][1] <= ranked[1][1]:
+            return None                       # tied — the ranking has no view
+        return ranked[0][0]
+
+    def _full_schema_for(self, scope: str, top_k: int) -> Optional[Dict[str, Any]]:
+        """The complete, FK-annotated schema of *scope*, or None if it will
+        not fit the token budget (or is not indexed)."""
+        full = fetch_full_schema(scope, store="pgvector")
+        if not full:
+            return None
+        expanded = expand_fk_tables(
+            full, scope,
+            max_hops=self._fk_max_hops,
+            max_expansion=self._fk_max_expansion,
+            max_schema_tokens=self._max_schema_tokens,
+        )
+        # expand_fk_tables trims to budget by dropping FK-EXPANSION chunks, and
+        # here every table is primary — which it never drops. An over-budget
+        # scope has to be caught here or the generator receives a context
+        # larger than it was configured for.
+        tokens = estimate_tokens(expanded["prompt_context"])
+        if tokens > self._max_schema_tokens:
+            logger.info(
+                f"[RAG] full schema for '{scope}' is ~{tokens} tokens "
+                f"(budget {self._max_schema_tokens}) — using cosine top-k")
+            trace(f"  🗂️  Full schema for '{scope}' too large (~{tokens} "
+                  f"tokens) → falling back to top-{top_k} retrieval")
+            return None
+        trace(f"  🗂️  Full schema for '{scope}': "
+              f"{len(full['tables'])} table(s), ~{tokens} tokens")
+        return expanded
+
     def _fetch_schema(
         self, search_q: str, embedding: Optional[list], top_k: int,
     ) -> Dict[str, Any]:
         """
         Schema context for one question, FK-expanded and within the token
-        budget (GH#85).
+        budget (GH#85, GH#95). Three strategies, in order:
 
-        Prefers the BIRD harness's strategy: when retrieval is scoped to one
-        logical database, hand the generator that database's COMPLETE schema,
-        the way `extract_sqlite_schema(db_path)` does. Cosine top-k is the
-        fallback — used when there is no scope, when the store has nothing for
-        it, or when the full schema does not fit `max_schema_tokens`.
+        1. **Configured scope.** `retrieval.active_db`, or the UI's per-request
+           picker: the complete schema of that database.
+        2. **Inferred scope** (GH#95). With no scope configured, cosine
+           retrieval runs first and its ranking is used to identify the
+           database the question is about; that database's complete schema is
+           then fetched. This is what the BIRD harness gets for free from the
+           dataset's `db_id`, recovered here from evidence already in hand.
+        3. **Cosine top-k.** When no database wins the vote, its schema is not
+           indexed, or the full schema exceeds `max_schema_tokens`.
 
         Why the preference: the table carrying a filter is often the one least
         similar to the question's wording ("who had the least consumption in
@@ -547,43 +624,36 @@ class OrchestrationAgent:
         model silently drops the constraint and answers a different question.
         80% of BIRD's gold SQL needs a join, so this is the common case.
         """
+        want_full = getattr(self, "_full_schema", True)
         scope = self._get_scope()
-        result = None
-        if scope and getattr(self, "_full_schema", True):
-            full = fetch_full_schema(scope, store="pgvector")
-            if full:
-                expanded = expand_fk_tables(
-                    full, scope,
-                    max_hops=self._fk_max_hops,
-                    max_expansion=self._fk_max_expansion,
-                    max_schema_tokens=self._max_schema_tokens,
-                )
-                # expand_fk_tables drops FK-expansion chunks to fit the budget,
-                # but here every table is primary and primaries are never
-                # dropped — so an over-budget scope must be caught here or the
-                # generator gets a context larger than it was configured for.
-                tokens = estimate_tokens(expanded["prompt_context"])
-                if tokens <= self._max_schema_tokens:
-                    trace(f"  🗂️  Full schema for '{scope}': "
-                          f"{len(full['tables'])} table(s), ~{tokens} tokens")
-                    result = expanded
-                else:
-                    logger.info(
-                        f"[RAG] full schema for '{scope}' is ~{tokens} tokens "
-                        f"(budget {self._max_schema_tokens}) — using cosine top-k")
-                    trace(f"  🗂️  Full schema too large (~{tokens} tokens) "
-                          f"→ falling back to top-{top_k} retrieval")
 
-        if result is None:
-            chunks = retrieve(search_q, scope, top_k_tables=top_k,
-                              store="pgvector", embedding=embedding)
-            result = expand_fk_tables(
-                chunks, scope,
-                max_hops=self._fk_max_hops,
-                max_expansion=self._fk_max_expansion,
-                max_schema_tokens=self._max_schema_tokens,
-            )
-        return result
+        # 1. Configured scope — explicit intent always wins.
+        if scope and want_full:
+            result = self._full_schema_for(scope, top_k)
+            if result is not None:
+                return result
+
+        chunks = retrieve(search_q, scope, top_k_tables=top_k,
+                          store="pgvector", embedding=embedding)
+
+        # 2. Inferred scope — the ranking just fetched names its own domain.
+        if not scope and want_full and getattr(self, "_auto_scope", True):
+            inferred = self._infer_scope(chunks.get("tables") or [])
+            if inferred:
+                trace(f"  🎯 Question routed to database '{inferred}' "
+                      f"(from the retrieval ranking)")
+                logger.info(f"[RAG] auto-scoped to '{inferred}'")
+                result = self._full_schema_for(inferred, top_k)
+                if result is not None:
+                    return result
+
+        # 3. Cosine top-k.
+        return expand_fk_tables(
+            chunks, scope,
+            max_hops=self._fk_max_hops,
+            max_expansion=self._fk_max_expansion,
+            max_schema_tokens=self._max_schema_tokens,
+        )
 
     def _detect_topic_switch(self, state: AgentState,
                              tables: List[str]) -> bool:

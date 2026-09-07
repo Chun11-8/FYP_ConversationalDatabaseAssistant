@@ -448,7 +448,7 @@ def expand_fk_tables(
     max_hops: int = 2,
     store_conn=None,
     max_expansion: int = 5,
-    max_schema_tokens: int = 4000,
+    max_schema_tokens: int = 12000,
 ) -> dict:
     """
     Expand a retrieve() result with FK-linked tables.

@@ -457,7 +457,7 @@ been closed (GH#85):
 
 | | BIRD harness | Chat UI |
 |---|---|---|
-| Schema | complete schema of the question's `db_id` | **complete schema of the active scope**, cosine top-k only as fallback |
+| Schema | complete schema of the question's `db_id` | **complete schema of the question's database**, cosine top-k only as fallback |
 | Effort tier | the dataset's real difficulty label | **one fixed tier** (`sql.live_tier`, default `moderate`) — no inference |
 | Evidence | `<domain_context>` from the dataset | none — a live user types no evidence hint |
 
@@ -466,10 +466,24 @@ The schema change matters because the table carrying a filter is often the one
 the model quietly drops the constraint and answers a different question. 80% of
 BIRD's gold SQL needs a join, so this is the common case.
 
-Cosine top-k (`retrieval.top_k_tables`) still runs when there is no active
-scope, when nothing is indexed for it, or when the scope's full schema exceeds
-`retrieval.max_schema_tokens`. Set `retrieval.full_schema_when_scoped: false`
-to A/B against pure top-k retrieval.
+The harness gets the question's `db_id` from the dataset. The chat UI has no
+such label, so it recovers one (GH#95): every schema chunk carries the database
+that owns its table, which makes the cosine ranking a **vote**. A database that
+contributes two or more of the top-k tables, and outscores every other, wins the
+question — and its complete schema is fetched. No extra embedding, no extra LLM
+call, no second query. Explicit intent (`retrieval.active_db`, or the sidebar
+picker) always overrides the vote.
+
+Schema selection therefore runs in three steps:
+
+1. **Configured scope** — the full schema of `active_db`.
+2. **Inferred scope** — the full schema of the database the ranking chose.
+3. **Cosine top-k** — when no database wins outright, nothing is indexed for
+   it, or the full schema exceeds `retrieval.max_schema_tokens`.
+
+`retrieval.auto_scope: false` disables step 2;
+`retrieval.full_schema_when_scoped: false` disables both and restores pure
+top-k retrieval for an A/B.
 
 Evidence remains the one real asymmetry: the benchmark supplies a domain hint
 for 148 of 150 questions and the deployed system has none.
