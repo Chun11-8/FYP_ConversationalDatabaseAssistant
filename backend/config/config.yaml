@@ -209,9 +209,22 @@ retrieval:
   # Cosine top-k still applies when there is no scope, nothing is indexed for
   # it, or the full schema exceeds max_schema_tokens. false = always top-k.
   full_schema_when_scoped: true
+  # GH#95: with no active_db configured, infer the question's database from
+  # the retrieval ranking — every chunk carries the db_id that owns its table
+  # (GH#81), so the ranking is already a vote — and use that domain's full
+  # schema. Costs nothing: no extra embedding, no extra LLM call, no second
+  # query. Falls back to cosine top-k when no database wins outright.
+  auto_scope: true
   fk_max_hops: 2
   fk_max_expansion: 5
-  max_schema_tokens: 4000
+  # Approximate token budget for the schema context. Raised 4000 → 12000
+  # (GH#95): a whole domain is now the normal unit of context, and 4000 could
+  # not hold one — student_club (8 tables) needs ~6k, formula_1 (13) ~10k, so
+  # every FK table was being dropped and the full-schema path fell back to
+  # top-k on exactly the questions that needed the joins. 12000 is ~10% of
+  # gpt-4o-mini's window; the cost is input tokens per candidate, so lower it
+  # if you are generating many candidates on a large schema.
+  max_schema_tokens: 12000
   # GH#49 P3: deterministic WHERE-literal grounding — an in-memory distinct-
   # value index over TEXT columns corrects casing/format of literals the user
   # (or evidence) wrote differently from the stored values. No LLM calls.
