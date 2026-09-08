@@ -963,6 +963,33 @@ against that:
 Both are covered by the `topic_switch` cases in the multi-turn harness below,
 including one that moves the conversation between databases mid-session.
 
+### Measuring the detector (GH#101)
+
+A verdict without a number is a claim. `backend/eval/trust_eval.py` replays the
+labelled BIRD records in `outputs/` through the **same** `trust.grade()` the
+live pipeline uses, and reports what each signal is worth:
+
+```bash
+python -m backend.eval.trust_eval
+python -m backend.eval.trust_eval --output outputs/trust_eval.json
+```
+
+No API key, no database, no extra dependency — AUROC is computed rank-wise
+(Mann-Whitney U with average ranks, so the coarse three-level gate scores are
+not inflated by ties).
+
+Reported: **AUROC** per gate and for the combined verdict; **precision,
+recall and false-alarm rate** per individual risk code; the **risk–coverage
+curve** (selective accuracy against the proportion of questions answered); and
+an explicit list of what could *not* be measured.
+
+That last part is load-bearing. A stored record keeps no result rows, no
+retrieved tables and no back-translation, so five of the ten checks and one of
+the five gates cannot be replayed offline. They are reported as `not_measured`
+rather than scored — a gate that was never evaluated must never be presented as
+one that was. A test asserts every code `risk.py` can emit is classified as
+replayable or unmeasurable, so a new check cannot go silently unreported.
+
 ### Multi-turn evaluation (GH#71)
 
 BIRD is single-turn, so the conversational half of the system — follow-up
