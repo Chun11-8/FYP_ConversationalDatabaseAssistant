@@ -1,0 +1,162 @@
+{
+  "total": 750,
+  "correct": 476,
+  "runs": [
+    "bird_20260711_142315_EX74.0.json",
+    "bird_20260711_143114_EX68.0.json",
+    "bird_20260712_104536_EX82.0.json",
+    "bird_20260712_105253_EX62.0.json",
+    "bird_20260712_122431_EX42.0.json",
+    "bird_20260801_085832_EX46.0.json",
+    "bird_20260801_112011_EX58.0.json",
+    "bird_20260801_114304_EX76.0.json",
+    "bird_results.json",
+    "bird_results_challenging.json",
+    "bird_results_challenging_0108.json",
+    "bird_results_moderate.json",
+    "bird_results_moderate_0108.json",
+    "bird_results_simple.json",
+    "bird_results_simple_0108.json"
+  ],
+  "models": [
+    "?",
+    "gpt-4o-mini",
+    "gpt-5-mini"
+  ],
+  "verdict": {
+    "auroc": 0.6924492424707109,
+    "bands": {
+      "passed": {
+        "n": 538,
+        "correct": 408,
+        "share_pct": 71.7,
+        "accuracy_pct": 75.8
+      },
+      "review": {
+        "n": 161,
+        "correct": 53,
+        "share_pct": 21.5,
+        "accuracy_pct": 32.9
+      },
+      "untrusted": {
+        "n": 51,
+        "correct": 15,
+        "share_pct": 6.8,
+        "accuracy_pct": 29.4
+      }
+    }
+  },
+  "gates": {
+    "agreement": {
+      "auroc": 0.6109726737410293,
+      "measured": true
+    },
+    "back_translation": {
+      "auroc": 0.5,
+      "measured": false
+    },
+    "plan": {
+      "auroc": 0.5175274489357787,
+      "measured": true
+    },
+    "question_match": {
+      "auroc": 0.6092590320799853,
+      "measured": true
+    },
+    "safety": {
+      "auroc": 0.5036496350364964,
+      "measured": true
+    }
+  },
+  "checks": {
+    "aggregate_mismatch": {
+      "fired": 0,
+      "precision_pct": null,
+      "recall_pct": 0.0,
+      "false_alarm_pct": 0.0
+    },
+    "extremum_without_grouping": {
+      "fired": 6,
+      "precision_pct": 100.0,
+      "recall_pct": 2.2,
+      "false_alarm_pct": 0.0
+    },
+    "limit_one_on_plural": {
+      "fired": 0,
+      "precision_pct": null,
+      "recall_pct": 0.0,
+      "false_alarm_pct": 0.0
+    },
+    "missing_group_by": {
+      "fired": 4,
+      "precision_pct": 50.0,
+      "recall_pct": 0.7,
+      "false_alarm_pct": 0.4
+    },
+    "percentage_without_division": {
+      "fired": 0,
+      "precision_pct": null,
+      "recall_pct": 0.0,
+      "false_alarm_pct": 0.0
+    },
+    "plan_aggregate_mismatch": {
+      "fired": 24,
+      "precision_pct": 62.5,
+      "recall_pct": 5.5,
+      "false_alarm_pct": 1.9
+    },
+    "plan_grain_mismatch": {
+      "fired": 0,
+      "precision_pct": null,
+      "recall_pct": 0.0,
+      "false_alarm_pct": 0.0
+    },
+    "plan_group_by_dropped": {
+      "fired": 6,
+      "precision_pct": 33.3,
+      "recall_pct": 0.7,
+      "false_alarm_pct": 0.8
+    },
+    "zero_rows": {
+      "fired": 53,
+      "precision_pct": 100.0,
+      "recall_pct": 19.3,
+      "false_alarm_pct": 0.0
+    }
+  },
+  "unclassified_codes": [],
+  "risk_coverage": [
+    {
+      "threshold": 1.0,
+      "coverage_pct": 71.7,
+      "selective_accuracy_pct": 75.8,
+      "answered": 538
+    },
+    {
+      "threshold": 0.5,
+      "coverage_pct": 93.2,
+      "selective_accuracy_pct": 66.0,
+      "answered": 699
+    },
+    {
+      "threshold": 0.0,
+      "coverage_pct": 100.0,
+      "selective_accuracy_pct": 63.5,
+      "answered": 750
+    }
+  ],
+  "not_measured": {
+    "gates": [
+      "back_translation"
+    ],
+    "checks": [
+      "ungrounded_literal",
+      "dropped_constraint",
+      "unknown_value",
+      "cross_join",
+      "arity_mismatch",
+      "out_of_schema"
+    ],
+    "reason": "the stored records keep no result rows, retrieved tables or back-translation; these need a run that persists the full verification block"
+  }
+}
