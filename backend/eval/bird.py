@@ -492,6 +492,70 @@ def select_by_execution(
 
 # ── Evaluation loop ────────────────────────────────────────────────────────────
 
+def _verification_for(
+    sql: str, rows: Any, question: str, evidence: str, schema_context: str,
+    query_plan: Optional[dict], validation: Dict[str, Any],
+    vote_info: Optional[Dict[str, Any]], refined: bool, judge_llm: Any,
+) -> Dict[str, Any]:
+    """
+    GH#103: the live pipeline's verification block, assembled for one BIRD
+    question so the detector can be scored against ground truth.
+
+    Deterministic checks always run; they cost nothing. The back-translation
+    round trip runs only when *judge_llm* is given, because it is two LLM calls
+    per question and the literature's judge signal is the reason to pay them.
+
+    Never raises: a failure here must cost the flags, not the benchmark run.
+    The value-grounded checks stay silent — ValueIndex speaks to PostgreSQL and
+    BIRD runs on SQLite — so those three codes remain unmeasured.
+    """
+    vote = vote_info or {}
+    ev: Dict[str, Any] = {
+        "candidates": int(vote.get("candidates") or 0),
+        "executed": int(vote.get("executed") or 0),
+        "agreement": int(vote.get("winner_votes") or 0),
+        "distinct_result_sets": int(vote.get("groups") or 0),
+        "decided_by": "plurality" if vote.get("executed") else "none_executed",
+        "validated": bool(validation.get("valid")),
+        "validation_checks": {k: bool(validation.get(k)) for k in
+                              ("syntax_ok", "safety_ok", "semantic_ok")
+                              if k in validation},
+        "refine_rounds": 1 if refined else 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": None,
+    }
+    if not sql:
+        return ev
+
+    try:
+        from backend.agents import risk as risk_mod
+        from backend.agents.sql_validator_agent import referenced_tables
+        out = risk_mod.assess(
+            sql=sql, rows=rows, question=question,
+            schema_context=schema_context, query_plan=query_plan,
+            tables=referenced_tables(sql, "sqlite"),
+            value_index=None,          # PostgreSQL-only; BIRD runs on SQLite
+        )
+        ev["risks"] = out.get("risks") or []
+        ev["risk_score"] = out.get("risk_score", 0)
+    except Exception as exc:
+        logger.warning(f"[BIRD] risk assessment failed: {exc}")
+
+    if judge_llm is not None:
+        try:
+            from backend.agents.back_translation import round_trip
+            # The question carries the BIRD evidence hint in the live prompt,
+            # but the judge compares against what a USER asked — the hint is
+            # not part of the question and would leak the intended reading.
+            ev["back_translation"] = round_trip(
+                describe_llm=judge_llm, compare_llm=judge_llm,
+                sql=sql, question=question, schema_context=schema_context)
+        except Exception as exc:
+            logger.warning(f"[BIRD] back-translation failed: {exc}")
+    return ev
+
+
 def run_bird_eval(
     dev_json_path: str,
     db_dir: str,
@@ -504,6 +568,7 @@ def run_bird_eval(
     exec_voting: bool = True,
     refine: bool = True,
     plan_diversity: bool = False,
+    judge_llm: Any = None,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -521,6 +586,10 @@ def run_bird_eval(
     exec_voting      : when True, candidates are selected by executing them and
                        plurality-voting on result fingerprints; the text reranker
                        only breaks ties (Tier 3, item 8)
+    judge_llm        : GH#103 — when given, the winning SQL is read back into
+                       plain English and compared with the question, and the
+                       result is stored in the record's `verification` block.
+                       None records the deterministic checks only.
     refine           : when True, one ReAct refine round runs on an observable
                        failure (invalid SQL, execution error, or 0 rows); the
                        refined SQL is kept only when it is strictly better
@@ -719,6 +788,18 @@ def run_bird_eval(
         else:
             ex = f1 = ves_reward = 0.0
 
+        # GH#103: the same evidence the live pipeline shows the user, stored
+        # so trust_eval can score the detector against ground truth. Computed
+        # here rather than reconstructed later because the executed ROWS and
+        # the schema context exist only at this point — five of the ten checks
+        # need them, and a harness replaying from disk cannot get them back.
+        verification = _verification_for(
+            sql=pred_sql, rows=pred_rows, question=question,
+            evidence=evidence, schema_context=schema_context,
+            query_plan=query_plan, validation=validation,
+            vote_info=vote_info, refined=refined, judge_llm=judge_llm,
+        )
+
         record: Dict[str, Any] = {
             "question_id":    qid,
             "db_id":          db_id,
@@ -742,6 +823,7 @@ def run_bird_eval(
             "refined":        refined,
             "gold_transpiled": gold_transpiled,
             "query_plan":     query_plan,
+            "verification":   verification,
             "usage":          q_usage.as_dict(),
             "error_category": categorize(
                 ex, gold_error, pred_sql, bool(validation.get("valid")),
@@ -852,6 +934,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="GH#76: ask the linker for a SECOND plan that "
                              "disagrees on grain/aggregation and generate from "
                              "both. Default off — run WITH and WITHOUT to A/B.")
+    parser.add_argument("--trust-eval", action="store_true",
+                        help="GH#103: read the winning SQL back into plain "
+                             "English and compare it with the question, storing "
+                             "the result in each record's verification block. "
+                             "Two extra LLM calls per question — it is the judge "
+                             "signal trust_eval.py cannot measure without.")
+    parser.add_argument("--judge-model", default=None,
+                        help="Model for the --trust-eval round trip (default: "
+                             "the run's own model). Point it at a DIFFERENT "
+                             "provider to measure whether a cross-provider judge "
+                             "sees errors the generator cannot.")
+    parser.add_argument("--judge-base-url", default=None,
+                        help="OpenAI-compatible endpoint for --judge-model.")
     parser.add_argument("--plan-rationale", action="store_true",
                         help="GH#76: make the linker name the answer's grain and "
                              "justify the aggregate against the evidence.")
@@ -903,6 +998,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "ON" if use_voting else "OFF", "ON" if use_refine else "OFF",
                 sql_agent.top_k)
 
+    # GH#103: judging with the generator's own model measures self-agreement;
+    # a second provider is what the literature reports reaching 0.82 AUROC.
+    judge_llm = None
+    if args.trust_eval:
+        judge_model = args.judge_model or model_name
+        judge_base = (args.judge_base_url if args.judge_model
+                      else (args.judge_base_url or base_url))
+        judge_llm = build_chat_llm(judge_model, config["llm"]["api_key"],
+                                   judge_base)
+        logger.info("[BIRD] trust eval: ON | judge → %s",
+                    describe_target(judge_model, judge_base))
+
     results = run_bird_eval(
         dev_json_path=args.dev_json,
         db_dir=args.db_dir,
@@ -915,6 +1022,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         exec_voting=use_voting,
         refine=use_refine,
         plan_diversity=bool(args.plan_diversity),
+        judge_llm=judge_llm,
     )
     metrics = compute_bird_metrics(results)
     run_config = {
@@ -925,6 +1033,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "base_url": base_url or "openai-default",
         "plan_diversity": bool(args.plan_diversity),
         "plan_rationale": bool(args.plan_rationale),
+        "trust_eval": bool(args.trust_eval),
+        "judge_model": (args.judge_model or model_name) if args.trust_eval else None,
+        "judge_base_url": ((args.judge_base_url or base_url or "openai-default")
+                           if args.trust_eval else None),
         "dialect": "sqlite",
         "schema_linking": bool(linker),
         "exec_voting": use_voting,
