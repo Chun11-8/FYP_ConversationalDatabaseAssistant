@@ -17,7 +17,9 @@ A final-year project — a **read-only, conversational Text-to-SQL assistant** p
 9. [API Reference](#api-reference)
 10. [Frontend](#frontend)
 11. [Safety & Security](#safety--security)
-12. [Accuracy & Evaluation](#accuracy--evaluation)
+12. [Accuracy & Evaluation](#accuracy--evaluation) — including
+    [Can this answer be trusted?](#can-this-answer-be-trusted-gh91) and
+    [Measuring the detector](#measuring-the-detector-gh101)
 13. [Development Status](#development-status)
 14. [Roadmap](#roadmap)
 15. [Contributing](#contributing)
@@ -37,11 +39,28 @@ The assistant operates as a **multi-agent pipeline** built on a LangGraph `State
 6. **Validates SQL** — syntax (sqlglot), safety (injection/mutation guard), and schema-grounded semantic checks run before any execution.
 7. **Selects the best candidate** — valid candidates are executed and **plurality-voted on their result sets**; genuine ties are resolved by a unit-test screen + pairwise LLM comparison over the actual rows (falling back to a text reranker).
 8. **Refines (ReAct)** — on an execution error or an empty result, the query is fed back for one or two repair rounds.
-9. **Formats the response** — results are rendered as inline answers, markdown tables, or exported to CSV for large result sets.
+9. **Grades the answer** — ten gold-free checks run against the executed result, the SQL is read back into plain English and compared with the question, and the evidence is condensed into a verdict: *checks passed*, *needs your review*, or *do not rely on this*.
+10. **Formats the response** — results are rendered as inline answers, markdown tables, or exported to CSV for large result sets.
 
 Throughout, the turn streams live stage events over SSE, records per-stage timings and per-stage token/cost usage, and (on success) caches the validated question→SQL pair together with its answer and a fingerprint of the rows that produced it.
 
 The system is **strictly read-only** — `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, and `CREATE` are blocked at the intent-classification layer, the SQL validator, **and** an optional read-only database role.
+
+### Why a text-to-SQL system needs a detector
+
+A wrong SQL query is not a broken one. It parses, it executes, and it returns
+plausible rows for a question nobody asked. Across the 750 labelled benchmark
+records in `outputs/`, **1 answer failed validation and 2 failed execution —
+while 54 executed cleanly and were wrong**. Syntax and safety checks cannot see
+that class of failure, because nothing about it is malformed.
+
+So the second half of this project is **selective prediction**: estimating,
+without knowing the right answer, whether this one can be trusted — and saying
+so on screen. Five gates feed a verdict, and the verdict is measured against
+ground truth rather than asserted (see
+[Measuring the detector](#measuring-the-detector-gh101)). Every signal is
+computed from the query in front of the user; no benchmark statistic is ever
+presented as a property of an individual answer.
 
 ---
 
@@ -66,8 +85,13 @@ classify_intent ──┬── WRITE_BLOCKED ──► handle_write_blocked ─
                           │                                            │
                           ▼                                            │
                    retrieve_schema ──── cache hit ─────────────────────┤
-                          │            (pgvector RAG + FK expansion +  │
+                          │            (routes the question to its own │
+                          │             database → full schema; else   │
+                          │             pgvector top-k + FK expansion; │
                           │             value grounding; cache few-shots)
+                          │
+                          ├── question names a value that does not exist
+                          │            ──► handle_unanswerable ──► END  │
                           ▼                                            │
                    link_schema       (structured query plan + backward linking)
                           │                                            │
@@ -83,7 +107,14 @@ classify_intent ──┬── WRITE_BLOCKED ──► handle_write_blocked ─
                           │                        ▼
                           │                  route_after_execution
                           │                   ├── error / 0 rows ──► refine_sql ↺
-                          │                   └── ok ──► format_response ──► END
+                          │                   └── ok ──► assess_risk
+                          │                                │  (ten gold-free checks
+                          │                                │   + SQL read back into
+                          │                                │   English and compared
+                          │                                │   with the question)
+                          │                                ▼
+                          │                          format_response ──► END
+                          │                           (+ trust verdict)
                           ├── invalid, cached ──► retrieve_schema ↺  (stale cache →
                           │                                           full retrieval)
                           └── invalid         ──► fallback_handler ──► (retry, max 2 rounds)
@@ -129,14 +160,20 @@ instead of re-asking indefinitely.
 | Prompt harness | `backend/agents/utils.py` | Loads prompt sections from `prompt.md` / `prompts/` |
 | Pipeline tracing | `backend/agents/trace.py` | Config-gated console banners for interactive tuning |
 | Schema Versioning | `backend/agents/schema_versioning_agent.py` | Snapshot/diff/hash; surgical vs full re-index |
-| Schema RAG | `backend/retrieval/` | pgvector store, FK expansion, value index, indexing CLI |
+| Trust verdict | `backend/agents/trust.py` | Grades the evidence into *checks passed* / *needs review* / *do not rely on this* — pure function, no LLM, no I/O |
+| Gold-free checks | `backend/agents/risk.py` | Ten checks on the executed result: unknown value, dropped constraint, aggregate grain/intent, plan conformance, cross join, arity, … |
+| Back-translation | `backend/agents/back_translation.py` | Describes the SQL in plain English *without* showing the model the question, then compares |
+| Schema RAG | `backend/retrieval/` | pgvector store, FK expansion, value index, per-database scoping, indexing CLI |
+| Database catalog | `backend/retrieval/db_catalog.py` | Maps each table to the logical database that owns it, so retrieval can be scoped to one domain |
 | Memory | `backend/memory/session_memory.py` | Session turn history (in-RAM, optional Postgres) with rolling summaries |
 | Semantic cache | `backend/memory/semantic_cache.py` | Validated question→SQL pairs; few-shots, hit shortcut, cached answers |
 | LLM factory | `backend/agents/llm_factory.py` | Single construction point for query-stage clients; OpenAI-compatible `base_url` |
 | Query skeletons | `backend/memory/skeleton.py` | Structural-shape signatures used to blend few-shot selection |
 | Tools | `backend/tools/` | Web-search tool + registry, used by the `GENERAL` intent path |
 | Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) + output guardrail |
-| BIRD evaluation | `backend/eval/` | BIRD mini-dev harness (EX / Soft-F1 / VES), error analysis |
+| BIRD evaluation | `backend/eval/bird.py` | BIRD mini-dev harness (EX / Soft-F1 / VES), error analysis |
+| Detector evaluation | `backend/eval/trust_eval.py` | AUROC per gate, per-check precision/false-alarm, risk–coverage curve |
+| Multi-turn evaluation | `backend/eval/multiturn.py` | Replays scripted conversations through the full graph |
 | HTTP API | `backend/api/main.py` | FastAPI server: chat, SSE streaming, schema sync, feedback, metrics |
 | Config Loader | `backend/config/config_loader.py` | Single config entry point; validates secrets |
 
@@ -185,6 +222,10 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── sql_code_agent.py           # SQL generation, reranking, deterministic repairs
 │   │   ├── sql_validator_agent.py      # Syntax / safety / semantic validation
 │   │   ├── schema_versioning_agent.py  # Schema snapshot / diff / re-index
+│   │   ├── risk.py                     # Ten gold-free checks on the executed result
+│   │   ├── trust.py                    # Evidence → verdict (pure; no LLM, no I/O)
+│   │   ├── back_translation.py         # SQL → plain English → compare with the question
+│   │   ├── llm_factory.py              # Query-stage LLM clients; OpenAI-compatible base_url
 │   │   ├── safety.py                   # Shared DML + injection guards, LIMIT enforcement
 │   │   ├── usage.py                    # Per-request LLM token + cost accounting
 │   │   ├── trace.py                    # Config-gated pipeline console tracing
@@ -215,10 +256,18 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── indexing.py                 # CLI: build/query index, FK expansion, backward link
 │   │   ├── embedding.py                # Embedding client + verbose / M-Schema chunk builders
 │   │   ├── value_index.py              # Distinct-value index for WHERE-literal grounding
+│   │   ├── db_catalog.py               # table → owning database, for per-domain scoping
+│   │   ├── internal_tables.py          # The assistant's own tables — never indexed as data
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   │   └── retriever.py                # High-level retrieve() interface
-│   ├── eval/                           # BIRD mini-dev harness (EX/F1/VES) + error analysis
-│   ├── tests/                          # 776 unit/integration tests (offline)
+│   ├── eval/
+│   │   ├── bird.py                     # BIRD mini-dev harness (EX / Soft-F1 / VES)
+│   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
+│   │   ├── multiturn.py                # Scripted conversations through the full graph
+│   │   ├── multiturn_cases.json        # 14 cases / 29 turns across seven categories
+│   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
+│   │   └── smoke_examples.py           # Self-contained SQLite fixtures
+│   ├── tests/                          # 1287 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -1029,7 +1078,7 @@ a key for SQL generation. Retrieval is bypassed (the whole three-table schema
 is injected) so a failure is attributable to the conversation rather than to
 RAG noise.
 
-13 cases / 27 turns across seven categories, each targeting a distinct way
+14 cases / 29 turns across seven categories, each targeting a distinct way
 multi-turn breaks:
 
 | Category | Example follow-up | Catches |
@@ -1152,25 +1201,79 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI; drop/modify cascades the semantic cache (archive/demote) |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | ~776 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | 1287 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |
 | #56 | Skeleton-similarity few-shot selection | ✅ Done | DAIL-SQL-style structural-shape blending |
 | #57 | Cost telemetry + minimum-execution routing | ✅ Done | Token/cost accounting, repeat-query fast path, answer reuse |
+| #65 | Open-weight / multi-provider models | ✅ Done | `llm_factory` + `base_url`; query stage only, embeddings stay on OpenAI |
+
+**Trustworthiness — the second half of the project**
+
+| Issue | Area | Status | Notes |
+|---|---|---|---|
+| #67 | Evidence behind an answer | ✅ Done | Candidate agreement, how the winner was chosen, refine rounds |
+| #69 | Gold-free risk checks | ✅ Done | Seven checks on the executed result; annotate only |
+| #71 | Multi-turn evaluation harness | ✅ Done | 14 cases / 29 turns, `stale_repeat` verdict — **not yet run** |
+| #73/#75 | Question coverage + unanswerable exit | ✅ Done | A question naming a value that does not exist is refused, not answered |
+| #76 | Plan diversity + grain rationale | ✅ Done | Both now enabled in config — see the caveat under Roadmap |
+| #87/#89 | Follow-up contamination + topic switch | ✅ Done | Condensation veto; history dropped when the subject changes |
+| #91 | Trust verdict + plan conformance + back-translation | ✅ Done | Five gates, a verdict, and the grading shown on screen |
+| #101 | Measuring the detector | ✅ Done | AUROC, per-check rates, risk–coverage — **4 of 5 gates measured** |
+| #103 | Capturing the judge signal | ✅ Done | `bird --trust-eval`; **needs a run to produce numbers** |
+
+**Retrieval correctness**
+
+| Issue | Area | Status | Notes |
+|---|---|---|---|
+| #79 | Exclude the assistant's own tables from the index | ✅ Done | Requires a re-index |
+| #81 | Tag schema chunks by owning database; scoping | ✅ Done | Requires a re-index |
+| #83 | Surface the database scope in the UI | ✅ Done | Sidebar picker, per-request `db_scope` |
+| #85 | Align live schema + effort budget with `bird.py` | ✅ Done | Full schema per scope; no tier inference live |
+| #93/#95 | Grain false positive; automatic domain routing | ✅ Done | Routing from the retrieval ranking; budget 4k → 12k |
+| #97/#99 | Record ids and unindexable columns | ✅ Done | No refusal on evidence the index never had |
+| #6 | User isolation & roles | ⏳ Planned | Read-only DB role landed; auth still open |
 | #12 | Knowledge Graph (LlamaIndex) | 🔮 Deferred | Not started |
 
 ---
 
 ## Roadmap
 
-**Remaining work**
+**Runs that have not been done.** Most of what is left is measurement, not
+code. Every item below is a table or a figure the write-up currently cannot
+show.
+
+- [ ] **Multi-turn evaluation** — `python -m backend.eval.multiturn`. Needs no
+      BIRD download and no PostgreSQL; the conversational half of the system is
+      entirely unmeasured.
+- [ ] **Judge gate** — `bird --trust-eval`, then re-run `trust_eval`. Turns
+      *4 of 5 gates measured* into 5, and is the signal the literature puts
+      well above self-consistency.
+- [ ] **Cross-provider judge** — the same run with `--judge-model` /
+      `--judge-base-url` pointed elsewhere. Comparing it against the self-judge
+      is the single most citable result available here.
+- [ ] **Ablations** — `--no-exec-voting`, `--no-schema-linking`, `--no-refine`,
+      and the newer `retrieval.full_schema_when_scoped` / `retrieval.auto_scope`
+      / `sql.live_tier` knobs. All shipped unmeasured.
+- [ ] **`sql.fast_path` / `sql.answer_reuse` on vs off** — EX must be unchanged
+      (GH#57 is accuracy-neutral by design); `cost_usd` shows the saving.
+
+> ⚠️ `plan_diversity` and `plan_rationale` are now **enabled** in
+> `config.yaml`. They were default-off pending an A/B, so their effect is
+> currently unquantified — the 750 records already in `outputs/` were all
+> produced with them off and serve as the baseline for a re-run.
+
+**Code**
 - [ ] Issue #6 — User isolation, roles, JWT auth (read-only DB role already landed)
 - [ ] GitHub Actions CI wired to the test suite
-- [ ] BIRD 3-tier A/B rerun to quantify the #48–50 accuracy techniques
-- [ ] BIRD rerun with `sql.fast_path` / `sql.answer_reuse` on vs. off — EX must be
-      unchanged (GH#57 is accuracy-neutral by design); the new `cost_usd` metric
-      shows the saving
+- [ ] Selective prediction — the verdict annotates but never withholds; the
+      risk–coverage curve exists, the abstention policy does not
+- [ ] Fit the gate weights instead of the hand-written worst-gate rule, and
+      report calibration error against it
+- [ ] Dialect-aware `ValueIndex` — would let the three value-grounded checks be
+      measured on the SQLite benchmark, and let the multi-turn harness ground
+      values
 - [ ] Issue #12 — Knowledge Graph via LlamaIndex (deferred)
 
 ---
