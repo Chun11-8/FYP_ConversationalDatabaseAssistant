@@ -132,13 +132,20 @@ Once the API exists: `uvicorn backend.api.main:app --reload --port 8000`.
    return a dict (`response`, `sql`, `intent`, row count, csv path). Refactor early (#1).
 7. **Windows/pgvector quirk:** `localhost` may resolve to IPv6 and hit the wrong Postgres
    instance. The store defaults to `127.0.0.1` on purpose — keep it.
-8. **Two execution paths exist.** `backend/eval/bird.py` has its OWN loop — it
+8. **The project has two halves.** Generating SQL, and deciding whether the
+   SQL can be trusted. The second half is `agents/risk.py` (ten gold-free
+   checks), `agents/back_translation.py` (SQL → English → compare) and
+   `agents/trust.py` (evidence → verdict), measured by `eval/trust_eval.py`.
+   Two rules there are load-bearing: every signal is computed from the query
+   in front of the user, and a check that could not run is reported as *not
+   checked*, never as *nothing wrong*. Don't weaken either.
+9. **Two execution paths exist.** `backend/eval/bird.py` has its OWN loop — it
    never touches `OrchestrationAgent`. It shares only the generation agents, so
    a change to the graph does not change the benchmark and vice versa. GH#85
    aligned what they feed those agents (full schema per scope; no tier
    inference live); evidence (`<domain_context>`) is still eval-only. When you
    change retrieval or generation inputs, check both.
-9. **`pgvector_store.py` is canonical**, `pinecone_store.py` is the swappable alt. Keep
+10. **`pgvector_store.py` is canonical**, `pinecone_store.py` is the swappable alt. Keep
    both behind the `_get_backend(store)` selector in `indexing.py`.
 
 ---
