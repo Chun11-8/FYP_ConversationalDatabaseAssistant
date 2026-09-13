@@ -153,3 +153,115 @@ def test_evaluate_names_what_it_could_not_measure():
                         "question": "q", "pred_row_count": 2, "ex": 0.0}])
     assert res["not_measured"]["gates"] == ["back_translation"]
     assert not res["gates"]["back_translation"]["measured"]
+
+
+# ── Phase B: the block bird.py now stores (GH#103) ────────────────────────────
+
+class TestStoredVerificationIsPreferred:
+
+    REC = {"exec_vote": {"executed": 5, "winner_votes": 3, "groups": 2},
+           "valid": True, "pred_sql": "SELECT a FROM t", "pred_row_count": 2,
+           "question": "list a", "ex": 0.0}
+
+    def test_a_stored_block_is_used_verbatim(self):
+        """It holds evidence — the executed rows' checks, the judge verdict —
+        that cannot be recovered from disk afterwards."""
+        stored = {"executed": 5, "agreement": 5, "validated": True,
+                  "risks": [{"code": "cross_join", "severity": "medium",
+                             "message": "m"}],
+                  "back_translation": {"verdict": "mismatch", "reason": "r"}}
+        assert TE.verification_from_record({**self.REC, "verification": stored}) \
+            is stored
+
+    def test_an_empty_or_absent_block_falls_back_to_reconstruction(self):
+        for value in (None, {}, "not a dict"):
+            ev = TE.verification_from_record({**self.REC, "verification": value})
+            assert ev["agreement"] == 3        # rebuilt from exec_vote
+
+    def test_the_judge_gate_becomes_measured_when_the_data_has_it(self):
+        recs = [{**self.REC, "ex": e, "verification": {
+                    "executed": 2, "agreement": 2, "validated": True,
+                    "validation_checks": {"semantic_ok": True}, "risks": [],
+                    "back_translation": {"verdict": v, "description": "d"}}}
+                for e, v in ((1.0, "match"), (0.0, "mismatch"))]
+        res = TE.evaluate(recs)
+        assert res["gates"]["back_translation"]["measured"] is True
+        assert "back_translation" not in res["not_measured"]["gates"]
+        assert res["runs_with_stored_verification"] == 2
+
+    def test_a_gate_skipped_everywhere_is_reported_unmeasured(self):
+        """Its 0.5 AUROC must read as 'never ran', not 'measured and
+        worthless' — the difference matters in a report."""
+        res = TE.evaluate([{**self.REC, "ex": 1.0}, {**self.REC, "ex": 0.0}])
+        assert res["gates"]["back_translation"]["measured"] is False
+        assert "back_translation" in res["not_measured"]["gates"]
+
+    def test_a_rows_based_code_that_fired_is_no_longer_listed_unmeasured(self):
+        recs = [{**self.REC, "ex": 0.0, "verification": {
+                    "executed": 1, "agreement": 1, "validated": True,
+                    "risks": [{"code": "cross_join", "severity": "medium",
+                               "message": "m"}]}}]
+        res = TE.evaluate(recs)
+        assert "cross_join" not in res["not_measured"]["checks"]
+        assert res["checks"]["cross_join"]["fired"] == 1
+
+
+class TestBirdStoresTheBlock:
+
+    def _validation(self):
+        return {"valid": True, "syntax_ok": True, "safety_ok": True,
+                "semantic_ok": True}
+
+    def test_deterministic_checks_run_without_a_judge(self):
+        from backend.eval.bird import _verification_for
+        ev = _verification_for(
+            sql="SELECT a FROM t", rows=[], question="list every a",
+            evidence="", schema_context="Table: t", query_plan=None,
+            validation=self._validation(),
+            vote_info={"candidates": 3, "executed": 3, "winner_votes": 3,
+                       "groups": 1},
+            refined=False, judge_llm=None)
+        assert ev["agreement"] == 3 and ev["validated"] is True
+        assert any(r["code"] == "zero_rows" for r in ev["risks"])
+        assert ev["back_translation"] is None      # not run, not faked
+
+    def test_the_judge_runs_only_when_given_one(self):
+        from unittest.mock import MagicMock, patch
+        import backend.eval.bird as B
+        with patch("backend.agents.back_translation.round_trip",
+                   return_value={"verdict": "match", "description": "d",
+                                 "reason": None}) as rt:
+            ev = B._verification_for(
+                sql="SELECT 1", rows=[{"x": 1}], question="q", evidence="",
+                schema_context="", query_plan=None,
+                validation=self._validation(), vote_info={}, refined=False,
+                judge_llm=MagicMock())
+        rt.assert_called_once()
+        assert ev["back_translation"]["verdict"] == "match"
+
+    def test_a_judge_failure_costs_the_flag_not_the_run(self):
+        from unittest.mock import MagicMock, patch
+        import backend.eval.bird as B
+        with patch("backend.agents.back_translation.round_trip",
+                   side_effect=RuntimeError("provider down")):
+            ev = B._verification_for(
+                sql="SELECT 1", rows=[{"x": 1}], question="q", evidence="",
+                schema_context="", query_plan=None,
+                validation=self._validation(), vote_info={}, refined=False,
+                judge_llm=MagicMock())
+        assert ev["back_translation"] is None
+        assert ev["validated"] is True             # the rest survived
+
+    def test_no_sql_produces_an_empty_but_well_formed_block(self):
+        from backend.eval.bird import _verification_for
+        ev = _verification_for(
+            sql="", rows=[], question="q", evidence="", schema_context="",
+            query_plan=None, validation={"valid": False}, vote_info=None,
+            refined=False, judge_llm=None)
+        assert ev["risks"] == [] and ev["validated"] is False
+
+    def test_the_block_is_attached_to_every_record(self):
+        import inspect
+        import backend.eval.bird as B
+        src = inspect.getsource(B.run_bird_eval)
+        assert '"verification":   verification,' in src

@@ -18,16 +18,21 @@ No API key, no database, no new dependency.
 
 WHAT IS AND IS NOT MEASURED HERE
 --------------------------------
-A stored record carries `exec_vote`, `valid`, `pred_sql`, `pred_row_count` and
-`query_plan`, which is enough for four of the five gates. It does NOT carry the
-executed rows, the retrieved tables, or the back-translation, so:
+Two kinds of run land in ``outputs/``:
 
-  * five of the ten risk checks are replayable (zero rows, aggregate grain,
-    aggregate intent, LIMIT-1-on-plural, plan conformance);
-  * the value-grounded checks and the back-translation gate are NOT.
+  * **`bird --trust-eval`** (GH#103) stored the real verification block at
+    generation time — every check that needs the executed rows, plus the
+    back-translation. That block is used as-is.
+  * **Everything older** is reconstructed from what it kept: `exec_vote`,
+    `valid`, `pred_sql`, `pred_row_count`, `query_plan`. Enough for four of the
+    five gates and five of the ten checks; the rows are gone and cannot be
+    recovered from disk.
 
-Those are reported as `not_measured` rather than silently scored, because a
-gate that could not be evaluated must never be presented as one that was.
+The report follows the DATA, not a constant: a gate skipped on every record is
+listed under `not_measured` rather than scored, because a gate that was never
+exercised must not be presented as one that was found worthless. The three
+value-grounded checks stay unmeasured either way — ValueIndex speaks to
+PostgreSQL and the benchmark runs on SQLite.
 """
 
 from __future__ import annotations
@@ -183,7 +188,19 @@ def _replayable_risks(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def verification_from_record(rec: Dict[str, Any]) -> Dict[str, Any]:
-    """A benchmark record rendered in the shape ``trust.grade`` consumes."""
+    """
+    The verification block for one record.
+
+    A run made with ``bird --trust-eval`` (GH#103) stored the real one at
+    generation time — including the checks that need the executed rows, and
+    the back-translation, none of which can be recovered from disk afterwards.
+    Prefer it. Older runs are reconstructed from what they did keep, which is
+    strictly less.
+    """
+    stored = rec.get("verification")
+    if isinstance(stored, dict) and stored:
+        return stored
+
     vote = rec.get("exec_vote") or {}
     executed = int(vote.get("executed") or 0)
     valid = bool(rec.get("valid"))
@@ -228,6 +245,7 @@ def evaluate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     gate_scores: Dict[str, List[float]] = defaultdict(list)
     check_fired: Dict[str, List[bool]] = defaultdict(list)
     seen_codes: set = set()
+    gate_evidence: Dict[str, bool] = defaultdict(bool)
     verdict_counts: Dict[str, List[int]] = defaultdict(lambda: [0, 0])
 
     for rec in records:
@@ -242,12 +260,23 @@ def evaluate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         for gate in graded["gates"]:
             gate_scores[gate["id"]].append(_STATUS_SCORE[gate["status"]])
+            # A gate SKIPPED on every record was never exercised; its 0.5
+            # AUROC would otherwise read as "measured and worthless" rather
+            # than "never ran".
+            if gate["status"] != T.SKIPPED:
+                gate_evidence[gate["id"]] = True
         codes = {str(r.get("code", "")) for r in ev["risks"]}
         seen_codes.update(codes)
-        for code in REPLAYABLE_CODES:
+        for code in REPLAYABLE_CODES + UNMEASURED_CODES:
             check_fired[code].append(code in codes)
 
     total = len(labels)
+    # What is measurable depends on the runs loaded, not on a constant: a
+    # --trust-eval run carries the judge gate and the rows-based checks, an
+    # older one does not. A fixed list would understate a fresh run and
+    # overstate an old one.
+    measured_gates = {gid for gid, seen in gate_evidence.items() if seen}
+    unmeasured_codes = [c for c in UNMEASURED_CODES if c not in seen_codes]
     return {
         "total": total,
         "correct": sum(labels),
@@ -264,7 +293,7 @@ def evaluate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         },
         "gates": {
             gid: {"auroc": auroc(scores, labels),
-                  "measured": gid not in UNMEASURED_GATES}
+                  "measured": gid in measured_gates}
             for gid, scores in sorted(gate_scores.items())
         },
         "checks": {code: flag_rates(fired, labels)
@@ -275,12 +304,16 @@ def evaluate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             seen_codes - set(REPLAYABLE_CODES) - set(UNMEASURED_CODES)),
         "risk_coverage": risk_coverage(verdict_scores, labels),
         "not_measured": {
-            "gates": list(UNMEASURED_GATES),
-            "checks": list(UNMEASURED_CODES),
-            "reason": "the stored records keep no result rows, retrieved "
-                      "tables or back-translation; these need a run that "
-                      "persists the full verification block",
+            "gates": sorted(set(gate_scores) - measured_gates),
+            "checks": unmeasured_codes,
+            "reason": "no run in this set exercised them — re-run with "
+                      "`bird --trust-eval` for the judge gate; the three "
+                      "value-grounded checks additionally need PostgreSQL, "
+                      "which the SQLite benchmark does not use",
         },
+        "runs_with_stored_verification": sum(
+            1 for r in records
+            if isinstance(r.get("verification"), dict) and r["verification"]),
     }
 
 

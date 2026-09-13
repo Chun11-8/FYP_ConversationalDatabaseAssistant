@@ -983,12 +983,30 @@ recall and false-alarm rate** per individual risk code; the **risk–coverage
 curve** (selective accuracy against the proportion of questions answered); and
 an explicit list of what could *not* be measured.
 
-That last part is load-bearing. A stored record keeps no result rows, no
-retrieved tables and no back-translation, so five of the ten checks and one of
-the five gates cannot be replayed offline. They are reported as `not_measured`
-rather than scored — a gate that was never evaluated must never be presented as
-one that was. A test asserts every code `risk.py` can emit is classified as
-replayable or unmeasurable, so a new check cannot go silently unreported.
+That last part is load-bearing. A gate skipped on every record is reported as
+`not_measured` rather than scored — its 0.5 AUROC would otherwise read as
+"measured and worthless" instead of "never ran". A test asserts every code
+`risk.py` can emit is classified, so a new check cannot go silently unreported.
+
+**Capturing the judge signal.** The back-translation gate and the checks that
+need the executed rows cannot be recovered from an old record — the rows are
+gone. `bird --trust-eval` stores the real verification block at generation
+time, so a fresh run makes them measurable:
+
+```bash
+# judge on the generator's own model — measures self-agreement
+python -m backend.eval.bird --dev-json … --db-dir … --trust-eval
+
+# judge on a DIFFERENT provider — the literature reports 0.82 AUROC for a
+# two-provider ensemble, against 0.72–0.78 for a single judge
+python -m backend.eval.bird --dev-json … --db-dir … --trust-eval \
+    --judge-model deepseek-chat --judge-base-url https://api.deepseek.com
+```
+
+Costs two extra LLM calls per question, and the judge model and endpoint are
+recorded in the run header so a cross-provider result is attributable.
+`trust_eval.py` then prefers the stored block and reports the judge gate
+automatically — no flag, it follows the data.
 
 ### Multi-turn evaluation (GH#71)
 
