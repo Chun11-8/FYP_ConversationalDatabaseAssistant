@@ -376,7 +376,10 @@ class OrchestrationAgent:
         if self._base_url:
             logger.info("[LLM] query stage → %s",
                         describe_target(self._model, self._base_url))
-        self.llm = self._chat_llm(self._model, self._default_api_key)
+        # GH#112: no key argument — the model resolves its own. Passing
+        # the process default here would override a provider key and
+        # send, say, an OpenAI credential to OpenRouter.
+        self.llm = self._chat_llm(self._model, None)
         self.sql_agent = SQLCodeAgent(config, self.llm)
         self.validator = SQLValidatorAgent(config)
         self.linker = SchemaLinkingAgent(
@@ -489,12 +492,12 @@ class OrchestrationAgent:
         # main LLM object is REUSED (identical behavior, no extra client).
         intent_model = config["llm"].get("intent_model")
         self.intent_llm = (
-            self._chat_llm(intent_model, self._default_api_key)
+            self._chat_llm(intent_model, None)
             if intent_model and intent_model != self._model else self.llm
         )
         format_model = config["llm"].get("format_model")
         self._format_llm = (
-            self._chat_llm(format_model, self._default_api_key)
+            self._chat_llm(format_model, None)
             if format_model and format_model != self._model else self.llm
         )
         self.optimizer = ResponseOptimizer(self._format_llm)
@@ -546,7 +549,8 @@ class OrchestrationAgent:
         """
         target = resolve_model_target(
             model, getattr(self, "_config", None), api_key,
-            default_base_url=getattr(self, "_base_url", None))
+            default_base_url=getattr(self, "_base_url", None),
+            default_api_key=getattr(self, "_default_api_key", None))
         return build_for_target(target)
 
     def _get_sql_agent(self) -> SQLCodeAgent:
@@ -2392,8 +2396,11 @@ class OrchestrationAgent:
             # Must go through _chat_llm too (GH#65): a bare ChatOpenAI here
             # would silently send a bring-your-own-key request to OpenAI while
             # every other stage talks to the configured provider.
-            _tls.llm = self._chat_llm(
-                effective_model, api_key or self._default_api_key)
+            # GH#112: `api_key` is the USER's key or nothing. The
+            # process default must not be passed as an override, or a
+            # provider-tagged model picked in the sidebar is called with the
+            # wrong credential — the reported OpenRouter 401.
+            _tls.llm = self._chat_llm(effective_model, api_key or None)
             _tls.intent_llm = _tls.llm
             _tls.sql_agent = SQLCodeAgent(self._config, _tls.llm)
             _tls.linker = SchemaLinkingAgent(

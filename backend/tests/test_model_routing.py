@@ -319,3 +319,88 @@ class TestPipelineModelsCoverage:
         assert "abcdefghijklmnop" not in _mask("sk-proj-abcdefghijklmnop")
         assert _mask(None) == "-"
         assert _mask("short") == "…5ch"
+
+
+# ── GH#112: the process default must never override a provider key ────────────
+
+class TestDefaultKeyIsAFallbackNotAnOverride:
+    """
+    The reported failure: `check_models` reported every model usable, then the
+    chat UI 401'd with OpenRouter's "Missing Authentication header" the moment
+    a routed model was picked.
+
+    `resolve_model_target`'s `api_key` means "the USER brought their own key
+    for this request". Every construction site in db_agent was passing the
+    process default there instead, so a provider-tagged model was called at
+    the right endpoint with the OpenAI credential. check_models passes no key,
+    which is precisely why it resolved correctly and the app did not.
+    """
+
+    def _agent(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-provider")
+        from backend.agents.db_agent import OrchestrationAgent
+        return OrchestrationAgent({
+            "llm": {"model": "gpt-4o-mini", "api_key": "sk-openai-default",
+                    "selectable_models": ["gpt-4o-mini",
+                        {"id": "qwen/qwen3.5-122b-a10b", "provider": "openrouter"}],
+                    "providers": CONFIG["llm"]["providers"]},
+            "db": {"name": "FYP", "dialect": "postgres"}})
+
+    def _built(self, agent, model, user_key=None):
+        with patch.object(lf, "ChatOpenAI") as mc:
+            agent._chat_llm(model, user_key)
+            return mc.call_args.kwargs
+
+    def test_a_routed_model_gets_the_provider_key_not_the_default(self, monkeypatch):
+        kw = self._built(self._agent(monkeypatch), "qwen/qwen3.5-122b-a10b")
+        assert kw["base_url"] == OPENROUTER
+        assert kw["api_key"] == "sk-or-v1-provider"
+
+    def test_an_untagged_model_still_gets_the_default_key(self, monkeypatch):
+        kw = self._built(self._agent(monkeypatch), "gpt-4o-mini")
+        assert "base_url" not in kw
+        assert kw["api_key"] == "sk-openai-default"
+
+    def test_a_user_supplied_key_still_wins(self, monkeypatch):
+        """Bring-your-own-key is a real feature (GH#52) and must survive: a
+        user handing over their own credential means it."""
+        kw = self._built(self._agent(monkeypatch),
+                         "qwen/qwen3.5-122b-a10b", "sk-user-byo")
+        assert kw["api_key"] == "sk-user-byo"
+
+    def test_the_startup_clients_do_not_pass_the_default_as_an_override(self):
+        """A provider-tagged DEFAULT model would otherwise be mis-keyed before
+        any request is made — the same bug one stage earlier."""
+        import inspect
+        from backend.agents.db_agent import OrchestrationAgent
+        src = inspect.getsource(OrchestrationAgent.__init__)
+        assert "_chat_llm(self._model, None)" in src
+        assert "_chat_llm(self._model, self._default_api_key)" not in src
+
+    def test_a_provider_tagged_default_model_is_keyed_correctly(self, monkeypatch):
+        """Someone whose llm.model IS an OpenRouter id — the whole pipeline,
+        not just the picker, has to route."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-provider")
+        from backend.agents.db_agent import OrchestrationAgent
+        with patch.object(lf, "ChatOpenAI") as mc:
+            OrchestrationAgent({
+                "llm": {"model": "qwen/qwen3.5-122b-a10b",
+                        "api_key": "sk-openai-default",
+                        "selectable_models": [
+                            {"id": "qwen/qwen3.5-122b-a10b",
+                             "provider": "openrouter"}],
+                        "providers": CONFIG["llm"]["providers"]},
+                "db": {"name": "FYP", "dialect": "postgres"}})
+        first = mc.call_args_list[0].kwargs
+        assert first["base_url"] == OPENROUTER
+        assert first["api_key"] == "sk-or-v1-provider"
+
+    def test_a_bare_agent_still_falls_back_to_its_cached_key(self):
+        """Agents built via __new__ in other tests hold _default_api_key and no
+        _config; the fallback keeps them working."""
+        from backend.agents.db_agent import OrchestrationAgent
+        a = OrchestrationAgent.__new__(OrchestrationAgent)
+        a._default_api_key = "sk-cached"
+        with patch.object(lf, "ChatOpenAI") as mc:
+            a._chat_llm("gpt-4o-mini", None)
+        assert mc.call_args.kwargs["api_key"] == "sk-cached"
