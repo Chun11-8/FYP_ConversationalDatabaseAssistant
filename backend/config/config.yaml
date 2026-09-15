@@ -42,7 +42,7 @@ llm:
   # OpenAI by default) or a mapping with `provider` and, for a model that
   # rejects an explicit temperature, `temperature: null` to OMIT the parameter.
   #
-  # ⚠️ VERIFY THE SLUGS BEFORE SPENDING. OpenRouter retires ids (the old
+  # IMPORTANT: VERIFY THE SLUGS BEFORE SPENDING. OpenRouter retires ids (the old
   # `deepseek/deepseek-chat` is gone), and a wrong id fails at the first call.
   #     python -m backend.config.check_models
   # checks every entry below against its provider and prints what resolved.

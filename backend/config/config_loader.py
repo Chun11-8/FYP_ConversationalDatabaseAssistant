@@ -68,7 +68,12 @@ def load_config() -> dict:
     if not _CONFIG_YAML_PATH.exists():
         raise FileNotFoundError(f"config.yaml not found at {_CONFIG_YAML_PATH}")
 
-    with _CONFIG_YAML_PATH.open() as fh:
+    # GH#110: explicit encoding. Without it Python uses the LOCALE default,
+    # which on a Windows machine is cp1252 — and this file is UTF-8. Most
+    # UTF-8 bytes decode as mojibake under cp1252 rather than raising, so the
+    # failure is silent until a byte lands on one of the five undefined
+    # positions (0x81, 0x8d, 0x8f, 0x90, 0x9d), at which point it crashes.
+    with _CONFIG_YAML_PATH.open(encoding="utf-8") as fh:
         cfg: dict = yaml.safe_load(fh) or {}
 
     # Validate required secrets are present
