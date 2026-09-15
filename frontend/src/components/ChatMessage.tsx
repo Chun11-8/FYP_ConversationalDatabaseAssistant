@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle, ShieldAlert, ShieldX, CircleHelp, MessageSquareQuote } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle, ShieldAlert, ShieldX, CircleHelp, MessageSquareQuote, Database } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -67,6 +67,27 @@ function RecordsPanel({ rows, total }: { rows: Record<string, unknown>[]; total:
           download the CSV below for the rest.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The query ran and matched nothing (GH#113).
+ *
+ * Rendering nothing here was wrong: an empty result is a FACT about the data,
+ * and `zero_rows` raises a risk flag, so the user saw a warning with no table
+ * and reasonably read it as "the query never executed". Naming the outcome
+ * separates "no matching rows" from "no query ran".
+ */
+function EmptyResultPanel() {
+  return (
+    <div className="records-empty">
+      <Database size={13} className="records-empty-icon" />
+      <span>
+        <strong>The query ran and returned 0 rows.</strong> That is a result,
+        not a failure — either nothing in the data matches, or a filter is
+        wrong. The SQL is below so you can check which.
+      </span>
     </div>
   );
 }
@@ -251,7 +272,7 @@ const GATE_MARK: Record<TrustGate['status'], string> = {
  * "checks passed", never "correct" — they are necessary conditions, not
  * sufficient ones, and the statement says so.
  */
-function TrustVerdict({ trust }: { trust: TurnTrust }) {
+function TrustVerdict({ trust, executed }: { trust: TurnTrust; executed: boolean }) {
   const [open, setOpen] = useState(trust.level !== 'passed');
   if (trust.level === 'not_graded') return null;
   const Icon = TRUST_ICON[trust.level];
@@ -272,6 +293,16 @@ function TrustVerdict({ trust }: { trust: TurnTrust }) {
       </button>
 
       <p className="trust-statement">{trust.statement}</p>
+
+      {/* GH#113: the verdict is an opinion, not a gate. When the query ran,
+          say plainly that the data is still there — otherwise a red banner
+          reads as "your results were withheld". */}
+      {executed && trust.level !== 'passed' && (
+        <p className="trust-still-shown">
+          The query ran, so the results are shown below either way — judge them
+          against the checks.
+        </p>
+      )}
 
       {open && (
         <ul className="trust-gates">
@@ -458,7 +489,10 @@ function AssistantMessage({
           {/* 1b. The verdict (GH#91) — before the rows it judges, because
                  "can I use this?" is the first question a reader has. */}
           {message.verification?.trust && (
-            <TrustVerdict trust={message.verification.trust} />
+            <TrustVerdict
+              trust={message.verification.trust}
+              executed={message.row_count !== null && message.row_count !== undefined}
+            />
           )}
 
           {/* 1c. Risk flags (GH#69) — the specific objections behind a
@@ -467,10 +501,17 @@ function AssistantMessage({
             <RiskNotes risks={message.verification.risks} />
           ) : null}
 
-          {/* 2. Fetched records — first 10 visible, rest behind toggle */}
+          {/* 2. Fetched records — first 10 visible, rest behind toggle.
+                 GH#113: deliberately NOT gated on the trust verdict. If the
+                 query executed, the user gets the data and judges it against
+                 the checks above; withholding results would make the verdict
+                 a gatekeeper rather than an opinion. */}
           {message.rows && message.rows.length > 0 && (
             <RecordsPanel rows={message.rows} total={message.row_count ?? message.rows.length} />
           )}
+          {/* row_count === 0 means it RAN and matched nothing; null means no
+              query ran at all (refused, blocked, or a general answer). */}
+          {message.row_count === 0 && <EmptyResultPanel />}
 
           {/* 3. CSV download — only when results exceed 500 rows */}
           {message.csv_path && (
