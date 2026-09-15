@@ -56,8 +56,7 @@ backend/
   retrieval/     indexing.py (CLI + retrieve/execute), pgvector_store.py (canonical store),
                  pinecone_store.py (alt), embedding.py, data_processing.py
   memory/        session_memory.py, user_profiles.json (empty)
-  pipelines/     postprocessing.py (ResponseOptimizer), prompt_response.md,
-                 llm_pipeline.py (EMPTY)
+  pipelines/     postprocessing.py (ResponseOptimizer), prompt_response.md
   tools/         flight/hotel/weather_api.py (EMPTY scaffold — likely leftover)
   config/        config.yaml (EMPTY), secrets.env, compose.yml, postgres/schema.sql
   context/       CLAUDE.md/system_prompt.md/skills.md (all EMPTY)

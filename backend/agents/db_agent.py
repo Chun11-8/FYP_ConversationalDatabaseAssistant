@@ -23,7 +23,8 @@ from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
 from backend.agents.llm_factory import (
-    build_chat_llm, describe_target, resolve_api_key, resolve_base_url,
+    build_for_target, describe_target, resolve_api_key, resolve_base_url,
+    resolve_model_target,
 )
 from backend.agents.utils import PromptHarness, estimate_tokens, strip_reasoning
 
@@ -356,7 +357,15 @@ class OrchestrationAgent:
         self._default_api_key = resolve_api_key(config)
         # GH#52: models the frontend's per-request picker may choose from.
         # The configured default is always present, even if omitted from the list.
-        self._selectable_models = list(config["llm"].get("selectable_models") or [self._model])
+        # GH#108: an entry may be a bare id (the original format) or a mapping
+        # carrying `provider` / `temperature`. Flattened to ids here so every
+        # consumer — the picker, /models, _validate_model — keeps seeing the
+        # list of strings it always has.
+        self._selectable_models = [
+            e if isinstance(e, str) else str(e.get("id"))
+            for e in (config["llm"].get("selectable_models") or [self._model])
+            if isinstance(e, str) or (isinstance(e, dict) and e.get("id"))
+        ] or [self._model]
         if self._model not in self._selectable_models:
             self._selectable_models.insert(0, self._model)
         # GH#65: optional OpenAI-COMPATIBLE endpoint (OpenRouter, Groq,
@@ -501,6 +510,14 @@ class OrchestrationAgent:
     # ── Public read-only config surface for the API layer (GH#52) ──────────
 
     @property
+    def model_providers(self) -> Dict[str, str]:
+        """{model id: provider label} for the picker (GH#108), so a user can
+        see which endpoint a choice will actually reach."""
+        cfg = getattr(self, "_config", None)
+        return {m: resolve_model_target(m, cfg).provider
+                for m in self._selectable_models}
+
+    @property
     def selectable_models(self) -> List[str]:
         """Models the frontend's per-request picker may choose from."""
         return list(self._selectable_models)
@@ -517,8 +534,20 @@ class OrchestrationAgent:
         return getattr(_tls, "llm", self.llm)
 
     def _chat_llm(self, model: str, api_key: Optional[str]) -> ChatOpenAI:
-        """Build a query-stage client honouring this agent's base_url (GH#65)."""
-        return build_chat_llm(model, api_key, getattr(self, "_base_url", None))
+        """
+        A query-stage client for *model*.
+
+        GH#108: the endpoint, key and call kwargs are resolved from the MODEL,
+        not from the process, so one deployment serves OpenAI and OpenRouter
+        models side by side and the sidebar picker changes provider implicitly.
+        A model with no `provider` tag resolves to the process-wide base_url
+        and query-stage key — byte-identical to GH#65's behaviour, which is
+        what keeps an OpenAI-only install unaffected.
+        """
+        target = resolve_model_target(
+            model, getattr(self, "_config", None), api_key,
+            default_base_url=getattr(self, "_base_url", None))
+        return build_for_target(target)
 
     def _get_sql_agent(self) -> SQLCodeAgent:
         return getattr(_tls, "sql_agent", self.sql_agent)

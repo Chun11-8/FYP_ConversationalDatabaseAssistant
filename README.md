@@ -173,7 +173,6 @@ instead of re-asking indefinitely.
 | Response Optimizer | `backend/pipelines/postprocessing.py` | Formats results (inline / table / CSV) + output guardrail |
 | BIRD evaluation | `backend/eval/bird.py` | BIRD mini-dev harness (EX / Soft-F1 / VES), error analysis |
 | Detector evaluation | `backend/eval/trust_eval.py` | AUROC per gate, per-check precision/false-alarm, risk–coverage curve |
-| Multi-turn evaluation | `backend/eval/multiturn.py` | Replays scripted conversations through the full graph |
 | HTTP API | `backend/api/main.py` | FastAPI server: chat, SSE streaming, schema sync, feedback, metrics |
 | Config Loader | `backend/config/config_loader.py` | Single config entry point; validates secrets |
 
@@ -259,12 +258,9 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── db_catalog.py               # table → owning database, for per-domain scoping
 │   │   ├── internal_tables.py          # The assistant's own tables — never indexed as data
 │   │   ├── data_processing.py          # Schema extraction from Postgres
-│   │   └── retriever.py                # High-level retrieve() interface
 │   ├── eval/
 │   │   ├── bird.py                     # BIRD mini-dev harness (EX / Soft-F1 / VES)
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
-│   │   ├── multiturn.py                # Scripted conversations through the full graph
-│   │   ├── multiturn_cases.json        # 14 cases / 29 turns across seven categories
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
 │   │   └── smoke_examples.py           # Self-contained SQLite fixtures
 │   ├── tests/                          # 1287 unit/integration tests (offline)
@@ -933,6 +929,49 @@ plain OpenAI run needs no new variable at all.
 | `LLM_API_KEY` | the query stage: every chat call | `OPENAI_API_KEY` |
 | `JUDGE_API_KEY` | the `--trust-eval` back-translation judge | `LLM_API_KEY` |
 
+### Mixing providers in one deployment (GH#108)
+
+A model's provider is a property of the **model**, not of the process, so one
+deployment serves OpenAI models directly and others through a gateway — and
+the sidebar picker switches provider implicitly.
+
+```yaml
+llm:
+  providers:
+    openrouter:
+      base_url: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+  selectable_models:
+    - gpt-4o-mini                       # untagged → DIRECT to OpenAI, unchanged
+    - id: qwen/qwen3.5-122b-a10b
+      provider: openrouter
+    - id: some/reasoning-model
+      provider: openrouter
+      temperature: null                 # OMIT the parameter — some reasoning
+                                        # models reject an explicit temperature
+```
+
+An **untagged** entry behaves exactly as before: the process-wide `base_url`
+and the query-stage key. The client built for `gpt-4o-mini` is byte-identical
+to the pre-GH#108 construction, and a test asserts it.
+
+**Verify slugs before spending.** Providers retire ids, and a wrong one fails
+at the first call — mid-run, after everything before it has been paid for:
+
+```bash
+python -m backend.config.check_models          # id + key + routing
+python -m backend.config.check_models --call   # also one tiny real call each
+```
+
+It exits non-zero on failure, so it can gate a run:
+`python -m backend.config.check_models && python -m backend.eval.bird …`
+
+An unreachable catalogue is reported as *could not check*, never as *the model
+does not exist*.
+
+The eval CLI uses the same routing, so `--model qwen/qwen3.5-122b-a10b` reaches
+OpenRouter without repeating the endpoint; an explicit `--base-url` still wins.
+
 `JUDGE_API_KEY` exists so the generator and the judge can sit on **different**
 providers — the configuration the literature reports at 0.82 AUROC against
 0.72–0.78 for a single judge. Running both through one gateway (OpenRouter)
@@ -1028,8 +1067,9 @@ against that:
   state — no extra retrieval, no extra LLM call. It is reported in the answer's
   evidence panel, and `sql.topic_switch_detection: false` turns it off.
 
-Both are covered by the `topic_switch` cases in the multi-turn harness below,
-including one that moves the conversation between databases mid-session.
+Both are covered by `topic_switch` cases in the multi-turn harness, including
+one that moves the conversation between databases mid-session — archived under
+`archive/multiturn-eval/`.
 
 ### Measuring the detector (GH#101)
 
@@ -1075,50 +1115,6 @@ Costs two extra LLM calls per question, and the judge model and endpoint are
 recorded in the run header so a cross-provider result is attributable.
 `trust_eval.py` then prefers the stored block and reports the judge gate
 automatically — no flag, it follows the data.
-
-### Multi-turn evaluation (GH#71)
-
-BIRD is single-turn, so the conversational half of the system — follow-up
-condensation, the clarification loop, cross-turn cache reuse — shipped without
-regression coverage. `backend/eval/multiturn.py` closes that gap: it replays
-scripted conversations through the **full orchestration graph** and scores
-every turn against gold SQL.
-
-```bash
-python -m backend.eval.multiturn --output out/multiturn.json
-python -m backend.eval.multiturn --case literal-swap-month     # one case
-python -m backend.eval.multiturn --model deepseek-chat \
-    --base-url https://api.deepseek.com
-```
-
-Self-contained: it builds the reconstructed SQLite fixtures from
-`smoke_examples.py`, so it needs **no BIRD download and no PostgreSQL** — only
-a key for SQL generation. Retrieval is bypassed (the whole three-table schema
-is injected) so a failure is attributable to the conversation rather than to
-RAG noise.
-
-14 cases / 29 turns across seven categories, each targeting a distinct way
-multi-turn breaks:
-
-| Category | Example follow-up | Catches |
-|---|---|---|
-| `literal_swap` | "What about 201207?" | **the GH#63 bug** |
-| `ellipsis` | "And CZK?" | constraint not carried over |
-| `anaphora` | "How many of them wear Medium?" | referent lost |
-| `refinement` | "Only those with a Large t-shirt." | prior scope dropped |
-| `topic_switch` | an unrelated question, incl. one in another **database** | stale context wrongly kept (GH#87) |
-| `clarification_reply` | a terse answer to our own question | the GH#62 loop |
-| `legitimate_repeat` | the same question again | **cache SHOULD hit** |
-
-`legitimate_repeat` is the control: without it the metric would reward turning
-the semantic cache off, which is the wrong lesson to draw from GH#63.
-
-The report separates **first-turn from follow-up accuracy** — the gap between
-them is the actual measure of conversational competence — and gives
-`stale_repeat` its own verdict, distinct from generic wrongness, because
-"returned the previous answer" is a specific diagnosable failure and burying it
-in `disjoint` is what let it ship. Each failure line prints what the follow-up
-was rewritten into, so a bad condensation is visible immediately.
 
 ### Showing the evidence behind an answer (GH#67)
 
@@ -1234,7 +1230,7 @@ previous behavior exactly.
 |---|---|---|---|
 | #67 | Evidence behind an answer | ✅ Done | Candidate agreement, how the winner was chosen, refine rounds |
 | #69 | Gold-free risk checks | ✅ Done | Seven checks on the executed result; annotate only |
-| #71 | Multi-turn evaluation harness | ✅ Done | 14 cases / 29 turns, `stale_repeat` verdict — **not yet run** |
+| #71 | Multi-turn evaluation harness | 📦 Archived | Working and tested; moved to `archive/multiturn-eval/` — out of scope for the presented project |
 | #73/#75 | Question coverage + unanswerable exit | ✅ Done | A question naming a value that does not exist is refused, not answered |
 | #76 | Plan diversity + grain rationale | ✅ Done | Both now enabled in config — see the caveat under Roadmap |
 | #87/#89 | Follow-up contamination + topic switch | ✅ Done | Condensation veto; history dropped when the subject changes |
@@ -1263,9 +1259,6 @@ previous behavior exactly.
 code. Every item below is a table or a figure the write-up currently cannot
 show.
 
-- [ ] **Multi-turn evaluation** — `python -m backend.eval.multiturn`. Needs no
-      BIRD download and no PostgreSQL; the conversational half of the system is
-      entirely unmeasured.
 - [ ] **Judge gate** — `bird --trust-eval`, then re-run `trust_eval`. Turns
       *4 of 5 gates measured* into 5, and is the signal the literature puts
       well above self-consistency.

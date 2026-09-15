@@ -52,6 +52,7 @@ import argparse
 import concurrent.futures
 import json
 import logging
+import os
 import math
 import re
 import sqlite3
@@ -963,7 +964,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     from backend.agents.sql_validator_agent import SQLValidatorAgent
     from backend.agents.schema_linking_agent import SchemaLinkingAgent
     from backend.agents.llm_factory import (
-        build_chat_llm, describe_target, resolve_api_key, resolve_judge_api_key, resolve_base_url,
+        build_for_target, describe_target, resolve_api_key,
+        resolve_judge_api_key, resolve_base_url, resolve_model_target,
     )
 
     config = load_config()
@@ -976,8 +978,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Recorded in the run header: the same model id served by two providers can
     # differ in weights, quantisation and sampling defaults, so a benchmark
     # number without its endpoint is not reproducible.
-    logger.info("[EVAL] target → %s", describe_target(model_name, base_url))
-    llm = build_chat_llm(model_name, resolve_api_key(config), base_url)
+    # GH#108: with no explicit --base-url, the model's own routing applies, so
+    # `--model deepseek/deepseek-v4-flash` reaches OpenRouter without the
+    # caller repeating the endpoint. An explicit --base-url still wins, which
+    # is what benchmarking an id the config has never heard of needs.
+    target = resolve_model_target(model_name, config)
+    if base_url:
+        target = target._replace(base_url=base_url,
+                                 api_key=resolve_api_key(config, None))
+    logger.info("[EVAL] target → %s", describe_target(target.model, target.base_url))
+    llm = build_for_target(target)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
 
@@ -1003,14 +1013,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     judge_llm = None
     if args.trust_eval:
         judge_model = args.judge_model or model_name
-        judge_base = (args.judge_base_url if args.judge_model
-                      else (args.judge_base_url or base_url))
-        # GH#106: its own key, so generator and judge can sit on different
-        # providers — the cross-provider configuration is the point.
-        judge_llm = build_chat_llm(judge_model, resolve_judge_api_key(config),
-                                   judge_base)
+        # GH#106/#108. Three cases, in order:
+        #   --judge-base-url given  → it wins outright;
+        #   --judge-model given     → that model's own routing (GH#108), which
+        #                             is how a cross-provider judge is reached
+        #                             without repeating the endpoint;
+        #   neither                 → the generator's own target, i.e. a
+        #                             self-judge measuring self-agreement.
+        if args.judge_base_url:
+            judge_target = resolve_model_target(judge_model, config)._replace(
+                base_url=args.judge_base_url)
+        elif args.judge_model:
+            judge_target = resolve_model_target(judge_model, config)
+        else:
+            judge_target = target._replace(model=judge_model)
+        # $JUDGE_API_KEY overrides; otherwise the target's own key is right —
+        # it already came from that provider's env var.
+        judge_target = judge_target._replace(
+            api_key=(os.getenv("JUDGE_API_KEY") or "").strip()
+                    or judge_target.api_key or resolve_judge_api_key(config))
+        judge_llm = build_for_target(judge_target)
         logger.info("[BIRD] trust eval: ON | judge → %s",
-                    describe_target(judge_model, judge_base))
+                    describe_target(judge_model, judge_target.base_url))
 
     results = run_bird_eval(
         dev_json_path=args.dev_json,

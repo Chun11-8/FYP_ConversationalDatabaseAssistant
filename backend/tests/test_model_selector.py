@@ -198,16 +198,32 @@ class TestModelsEndpoint:
     def _client(self) -> TestClient:
         return TestClient(api_main.app)
 
-    def test_returns_configured_list_and_default(self):
+    def _fake_agent(self):
         fake = MagicMock()
-        fake.selectable_models = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"]
+        fake.selectable_models = ["gpt-4o-mini", "qwen/qwen3.5-122b-a10b"]
         fake.default_model = "gpt-4o-mini"
-        with patch.object(api_main, "_get_agent", return_value=fake):
+        # GH#108: a real agent exposes this; a bare MagicMock returns a mock,
+        # which fails ModelsResponse validation — the fake has to mirror the
+        # interface it stands in for.
+        fake.model_providers = {"gpt-4o-mini": "openai",
+                                "qwen/qwen3.5-122b-a10b": "openrouter"}
+        return fake
+
+    def test_returns_configured_list_and_default(self):
+        with patch.object(api_main, "_get_agent", return_value=self._fake_agent()):
             r = self._client().get("/models")
         assert r.status_code == 200
         body = r.json()
-        assert body["models"] == ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"]
+        assert body["models"] == ["gpt-4o-mini", "qwen/qwen3.5-122b-a10b"]
         assert body["default"] == "gpt-4o-mini"
+
+    def test_reports_which_provider_serves_each_model(self):
+        """GH#108: the picker shows it, so a user can tell a direct-OpenAI
+        choice from one routed through a gateway."""
+        with patch.object(api_main, "_get_agent", return_value=self._fake_agent()):
+            body = self._client().get("/models").json()
+        assert body["providers"]["qwen/qwen3.5-122b-a10b"] == "openrouter"
+        assert body["providers"]["gpt-4o-mini"] == "openai"
 
 
 class TestValidateModel:
