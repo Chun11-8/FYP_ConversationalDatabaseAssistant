@@ -26,7 +26,9 @@ import urllib.error
 import urllib.request
 from typing import Dict, List, Optional, Set, Tuple
 
-from backend.agents.llm_factory import resolve_model_target
+from backend.agents.llm_factory import (
+    resolve_base_url, resolve_model_target,
+)
 from backend.config.config_loader import load_config
 
 _TIMEOUT = 15
@@ -55,11 +57,50 @@ def _catalogue(base_url: str, api_key: Optional[str]) -> Optional[Set[str]]:
     return {str(m.get("id")) for m in data if isinstance(m, dict) and m.get("id")}
 
 
+def _mask(key: Optional[str]) -> str:
+    """A key fingerprint that identifies it without disclosing it."""
+    if not key:
+        return "-"
+    return f"{key[:7]}…{len(key)}ch" if len(key) > 10 else f"…{len(key)}ch"
+
+
+def pipeline_models(config: dict) -> List[Tuple[str, str]]:
+    """
+    Every model the app will actually construct a client for, as
+    (role, model id) — deduped, first role wins.
+
+    GH#111: the picker list is NOT the whole story. `llm.model` is the default
+    for every stage, and `llm.intent_model` / `llm.format_model` route the
+    cheap stages elsewhere (GH#38); none of them has to appear in
+    `selectable_models`. Checking only the picker list let a broken default or
+    intent model pass here and fail on the first question — which is exactly
+    how a 401 on intent classification got past a green check.
+    """
+    llm = config.get("llm") or {}
+    out: List[Tuple[str, str]] = []
+    seen = set()
+
+    def add(role: str, model) -> None:
+        if not model:
+            return
+        mid = model if isinstance(model, str) else str(model.get("id"))
+        if mid and mid not in seen:
+            seen.add(mid)
+            out.append((role, mid))
+
+    add("default", llm.get("model"))
+    add("intent", llm.get("intent_model"))
+    add("format", llm.get("format_model"))
+    for entry in llm.get("selectable_models") or []:
+        add("picker", entry)
+    return out
+
+
 def check(config: dict, do_call: bool = False) -> Tuple[List[dict], int]:
-    """(rows, failures) — one row per configured model."""
-    models: List[str] = []
-    for entry in (config.get("llm") or {}).get("selectable_models") or []:
-        models.append(entry if isinstance(entry, str) else str(entry.get("id")))
+    """(rows, failures) — one row per model the pipeline can construct."""
+    roles = pipeline_models(config)
+    models: List[str] = [m for _role, m in roles]
+    role_of = {m: r for r, m in roles}
 
     catalogues: Dict[str, Optional[Set[str]]] = {}
     rows: List[dict] = []
@@ -67,9 +108,11 @@ def check(config: dict, do_call: bool = False) -> Tuple[List[dict], int]:
 
     for model in models:
         target = resolve_model_target(model, config)
-        row = {"model": model, "provider": target.provider,
+        row = {"model": model, "role": role_of.get(model, "picker"),
+               "provider": target.provider,
                "base_url": target.base_url or "api.openai.com (default)",
-               "key": bool(target.api_key), "status": OK, "note": ""}
+               "key": bool(target.api_key), "key_hint": _mask(target.api_key),
+               "status": OK, "note": ""}
 
         if not target.api_key:
             row["status"], row["note"] = FAIL, "no API key resolved"
@@ -121,10 +164,23 @@ def main() -> None:
         return
 
     width = max(len(r["model"]) for r in rows)
-    print(f"\n{'':2}{'model':<{width}}  {'provider':<12}{'key':<5}note")
+    pw = max(len(r["provider"]) for r in rows) + 2
+    kw = max(len(r["key_hint"]) for r in rows) + 2
+    print(f"\n{'':2}{'model':<{width}}  {'role':<9}{'provider':<{pw}}"
+          f"{'key':<{kw}}note")
     for r in rows:
-        print(f"{r['status']:<2}{r['model']:<{width}}  {r['provider']:<12}"
-              f"{('yes' if r['key'] else 'NO'):<5}{r['note']}")
+        print(f"{r['status']:<2}{r['model']:<{width}}  {r['role']:<9}"
+              f"{r['provider']:<{pw}}{r['key_hint']:<{kw}}{r['note']}")
+
+    # GH#111: a process-wide endpoint sends EVERY untagged model — including
+    # the default and the intent model — to that provider. It is the usual
+    # cause of "the picker looks right but the first question 401s".
+    process_wide = resolve_base_url(config)
+    if process_wide:
+        print(f"\n  NOTE: llm.base_url / $LLM_BASE_URL = {process_wide}")
+        print("  Every model WITHOUT its own `provider:` tag is sent there, "
+              "using the\n  query-stage key ($LLM_API_KEY, else OPENAI_API_KEY). "
+              "Unset it if you\n  only meant to route the tagged models.")
 
     print(f"\n{len(rows) - failures}/{len(rows)} usable.")
     if failures:

@@ -177,7 +177,7 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
                 "llm.providers — treating it as unrouted", model, provider_name)
         base_url = default_base_url or resolve_base_url(config)
         key = api_key or resolve_api_key(config)
-        label = "openai" if base_url is None else "configured base_url"
+        label = "openai" if base_url is None else "via base_url"
 
     # Per-model call kwargs. `temperature: null` OMITS the parameter, which is
     # how a reasoning model that rejects a non-default temperature is handled;

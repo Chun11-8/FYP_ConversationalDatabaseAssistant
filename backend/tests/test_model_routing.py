@@ -251,3 +251,71 @@ class TestCheckModels:
                                            "selectable_models": ["gpt-4o-mini"]}})
         cat.assert_not_called()
         assert fails == 0
+
+
+# ── GH#111: the picker list is not the whole pipeline ─────────────────────────
+
+class TestPipelineModelsCoverage:
+    """
+    A 401 on intent classification got past a green `check_models` because the
+    checker only walked `selectable_models`. `llm.model` is the default for
+    every stage and `intent_model` / `format_model` route the cheap stages
+    elsewhere (GH#38) — none of them has to be in the picker list.
+    """
+
+    def test_the_default_model_is_checked_even_if_not_in_the_picker(self):
+        from backend.config.check_models import pipeline_models
+        roles = dict((m, r) for r, m in pipeline_models(
+            {"llm": {"model": "gpt-4o-mini", "selectable_models": ["gpt-4o"]}}))
+        assert roles["gpt-4o-mini"] == "default"
+
+    def test_the_intent_and_format_models_are_checked(self):
+        from backend.config.check_models import pipeline_models
+        roles = dict((m, r) for r, m in pipeline_models({"llm": {
+            "model": "gpt-4o", "intent_model": "openai/gpt-5.4-mini",
+            "format_model": "meta-llama/llama-4-maverick"}}))
+        assert roles["openai/gpt-5.4-mini"] == "intent"
+        assert roles["meta-llama/llama-4-maverick"] == "format"
+
+    def test_a_model_serving_several_roles_appears_once(self):
+        from backend.config.check_models import pipeline_models
+        out = pipeline_models({"llm": {
+            "model": "gpt-4o-mini", "intent_model": "gpt-4o-mini",
+            "selectable_models": ["gpt-4o-mini"]}})
+        assert out == [("default", "gpt-4o-mini")]
+
+    def test_mapping_entries_are_flattened_to_ids(self):
+        from backend.config.check_models import pipeline_models
+        out = pipeline_models({"llm": {"selectable_models": [
+            {"id": "qwen/q", "provider": "openrouter"}]}})
+        assert out == [("picker", "qwen/q")]
+
+    def test_an_empty_config_yields_nothing_rather_than_crashing(self):
+        from backend.config.check_models import pipeline_models
+        assert pipeline_models({}) == []
+        assert pipeline_models({"llm": {}}) == []
+
+    def test_the_reported_failure_is_now_surfaced(self, monkeypatch):
+        """A process-wide base_url sends the DEFAULT model — and therefore the
+        intent call — to that provider. That is what produced
+        'Missing Authentication header' from OpenRouter on the first question
+        while the picker list looked fine."""
+        from unittest.mock import patch as _patch
+        from backend.config import check_models as C
+        monkeypatch.setenv("LLM_BASE_URL", OPENROUTER)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        with _patch.object(C, "_catalogue", return_value={"qwen/q"}):
+            rows, fails = C.check({"llm": {
+                "api_key": "sk-openai", "model": "gpt-4o-mini",
+                "selectable_models": [{"id": "qwen/q", "provider": "openrouter"}],
+                "providers": CONFIG["llm"]["providers"]}})
+        default_row = next(r for r in rows if r["role"] == "default")
+        assert default_row["status"] == C.FAIL
+        assert default_row["provider"] == "via base_url"
+
+    def test_keys_are_fingerprinted_never_printed(self):
+        from backend.config.check_models import _mask
+        assert _mask("sk-proj-abcdefghijklmnop") == "sk-proj…24ch"
+        assert "abcdefghijklmnop" not in _mask("sk-proj-abcdefghijklmnop")
+        assert _mask(None) == "-"
+        assert _mask("short") == "…5ch"
