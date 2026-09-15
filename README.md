@@ -874,6 +874,32 @@ questions (gold that errors on SQLite), and supports execution voting, ReAct
 refinement, and schema linking as toggles for A/B runs.
 
 ```bash
+Selecting what to run — model, scope and size:
+
+```bash
+# one model
+python -m backend.eval.bird --dev-json … --db-dir … --model gpt-4.1-mini
+
+# one database (GH#116) — applied BEFORE --subset, so this really is 20
+# questions from that database
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --db-id debit_card_specializing --subset 20
+
+# one difficulty tier, one database
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --difficulty moderate --db-id student_club
+```
+
+`--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
+set and `--subset` then slices what is left.
+
+**`--trust-eval` is not needed for accuracy.** EX / F1 / VES are computed from
+the gold SQL on every run regardless. The flag adds the back-translation judge
+— evidence for `trust_eval.py`, which measures the DETECTOR rather than the
+generator — at a cost of two extra LLM calls per question. Leave it off for
+model comparisons and ablations; switch it on for the one or two runs where
+you want the judge gate scored.
+
 # End-to-end BIRD run (predictions + official EX/F1/VES scoring)
 bash backend/eval/run_bird.sh
 
