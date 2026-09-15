@@ -557,3 +557,70 @@ class TestErrorRecord:
         assert r["ves_reward"] == 0.0
         assert r["pred_sql"] == ""
         assert r["gold_error"] == "some error"
+
+
+# ── GH#116: restrict a run to one database ────────────────────────────────────
+
+class TestDbIdFilter:
+    """
+    `--db-id` exists so a run can target one domain. The filter ORDER is the
+    part worth pinning: dev.json is grouped by database, so applying `subset`
+    first would take the first N questions and then narrow them, leaving
+    `--db-id X --subset 20` evaluating however few of those 20 belong to X —
+    usually zero.
+    """
+
+    QUESTIONS = [
+        {"question_id": i, "db_id": db, "difficulty": diff,
+         "question": "q", "SQL": "SELECT 1", "evidence": ""}
+        for i, (db, diff) in enumerate([
+            ("california_schools", "simple"),
+            ("california_schools", "moderate"),
+            ("california_schools", "moderate"),
+            ("debit_card_specializing", "simple"),
+            ("debit_card_specializing", "moderate"),
+            ("student_club", "challenging"),
+        ])
+    ]
+
+    def _selected(self, tmp_path, **kwargs):
+        """The questions run_bird_eval would evaluate, without running one."""
+        import json
+        from unittest.mock import patch
+        import backend.eval.bird as B
+        seen = []
+        dev = tmp_path / "dev.json"
+        dev.write_text(json.dumps(self.QUESTIONS), encoding="utf-8")
+
+        def spy(db_path):
+            raise RuntimeError("stop")          # abort before any LLM work
+
+        with patch.object(B, "extract_sqlite_schema", side_effect=spy):
+            out = B.run_bird_eval(dev_json_path=str(dev), db_dir=str(tmp_path),
+                                  sql_agent=None, validator=None, **kwargs)
+        return [r["db_id"] for r in out], [r["question_id"] for r in out]
+
+    def test_one_database_only(self, tmp_path):
+        dbs, _ = self._selected(tmp_path, db_filter="debit_card_specializing")
+        assert set(dbs) == {"debit_card_specializing"}
+        assert len(dbs) == 2
+
+    def test_db_and_difficulty_combine(self, tmp_path):
+        dbs, ids = self._selected(tmp_path, db_filter="california_schools",
+                                  difficulty_filter="moderate")
+        assert ids == [1, 2]
+
+    def test_subset_applies_after_the_filters(self, tmp_path):
+        """The ordering bug: with subset first, this would return nothing —
+        the first 2 questions are california_schools."""
+        dbs, ids = self._selected(tmp_path, db_filter="debit_card_specializing",
+                                  subset=2)
+        assert ids == [3, 4]
+
+    def test_an_unknown_db_id_selects_nothing_rather_than_everything(self, tmp_path):
+        dbs, _ = self._selected(tmp_path, db_filter="typo_not_a_db")
+        assert dbs == []
+
+    def test_no_filter_keeps_every_question(self, tmp_path):
+        dbs, _ = self._selected(tmp_path)
+        assert len(dbs) == 6

@@ -564,6 +564,7 @@ def run_bird_eval(
     validator: Any,
     subset: Optional[int] = None,
     difficulty_filter: Optional[str] = None,
+    db_filter: Optional[str] = None,
     timeout: float = 30.0,
     linker: Any = None,
     exec_voting: bool = True,
@@ -580,8 +581,11 @@ def run_bird_eval(
     db_dir           : root directory containing {db_id}/{db_id}.db files
     sql_agent        : SQLCodeAgent instance
     validator        : SQLValidatorAgent instance
-    subset           : if set, evaluate only the first N questions
+    subset           : if set, evaluate only the first N questions — applied
+                       LAST, so it slices what the filters already selected
     difficulty_filter: if set, restrict to "simple", "moderate", or "challenging"
+    db_filter        : if set, restrict to one db_id (GH#116), e.g.
+                       "debit_card_specializing"
     linker           : optional SchemaLinkingAgent — when provided, a structured
                        query plan is produced and fed into generation (Issue #17)
     exec_voting      : when True, candidates are selected by executing them and
@@ -598,12 +602,23 @@ def run_bird_eval(
     """
     questions = load_dev_json(dev_json_path)
 
+    # GH#116: filters first, `subset` last. The other order would take the
+    # first N questions and THEN narrow them, so `--db-id x --subset 20` would
+    # silently evaluate however few of those 20 happened to belong to x —
+    # usually none, since dev.json is grouped by database.
     if difficulty_filter:
         questions = [q for q in questions if q.get("difficulty") == difficulty_filter]
+    if db_filter:
+        questions = [q for q in questions if q.get("db_id") == db_filter]
     if subset:
         questions = questions[:subset]
 
     total = len(questions)
+    if total == 0:
+        logger.warning(
+            "[BIRD] No questions matched (difficulty=%s, db_id=%s). Check the "
+            "spelling against the db_id values in dev.json.",
+            difficulty_filter, db_filter)
     logger.info(f"[BIRD] Starting evaluation — {total} question(s)")
 
     results: List[Dict] = []
@@ -916,6 +931,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--subset", type=int, default=None,
                         help="Evaluate only the first N questions (useful for smoke tests)")
     parser.add_argument(
+        "--db-id", default=None,
+        help="Restrict evaluation to ONE database, e.g. debit_card_specializing.\n"
+             "Applied before --subset, so --db-id X --subset 20 gives 20 of X's\n"
+             "questions rather than however few of the first 20 belong to X.")
+    parser.add_argument(
         "--difficulty",
         choices=["simple", "moderate", "challenging"],
         default=None,
@@ -1043,6 +1063,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         validator=validator,
         subset=args.subset,
         difficulty_filter=args.difficulty,
+        db_filter=args.db_id,
         timeout=args.timeout,
         linker=linker,
         exec_voting=use_voting,
@@ -1071,6 +1092,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "adaptive_prompting": getattr(sql_agent, "_adaptive", None),
         "subset": args.subset,
         "difficulty": args.difficulty,
+        "db_id": args.db_id,
     }
     write_results(results, metrics, args.output, run_config=run_config)
 
