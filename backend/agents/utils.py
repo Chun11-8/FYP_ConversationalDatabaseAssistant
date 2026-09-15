@@ -23,7 +23,9 @@ class PromptHarness:
     @classmethod
     @lru_cache(maxsize=1)
     def _load_all(cls) -> dict[str, str]:
-        raw = PROMPTS_PATH.read_text()
+        # GH#110: prompt.md is UTF-8 and full of box-drawing characters; a
+        # locale-default read silently mojibakes every one of them on Windows.
+        raw = PROMPTS_PATH.read_text(encoding="utf-8")
         sections = re.split(r"##\s+\[SECTION:\s*(\w+)\]", raw)
         # sections = [pre, name1, body1, name2, body2, ...]
         result = {}
@@ -49,7 +51,7 @@ class PromptHarness:
         path = PROMPTS_DIR / filename
         if not path.exists():
             raise FileNotFoundError(f"Prompt file not found: {path}")
-        return path.read_text()
+        return path.read_text(encoding="utf-8")      # GH#110
 
 
 # ── reasoning-block stripping (GH#65) ─────────────────────────────────────────
