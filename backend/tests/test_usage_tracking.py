@@ -106,6 +106,9 @@ class TestUsageTracker:
         assert usage.UsageTracker().as_dict() == {
             "calls": 0, "input_tokens": 0, "output_tokens": 0,
             "est_cost_usd": 0.0, "by_stage": {},
+            # GH#114: no call has been billed yet, so nothing is unpriced and
+            # the (zero) cost is trivially known.
+            "models": [], "cost_known": True, "unpriced_models": [],
         }
 
 

@@ -1201,6 +1201,14 @@ body, html, #root {
   font-style: italic;
 }
 
+/* GH#114: which model answered, beside the token/cost chip. */
+.meta-chip--model {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trust-still-shown {
   margin: 0.25rem 0 0;
   font-size: 0.75rem;

@@ -972,6 +972,26 @@ does not exist*.
 The eval CLI uses the same routing, so `--model qwen/qwen3.5-122b-a10b` reaches
 OpenRouter without repeating the endpoint; an explicit `--base-url` still wins.
 
+### Which model answered, and what it cost (GH#114)
+
+Each assistant turn carries two chips: the **model** that answered (with the
+provider in its tooltip) and the token/cost figure.
+
+Cost reads **`cost n/a`**, not `$0.0000`, when no rate is configured for the
+model. A missing price is not a zero bill, and showing one would quietly tell
+you an OpenRouter run was free. Tokens are counted either way.
+
+To make it a real number, pull the provider's own rates:
+
+```bash
+python -m backend.config.check_models --sync-pricing
+```
+
+That prints a ready-to-paste `llm.pricing` block. OpenRouter quotes per-TOKEN
+prices and this project works in per-MILLION, so the conversion happens there
+rather than being left to whoever pastes it. Rates change — re-run before
+quoting a cost figure in a report.
+
 `JUDGE_API_KEY` exists so the generator and the judge can sit on **different**
 providers — the configuration the literature reports at 0.82 AUROC against
 0.72–0.78 for a single judge. Running both through one gateway (OpenRouter)

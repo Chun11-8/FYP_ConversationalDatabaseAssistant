@@ -2510,6 +2510,12 @@ class OrchestrationAgent:
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
             "cache_hit":  bool(final.get("cache_hit")),
+            # GH#114: which endpoint served this turn. The agent knows it
+            # definitively (it resolved the target to build the client); the
+            # frontend would have to guess from a stale /models map.
+            "provider":   resolve_model_target(
+                effective_model, getattr(self, "_config", None),
+                default_base_url=getattr(self, "_base_url", None)).provider,
             # GH#63: what the follow-up was condensed into, so a bad rewrite is
             # visible rather than silently producing a confusing answer.
             "standalone_query": final.get("standalone_query"),

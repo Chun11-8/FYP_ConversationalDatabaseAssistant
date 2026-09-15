@@ -25,6 +25,8 @@ export interface TextMessage extends BaseMessage {
   cache_hit?: boolean;
   /** LLM tokens + estimated cost for this turn (GH#57) */
   usage?: TurnUsage | null;
+  /** GH#114: endpoint that served this turn — "openai", "openrouter", … */
+  provider?: string | null;
   /** How this answer was arrived at (GH#67) — evidence, not a verdict */
   verification?: TurnVerification | null;
   /** Feedback the user submitted for this message ('up' | 'down' | null) */
@@ -43,6 +45,16 @@ export interface TurnUsage {
     output_tokens: number;
     est_cost_usd: number;
   }>;
+  /** GH#114: the model(s) this turn actually billed against, in call order */
+  models?: string[];
+  /**
+   * False when a rate is missing for at least one model, in which case
+   * est_cost_usd UNDERSTATES the turn and must not be shown as a dollar
+   * amount — "$0.0000" beside an OpenRouter model reads as free when it is
+   * merely unknown.
+   */
+  cost_known?: boolean;
+  unpriced_models?: string[];
 }
 
 /**
