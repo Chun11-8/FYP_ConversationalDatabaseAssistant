@@ -79,6 +79,9 @@ function App() {
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(LS_API_KEY) ?? '');
   const [stage, setStage] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  // GH#108: {model id: provider}. One deployment now serves OpenAI models
+  // directly and others through a gateway, so the picker says which.
+  const [modelProviders, setModelProviders] = useState<Record<string, string>>({});
   const [defaultModel, setDefaultModel] = useState<string>('');
   const [model, setModel] = useState<string>(() => localStorage.getItem(LS_MODEL) ?? '');
   // GH#83 retrieval scope. '' = search every indexed database, which is also
@@ -110,8 +113,9 @@ function App() {
   // (ChatInput guards on models.length) if this fails — chat still works.
   useEffect(() => {
     getModels()
-      .then(({ models, default: def }) => {
+      .then(({ models, default: def, providers }) => {
         setAvailableModels(models);
+        setModelProviders(providers ?? {});
         setDefaultModel(def);
         // GH#58: a persisted custom model (not in the curated `models` list)
         // must survive a reload — only fall back to the default when nothing
@@ -330,6 +334,7 @@ function App() {
       apiKey={apiKey}
       onApiKeyChange={setApiKey}
       models={availableModels}
+      modelProviders={modelProviders}
       model={model || defaultModel}
       onModelChange={setModel}
       databases={databases}

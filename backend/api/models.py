@@ -27,6 +27,10 @@ class ChatRequest(BaseModel):
 class ModelsResponse(BaseModel):
     models: List[str]
     default: str
+    # GH#108: {model id: provider label}. The picker shows which endpoint a
+    # choice actually reaches, since one deployment now serves OpenAI models
+    # directly and others through a gateway.
+    providers: Dict[str, str] = Field(default_factory=dict)
 
 
 class DatabaseInfo(BaseModel):

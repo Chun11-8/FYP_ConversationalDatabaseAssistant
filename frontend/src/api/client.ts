@@ -134,6 +134,8 @@ export async function getSchema(): Promise<SchemaInfo> {
 export interface ModelsInfo {
   models: string[];
   default: string;
+  /** GH#108: {model id: provider label} — which endpoint each choice reaches */
+  providers?: Record<string, string>;
 }
 
 export async function getModels(): Promise<ModelsInfo> {

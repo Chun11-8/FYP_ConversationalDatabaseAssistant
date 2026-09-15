@@ -392,7 +392,9 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
 def list_models() -> ModelsResponse:
     """Models the frontend's per-request picker (GH#52) may choose from."""
     agent = _get_agent()
-    return ModelsResponse(models=agent.selectable_models, default=agent.default_model)
+    return ModelsResponse(models=agent.selectable_models,
+                          default=agent.default_model,
+                          providers=agent.model_providers)
 
 
 @app.get("/databases", response_model=DatabasesResponse, tags=["schema"])

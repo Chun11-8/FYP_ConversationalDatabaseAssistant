@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
 from langchain_openai import ChatOpenAI
 
@@ -101,6 +101,113 @@ def resolve_judge_api_key(config: Optional[dict] = None,
     if explicit and str(explicit).strip():
         return str(explicit).strip()
     return resolve_api_key(config)
+
+
+# ── per-model routing (GH#108) ───────────────────────────────────────────────
+
+class ModelTarget(NamedTuple):
+    """Where one model id is served, and how to call it."""
+    model: str
+    base_url: Optional[str]          # None = OpenAI itself
+    api_key: Optional[str]
+    provider: str                    # label, for logs and the UI
+    extra: Dict[str, Any]            # per-model kwargs, e.g. temperature
+
+
+def _model_entries(config: Optional[dict]) -> Dict[str, dict]:
+    """
+    `llm.selectable_models` normalised to {id: entry}.
+
+    Entries may be a plain string (the original format — provider unset, so it
+    goes wherever the process-wide base_url points) or a mapping with `id` and
+    optionally `provider`, `label`, `temperature`. Both forms are supported
+    deliberately: the string form is what every existing config uses.
+    """
+    out: Dict[str, dict] = {}
+    for item in ((config or {}).get("llm") or {}).get("selectable_models") or []:
+        if isinstance(item, str):
+            out[item] = {"id": item}
+        elif isinstance(item, dict) and item.get("id"):
+            out[str(item["id"])] = dict(item)
+    return out
+
+
+def resolve_model_target(model: str, config: Optional[dict] = None,
+                         api_key: Optional[str] = None,
+                         default_base_url: Optional[str] = None) -> ModelTarget:
+    """
+    The endpoint, key and call kwargs for ONE model id (GH#108).
+
+    This is what lets a single deployment serve OpenAI and OpenRouter models
+    side by side: the sidebar picker changes the provider implicitly, because
+    the provider is a property of the model rather than of the process.
+
+    Resolution:
+      * the model's `provider` (from `llm.selectable_models`) is looked up in
+        `llm.providers` for a base_url and a key env var;
+      * an untagged model keeps the OLD behaviour exactly — the process-wide
+        base_url (config/`$LLM_BASE_URL`) and the query-stage key. That is what
+        makes this change invisible to an existing OpenAI-only install.
+
+    *api_key* overrides everything (a bring-your-own-key request).
+    *default_base_url* is the caller's already-resolved process-wide endpoint,
+    used for an untagged model; callers that hold one (the agent caches it at
+    construction) pass it so an untagged model behaves exactly as before.
+    """
+    entry = _model_entries(config).get(model, {})
+    provider_name = str(entry.get("provider") or "").strip()
+    providers = ((config or {}).get("llm") or {}).get("providers") or {}
+    provider = providers.get(provider_name) if provider_name else None
+
+    if provider:
+        base_url = str(provider.get("base_url") or "").strip() or None
+        key_env = str(provider.get("api_key_env") or "").strip()
+        key = api_key or (os.getenv(key_env) if key_env else None) \
+            or resolve_api_key(config)
+        if key_env and not os.getenv(key_env):
+            logger.warning(
+                "[LLM] model %r is routed to provider %r but %s is not set — "
+                "falling back to the query-stage key, which that provider will "
+                "probably reject", model, provider_name, key_env)
+        label = provider_name
+    else:
+        if provider_name:
+            logger.warning(
+                "[LLM] model %r names provider %r, which is not in "
+                "llm.providers — treating it as unrouted", model, provider_name)
+        base_url = default_base_url or resolve_base_url(config)
+        key = api_key or resolve_api_key(config)
+        label = "openai" if base_url is None else "configured base_url"
+
+    # Per-model call kwargs. `temperature: null` OMITS the parameter, which is
+    # how a reasoning model that rejects a non-default temperature is handled;
+    # absent means the caller's default (0) is kept, so existing models are
+    # untouched.
+    extra: Dict[str, Any] = {}
+    if "temperature" in entry:
+        temp = entry["temperature"]
+        extra["temperature"] = None if temp is None else temp
+    return ModelTarget(model=model, base_url=base_url, api_key=key,
+                       provider=label, extra=extra)
+
+
+def build_for_target(target: ModelTarget, **extra: Any) -> ChatOpenAI:
+    """
+    A client for a resolved :class:`ModelTarget`.
+
+    ``temperature=None`` in the target's extras means OMIT the parameter
+    entirely — some reasoning models reject any explicit temperature, and
+    sending the default 0 fails the call outright.
+    """
+    kwargs: Dict[str, Any] = {"model": target.model, "temperature": 0,
+                              "api_key": target.api_key}
+    if target.base_url:
+        kwargs["base_url"] = target.base_url
+    kwargs.update(target.extra)
+    kwargs.update(extra)
+    if kwargs.get("temperature", 0) is None:
+        kwargs.pop("temperature")
+    return ChatOpenAI(**kwargs)
 
 
 def build_chat_llm(model: str, api_key: Optional[str],

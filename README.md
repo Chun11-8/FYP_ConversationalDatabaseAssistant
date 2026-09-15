@@ -933,6 +933,49 @@ plain OpenAI run needs no new variable at all.
 | `LLM_API_KEY` | the query stage: every chat call | `OPENAI_API_KEY` |
 | `JUDGE_API_KEY` | the `--trust-eval` back-translation judge | `LLM_API_KEY` |
 
+### Mixing providers in one deployment (GH#108)
+
+A model's provider is a property of the **model**, not of the process, so one
+deployment serves OpenAI models directly and others through a gateway — and
+the sidebar picker switches provider implicitly.
+
+```yaml
+llm:
+  providers:
+    openrouter:
+      base_url: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+  selectable_models:
+    - gpt-4o-mini                       # untagged → DIRECT to OpenAI, unchanged
+    - id: qwen/qwen3.5-122b-a10b
+      provider: openrouter
+    - id: some/reasoning-model
+      provider: openrouter
+      temperature: null                 # OMIT the parameter — some reasoning
+                                        # models reject an explicit temperature
+```
+
+An **untagged** entry behaves exactly as before: the process-wide `base_url`
+and the query-stage key. The client built for `gpt-4o-mini` is byte-identical
+to the pre-GH#108 construction, and a test asserts it.
+
+**Verify slugs before spending.** Providers retire ids, and a wrong one fails
+at the first call — mid-run, after everything before it has been paid for:
+
+```bash
+python -m backend.config.check_models          # id + key + routing
+python -m backend.config.check_models --call   # also one tiny real call each
+```
+
+It exits non-zero on failure, so it can gate a run:
+`python -m backend.config.check_models && python -m backend.eval.bird …`
+
+An unreachable catalogue is reported as *could not check*, never as *the model
+does not exist*.
+
+The eval CLI uses the same routing, so `--model qwen/qwen3.5-122b-a10b` reaches
+OpenRouter without repeating the endpoint; an explicit `--base-url` still wins.
+
 `JUDGE_API_KEY` exists so the generator and the judge can sit on **different**
 providers — the configuration the literature reports at 0.82 AUROC against
 0.72–0.78 for a single judge. Running both through one gateway (OpenRouter)

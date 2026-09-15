@@ -19,6 +19,9 @@ interface ChatLayoutProps {
   apiKey: string;
   onApiKeyChange: (key: string) => void;
   models: string[];
+  /** GH#108: {model id: provider label}, shown so the user can see which
+   *  endpoint a choice reaches — OpenAI directly, or a gateway. */
+  modelProviders?: Record<string, string>;
   model: string;
   onModelChange: (model: string) => void;
   /** Logical databases in the schema index (GH#81) */
@@ -41,6 +44,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   apiKey,
   onApiKeyChange,
   models,
+  modelProviders = {},
   model,
   onModelChange,
   databases,
@@ -290,8 +294,16 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
                             aria-selected={m === model}
                             className={`model-picker-option${m === model ? ' model-picker-option--active' : ''}`}
                             onClick={() => { onModelChange(m); closePicker(); }}
+                            title={modelProviders[m]
+                              ? `Served via ${modelProviders[m]}`
+                              : undefined}
                           >
-                            {m}
+                            <span className="model-picker-option-id">{m}</span>
+                            {modelProviders[m] && modelProviders[m] !== 'openai' && (
+                              <span className="model-picker-provider">
+                                {modelProviders[m]}
+                              </span>
+                            )}
                           </button>
                         ))}
                         <button
