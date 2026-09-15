@@ -199,7 +199,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     model_name = resolve_model(args.model, config)
     base_url = resolve_base_url(config, args.base_url)
     logger.info("[BIRD-PREDICT] target → %s", describe_target(model_name, base_url))
-    llm = build_chat_llm(model_name, resolve_api_key(config), base_url)
+    llm = build_chat_llm(model_name, resolve_api_key(config), base_url,
+                         config=config)
     sql_agent = SQLCodeAgent(bird_config, llm)
 
     predictions = generate_predictions(

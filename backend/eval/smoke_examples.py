@@ -201,7 +201,7 @@ def run(db_dir: Path, model: str | None = None,
     base_url = resolve_base_url(config, base_url)
     print(f"  Target: {describe_target(model_name, base_url)}")
     llm = build_chat_llm(model_name, resolve_api_key(config), base_url,
-                         max_retries=1)
+                         config=config, max_retries=1)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
     linker = SchemaLinkingAgent(bird_config, llm)

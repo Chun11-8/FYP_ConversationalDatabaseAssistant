@@ -978,8 +978,40 @@ llm:
 ```
 
 An **untagged** entry behaves exactly as before: the process-wide `base_url`
-and the query-stage key. The client built for `gpt-4o-mini` is byte-identical
-to the pre-GH#108 construction, and a test asserts it.
+and the query-stage key. The client built for `gpt-4o-mini` adds nothing to the
+pre-GH#108 construction except the call limits below, and a test asserts the
+exact kwarg set.
+
+#### When a call appears to hang (GH#118)
+
+A non-streaming request to a gateway returns its `200 OK` as soon as the
+**headers** are written, then holds the body open for the whole generation. So
+this line in the log means the request was accepted, not that an answer came
+back:
+
+```
+INFO HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+```
+
+A reasoning model that emits a long chain of thought before the SQL can sit
+there for minutes, and it is indistinguishable from a dead connection. Left
+uncapped the OpenAI SDK default applies — 600 s per attempt with 2 retries, so
+one stuck call occupies a benchmark run for half an hour. Both limits are
+configurable, per process and per model:
+
+```yaml
+llm:
+  request_timeout_s: 120        # null restores the SDK default (no cap)
+  max_retries: 2
+  selectable_models:
+    - id: deepseek/deepseek-v4-flash-0731
+      provider: openrouter
+      request_timeout_s: 300    # a reasoner needs the head-room
+```
+
+The ceiling belongs on the model rather than the process: three minutes from a
+reasoning model is it working, while three minutes from a small instruct model
+means the connection is gone.
 
 **Verify slugs before spending.** Providers retire ids, and a wrong one fails
 at the first call — mid-run, after everything before it has been paid for:

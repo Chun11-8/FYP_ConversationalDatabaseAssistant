@@ -42,6 +42,17 @@ _API_KEY_ENV = "LLM_API_KEY"
 # run through one gateway such as OpenRouter.
 _JUDGE_KEY_ENV = "JUDGE_API_KEY"
 
+# GH#118: how long one chat call may take, and how many times the SDK retries
+# it. Both are capped deliberately. Neither the agent graph nor the BIRD loop
+# set a timeout today, so the OpenAI SDK default applies — 600s per attempt
+# with 2 retries, i.e. a single stuck call can occupy the run for half an hour
+# with no output. Gateways make that reachable in normal use: a non-streaming
+# request to OpenRouter returns its 200 as soon as the headers are written and
+# then holds the body open for the whole generation, so a slow reasoning model
+# looks exactly like a hang in the logs.
+_DEFAULT_REQUEST_TIMEOUT_S = 120.0
+_DEFAULT_MAX_RETRIES = 2
+
 
 def resolve_base_url(config: Optional[dict] = None,
                      cli_value: Optional[str] = None) -> Optional[str]:
@@ -101,6 +112,44 @@ def resolve_judge_api_key(config: Optional[dict] = None,
     if explicit and str(explicit).strip():
         return str(explicit).strip()
     return resolve_api_key(config)
+
+
+def resolve_call_limits(config: Optional[dict] = None,
+                        entry: Optional[dict] = None) -> Dict[str, Any]:
+    """
+    ``{"timeout": seconds, "max_retries": n}`` for one chat call (GH#118).
+
+    Precedence: the model's own entry in ``llm.selectable_models`` → the
+    ``llm.*`` defaults → the constants above. A per-model override exists
+    because the right ceiling is a property of the model: a reasoning model
+    that thinks for two minutes is working, while the same two minutes from a
+    small instruct model means the connection is dead.
+
+    ``request_timeout_s: null`` restores the SDK default (no cap) for a model
+    that genuinely needs it, rather than forcing a number.
+    """
+    llm_cfg = (config or {}).get("llm") or {}
+    entry = entry or {}
+
+    if "request_timeout_s" in entry:
+        timeout = entry["request_timeout_s"]
+    elif "request_timeout_s" in llm_cfg:
+        timeout = llm_cfg["request_timeout_s"]
+    else:
+        timeout = _DEFAULT_REQUEST_TIMEOUT_S
+
+    if "max_retries" in entry:
+        retries = entry["max_retries"]
+    elif "max_retries" in llm_cfg:
+        retries = llm_cfg["max_retries"]
+    else:
+        retries = _DEFAULT_MAX_RETRIES
+
+    limits: Dict[str, Any] = {"max_retries": int(retries)}
+    # None means "no cap" — omit the kwarg so the SDK default stands.
+    if timeout is not None:
+        limits["timeout"] = float(timeout)
+    return limits
 
 
 # ── per-model routing (GH#108) ───────────────────────────────────────────────
@@ -191,7 +240,7 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
     # how a reasoning model that rejects a non-default temperature is handled;
     # absent means the caller's default (0) is kept, so existing models are
     # untouched.
-    extra: Dict[str, Any] = {}
+    extra: Dict[str, Any] = dict(resolve_call_limits(config, entry))
     if "temperature" in entry:
         temp = entry["temperature"]
         extra["temperature"] = None if temp is None else temp
@@ -219,17 +268,20 @@ def build_for_target(target: ModelTarget, **extra: Any) -> ChatOpenAI:
 
 
 def build_chat_llm(model: str, api_key: Optional[str],
-                   base_url: Optional[str] = None, **extra: Any) -> ChatOpenAI:
+                   base_url: Optional[str] = None,
+                   config: Optional[dict] = None, **extra: Any) -> ChatOpenAI:
     """
     A chat client for ``model``, optionally against an OpenAI-compatible
     ``base_url``. ``extra`` passes through provider/caller-specific kwargs
     (e.g. ``max_retries``).
 
     When no base_url is given the kwarg is omitted entirely rather than passed
-    as None, so the default path stays byte-identical to a plain
-    ``ChatOpenAI(model=..., temperature=0, api_key=...)`` construction.
+    as None, so the default path differs from a plain
+    ``ChatOpenAI(model=..., temperature=0, api_key=...)`` construction only by
+    the GH#118 call limits, which ``extra`` can override.
     """
     kwargs: Dict[str, Any] = {"model": model, "temperature": 0, "api_key": api_key}
+    kwargs.update(resolve_call_limits(config))
     if base_url:
         kwargs["base_url"] = base_url
     kwargs.update(extra)
