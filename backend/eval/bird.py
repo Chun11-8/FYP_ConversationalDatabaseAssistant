@@ -57,6 +57,7 @@ import math
 import re
 import sqlite3
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -191,6 +192,84 @@ def extract_sqlite_schema(db_path: str) -> str:
         return schema
     finally:
         conn.close()
+
+
+# ── Per-question wall-clock budget (GH#119) ───────────────────────────────────
+
+class _QuestionTimeout(Exception):
+    """One question's LLM work ran past its wall-clock budget."""
+
+
+class _Budget:
+    """
+    A wall-clock ceiling for one question, so a stalled call cannot hold the
+    whole run (GH#119).
+
+    GH#118 capped a single HTTP request, which is not the same guarantee: a
+    moderate question makes roughly ten LLM calls, so a run can crawl without
+    any one request ever timing out. This bounds the question instead.
+
+    The work runs on a DAEMON thread and is ABANDONED on expiry rather than
+    cancelled — Python cannot interrupt a thread blocked in a socket read, and
+    there is no honest way to pretend otherwise. Two consequences worth knowing:
+    the abandoned call keeps running until its own HTTP timeout fires (hence
+    GH#118 is what actually reclaims the socket), and it keeps billing. What
+    this buys is that the LOOP moves on. Daemon, specifically, so an abandoned
+    thread cannot hold the interpreter open at exit — which is exactly what a
+    ThreadPoolExecutor would do, since its atexit hook joins every worker.
+    """
+
+    def __init__(self, seconds: Optional[float]) -> None:
+        self._limit = float(seconds) if seconds and seconds > 0 else None
+        self._t0 = time.perf_counter()
+
+    @property
+    def limit(self) -> Optional[float]:
+        return self._limit
+
+    def remaining(self) -> Optional[float]:
+        if self._limit is None:
+            return None
+        return max(0.0, self._limit - (time.perf_counter() - self._t0))
+
+    def expired(self) -> bool:
+        left = self.remaining()
+        return left is not None and left <= 0.0
+
+    def run(self, fn: Any, label: str, tracker: Any = None) -> Any:
+        """
+        Call *fn* under the remaining budget, raising :class:`_QuestionTimeout`
+        if it does not finish in time. An exception from *fn* propagates
+        unchanged, so existing error handling around the call site still sees
+        what it expects.
+
+        *tracker* is re-bound inside the worker because token accounting is
+        thread-local (``usage.bind`` exists for exactly this); without it every
+        BIRD run would silently report zero tokens and zero cost.
+        """
+        if self._limit is None:
+            return fn()
+
+        box: Dict[str, Any] = {}
+
+        def _target() -> None:
+            if tracker is not None:
+                usage_tracking.bind(tracker)
+            try:
+                box["value"] = fn()
+            except BaseException as exc:            # noqa: BLE001 — re-raised below
+                box["error"] = exc
+
+        thread = threading.Thread(target=_target, daemon=True,
+                                  name=f"bird-{label}")
+        thread.start()
+        thread.join(self.remaining())
+        if thread.is_alive():
+            raise _QuestionTimeout(
+                f"{label} exceeded the {self._limit:g}s question budget")
+        if "error" in box:
+            raise box["error"]
+        return box.get("value")
 
 
 # ── SQLite execution with timeout ─────────────────────────────────────────────
@@ -356,6 +435,11 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         "VES": round(ves_score, 2),
         "gold_errors": gold_errors,
         "EX_winnable": ex_winnable,
+        # GH#119: abandoned questions are scored 0 and stay in the denominator,
+        # so a run with a non-zero count here UNDERSTATES the model. Surfaced
+        # as its own number because the alternative — noticing it in the
+        # error_categories dict — is how a slow run gets mistaken for a bad one.
+        "timeouts": sum(1 for r in results if r.get("timed_out")),
         "error_categories": summarize(results),
         "llm_calls": total_calls,
         "llm_calls_per_question": round(total_calls / n, 2),
@@ -571,6 +655,7 @@ def run_bird_eval(
     refine: bool = True,
     plan_diversity: bool = False,
     judge_llm: Any = None,
+    question_timeout: Optional[float] = 60.0,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -599,6 +684,13 @@ def run_bird_eval(
                        failure (invalid SQL, execution error, or 0 rows); the
                        refined SQL is kept only when it is strictly better
     timeout          : per-query SQLite execution timeout in seconds
+    question_timeout : GH#119 — wall-clock ceiling in seconds for ONE question's
+                       LLM work. On expiry the question is abandoned and scored
+                       0, and the loop moves to the next one. 0 or None disables
+                       it. This is NOT the same guard as `timeout` (SQLite) or
+                       as the GH#118 per-request HTTP cap: a question makes
+                       roughly ten LLM calls, so a run can stall without any
+                       single request timing out.
     """
     questions = load_dev_json(dev_json_path)
 
@@ -620,8 +712,12 @@ def run_bird_eval(
             "spelling against the db_id values in dev.json.",
             difficulty_filter, db_filter)
     logger.info(f"[BIRD] Starting evaluation — {total} question(s)")
+    if question_timeout and question_timeout > 0:
+        logger.info("[BIRD] Per-question budget: %gs (GH#119) — a question that "
+                    "overruns is scored 0, not dropped", question_timeout)
 
     results: List[Dict] = []
+    timed_out = 0
 
     for idx, item in enumerate(questions, start=1):
         qid = item.get("question_id", idx - 1)
@@ -630,6 +726,7 @@ def run_bird_eval(
         gold_sql: str = item["SQL"]
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
+        budget = _Budget(question_timeout)
 
         # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
         db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
@@ -662,7 +759,19 @@ def run_bird_eval(
         q_usage = usage_tracking.start_request()
         if linker is not None:
             try:
-                query_plan = linker.analyze(full_query, schema_context)
+                query_plan = budget.run(
+                    lambda: linker.analyze(full_query, schema_context),
+                    "schema-linking", q_usage)
+            except _QuestionTimeout as exc:
+                # Planning alone burned the budget. Generation without a plan
+                # is the documented fallback (`query_plan=None` is a supported
+                # input), but there is no time left to attempt it.
+                logger.warning(f"[BIRD] qid={qid} SKIPPED — {exc}")
+                results.append(_timeout_record(
+                    qid, db_id, difficulty, question, evidence, gold_sql,
+                    str(exc), q_usage))
+                timed_out += 1
+                continue
             except Exception as exc:
                 logger.warning(f"[BIRD] schema linking failed qid={qid}: {exc}")
 
@@ -682,6 +791,7 @@ def run_bird_eval(
         t_gen = time.perf_counter()
         pred_sql = ""
         vote_info: Optional[Dict[str, Any]] = None
+        timeout_note: Optional[str] = None
         try:
             def _gen(plan_for_batch):
                 return sql_agent.generate(
@@ -693,20 +803,30 @@ def run_bird_eval(
                     tier=difficulty,  # BIRD gives the real tier; agent gates via config
                 )
 
-            sqls = _gen(query_plan)
-            # GH#76: candidates from a SECOND plan that disagrees on grain or
-            # aggregation. Every candidate otherwise descends from one plan,
-            # so voting confirms that plan rather than testing it.
-            if plan_diversity and linker is not None and query_plan:
-                try:
-                    alt = linker.analyze_alternative(
-                        query=full_query, schema_context=schema_context,
-                        first_plan=query_plan)
-                    if alt:
-                        sqls = sqls + [x for x in _gen(alt) if x not in sqls]
-                except Exception as exc:
-                    logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
-            pred_sql, vote_info = _select(sqls)
+            def _generate() -> Tuple[str, Optional[Dict[str, Any]]]:
+                sqls = _gen(query_plan)
+                # GH#76: candidates from a SECOND plan that disagrees on grain
+                # or aggregation. Every candidate otherwise descends from one
+                # plan, so voting confirms that plan rather than testing it.
+                if plan_diversity and linker is not None and query_plan:
+                    try:
+                        alt = linker.analyze_alternative(
+                            query=full_query, schema_context=schema_context,
+                            first_plan=query_plan)
+                        if alt:
+                            sqls = sqls + [x for x in _gen(alt) if x not in sqls]
+                    except Exception as exc:
+                        logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
+                return _select(sqls)
+
+            pred_sql, vote_info = budget.run(_generate, "generation", q_usage)
+        except _QuestionTimeout as exc:
+            logger.warning(f"[BIRD] qid={qid} SKIPPED — {exc}")
+            results.append(_timeout_record(
+                qid, db_id, difficulty, question, evidence, gold_sql,
+                str(exc), q_usage))
+            timed_out += 1
+            continue
         except Exception as exc:
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
@@ -746,7 +866,7 @@ def run_bird_eval(
         # Triggers on outcomes visible WITHOUT looking at gold: no/invalid SQL,
         # an execution error, or a valid query that returned 0 rows.
         refined = False
-        if refine and not gold_error:
+        if refine and not gold_error and not budget.expired():
             zero_rows = bool(
                 pred_sql and validation.get("valid") and not pred_error and not pred_rows
             )
@@ -763,18 +883,29 @@ def run_bird_eval(
                     observation = (
                         f"The query failed validation: {validation.get('error', 'no SQL generated')}"
                     )
+                # A refine that overruns keeps the ORIGINAL prediction rather
+                # than discarding the question: generation already produced a
+                # scorable answer, and throwing it away would turn a slow
+                # optional improvement into a zero.
                 try:
-                    re_sqls = sql_agent.regenerate(
-                        query=full_query,
-                        schema_context=schema_context,
-                        original_sql=pred_sql or "",
-                        error=observation,
-                        history=[],
-                    )
+                    new_sql, _ = budget.run(
+                        lambda: _select(sql_agent.regenerate(
+                            query=full_query,
+                            schema_context=schema_context,
+                            original_sql=pred_sql or "",
+                            error=observation,
+                            history=[],
+                        )),
+                        "refine", q_usage)
+                except _QuestionTimeout as exc:
+                    logger.warning(
+                        f"[BIRD] qid={qid} refine abandoned — {exc}; keeping "
+                        f"the un-refined prediction")
+                    timeout_note = str(exc)
+                    new_sql = ""
                 except Exception as exc:
                     logger.warning(f"[BIRD] refine failed qid={qid}: {exc}")
-                    re_sqls = []
-                new_sql, _ = _select(re_sqls)
+                    new_sql = ""
                 if new_sql:
                     v2, rows2, err2, t2 = _attempt(new_sql)
                     orig_ok = bool(pred_sql and validation.get("valid") and not pred_error)
@@ -809,11 +940,20 @@ def run_bird_eval(
         # here rather than reconstructed later because the executed ROWS and
         # the schema context exist only at this point — five of the ten checks
         # need them, and a harness replaying from disk cannot get them back.
+        # The judge is the one remaining LLM call. Out of budget, it is
+        # dropped rather than run past the ceiling — the ten deterministic
+        # checks still run, and a dropped judge is recorded as NOT CHECKED
+        # by _verification_for, never as nothing-wrong.
+        judge_for_q = judge_llm
+        if judge_llm is not None and budget.expired():
+            logger.warning(f"[BIRD] qid={qid} judge skipped — question budget spent")
+            timeout_note = timeout_note or "judge skipped: question budget spent"
+            judge_for_q = None
         verification = _verification_for(
             sql=pred_sql, rows=pred_rows, question=question,
             evidence=evidence, schema_context=schema_context,
             query_plan=query_plan, validation=validation,
-            vote_info=vote_info, refined=refined, judge_llm=judge_llm,
+            vote_info=vote_info, refined=refined, judge_llm=judge_for_q,
         )
 
         record: Dict[str, Any] = {
@@ -837,6 +977,7 @@ def run_bird_eval(
             "pred_elapsed_ms": int(pred_elapsed * 1000),
             "exec_vote":      vote_info,
             "refined":        refined,
+            "timeout_note":   timeout_note,
             "gold_transpiled": gold_transpiled,
             "query_plan":     query_plan,
             "verification":   verification,
@@ -854,6 +995,12 @@ def run_bird_eval(
             f"db={db_id} diff={difficulty} | {question[:55]}"
         )
 
+    if timed_out:
+        logger.warning(
+            "[BIRD] %d/%d question(s) hit the %gs budget and were scored 0. "
+            "They stay in the denominator — raise --question-timeout if the "
+            "model is slow rather than stuck, or the score understates it.",
+            timed_out, total, question_timeout)
     return results
 
 
@@ -885,6 +1032,54 @@ def _error_record(
         "gen_ms":         0,
         "gold_elapsed_ms": 0,
         "pred_elapsed_ms": 0,
+    }
+
+
+def _timeout_record(
+    qid: Any,
+    db_id: str,
+    difficulty: str,
+    question: str,
+    evidence: str,
+    gold_sql: str,
+    error: str,
+    tracker: Any = None,
+) -> Dict[str, Any]:
+    """
+    A question abandoned on its wall-clock budget (GH#119).
+
+    Deliberately NOT ``_error_record``. That one reports through ``gold_error``,
+    which means "this question is unwinnable — the BIRD gold SQL itself does
+    not run on SQLite", and compute_bird_metrics drops those from the
+    denominator entirely. Routing a timeout there would REMOVE the hardest,
+    slowest questions from the score: a model that stalls on every challenging
+    question would post a better EX than one that answers them slowly. The
+    error belongs in ``pred_error`` — the model failed to produce an answer,
+    which is a wrong answer, and it stays in the denominator scoring 0.
+    """
+    return {
+        "question_id":    qid,
+        "db_id":          db_id,
+        "difficulty":     difficulty,
+        "question":       question,
+        "evidence":       evidence,
+        "gold_sql":       gold_sql,
+        "pred_sql":       "",
+        "valid":          False,
+        "gold_error":     None,
+        "pred_error":     error,
+        "timed_out":      True,
+        "timeout_note":   error,
+        "ex":             0.0,
+        "f1":             0.0,
+        "ves_reward":     0.0,
+        "gold_row_count": 0,
+        "pred_row_count": 0,
+        "gen_ms":         0,
+        "gold_elapsed_ms": 0,
+        "pred_elapsed_ms": 0,
+        "usage":          tracker.as_dict() if tracker is not None else None,
+        "error_category": "timeout",
     }
 
 
@@ -943,6 +1138,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--question-timeout", type=float, default=60.0,
+                        help="GH#119: wall-clock budget in seconds for ONE "
+                             "question's LLM work; on expiry the question is "
+                             "abandoned, SCORED 0 (it stays in the denominator) "
+                             "and the run moves on. 0 disables. Distinct from "
+                             "--timeout, which bounds SQLite, and from the "
+                             "per-request HTTP cap in config.yaml. Default: 60")
     parser.add_argument("--no-schema-linking", action="store_true",
                         help="Disable the schema-linking stage (#17) for A/B comparison")
     parser.add_argument("--no-exec-voting", action="store_true",
@@ -1070,6 +1272,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         refine=use_refine,
         plan_diversity=bool(args.plan_diversity),
         judge_llm=judge_llm,
+        question_timeout=args.question_timeout,
     )
     metrics = compute_bird_metrics(results)
     run_config = {
@@ -1093,6 +1296,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         "subset": args.subset,
         "difficulty": args.difficulty,
         "db_id": args.db_id,
+        # GH#119: recorded because it can CHANGE the score — two runs at
+        # different budgets are not comparable if either one abandoned work.
+        "question_timeout": args.question_timeout,
     }
     write_results(results, metrics, args.output, run_config=run_config)
 
@@ -1105,6 +1311,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if metrics.get("gold_errors"):
         print(f"  ⚠️  UNWINNABLE (gold errored on SQLite): {metrics['gold_errors']} "
               f"question(s) — EX over winnable subset: {metrics.get('EX_winnable', 0):.2f}")
+    if metrics.get("timeouts"):
+        print(f"  ⏱  ABANDONED (hit the per-question budget): {metrics['timeouts']} "
+              f"question(s) — scored 0 and still counted; raise "
+              f"--question-timeout if the model is slow rather than stuck")
     if metrics.get("by_difficulty"):
         print()
         for diff, stats in metrics["by_difficulty"].items():

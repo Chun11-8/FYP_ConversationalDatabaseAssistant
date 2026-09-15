@@ -893,6 +893,43 @@ python -m backend.eval.bird --dev-json … --db-dir … \
 `--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
 set and `--subset` then slices what is left.
 
+#### `--question-timeout` — don't let one question hold the run (GH#119)
+
+A wall-clock budget for **one question's LLM work**, default **60 s**. On
+expiry the question is abandoned and the loop moves on:
+
+```bash
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --question-timeout 180        # a slow reasoning model
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --question-timeout 0          # disabled — pre-GH#119 behaviour
+```
+
+Three separate guards exist and they are easy to confuse:
+
+| Knob | Bounds | Where |
+|---|---|---|
+| `llm.request_timeout_s` | one HTTP request | `config.yaml` (GH#118) |
+| `--question-timeout` | one question, all its calls | this flag (GH#119) |
+| `--timeout` | one SQLite execution | this flag |
+
+The middle one is not implied by the first: a moderate question makes roughly
+ten LLM calls, so a run can crawl without any single request timing out.
+
+**An abandoned question is scored 0 and stays in the denominator.** It is
+*not* treated like a question whose gold SQL fails on SQLite — those are
+genuinely unwinnable and are excluded from `EX_winnable`. Excluding timeouts
+would mean a model that stalls on the hardest questions outscores one that
+answers them slowly. The run summary prints the count, `metrics.timeouts`
+records it, and `run_config.question_timeout` stores the budget, because two
+runs at different budgets are not comparable if either abandoned work.
+
+Caveat worth knowing: Python cannot interrupt a thread blocked on a socket
+read, so the abandoned call is **abandoned, not cancelled** — it keeps running
+until its own HTTP timeout fires, and it keeps billing. `--question-timeout`
+buys you the loop moving on; `llm.request_timeout_s` is what reclaims the
+socket.
+
 **`--trust-eval` is not needed for accuracy.** EX / F1 / VES are computed from
 the gold SQL on every run regardless. The flag adds the back-translation judge
 — evidence for `trust_eval.py`, which measures the DETECTOR rather than the

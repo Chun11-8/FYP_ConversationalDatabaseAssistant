@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -624,3 +625,190 @@ class TestDbIdFilter:
     def test_no_filter_keeps_every_question(self, tmp_path):
         dbs, _ = self._selected(tmp_path)
         assert len(dbs) == 6
+
+
+# ── GH#119: per-question wall-clock budget ──────────────────────────────────────
+
+class TestQuestionBudget:
+    """
+    A stalled question must not hold the run — and, just as importantly, must
+    not quietly vanish from the score. See `_timeout_record`.
+    """
+
+    def _slow_agents(self, delay: float, pred_sql: str = "SELECT COUNT(*) FROM players"):
+        """A generator that blocks for `delay` seconds before answering."""
+        sql_agent = MagicMock()
+
+        def _slow_generate(**_kwargs):
+            time.sleep(delay)
+            return [pred_sql]
+
+        sql_agent.generate.side_effect = _slow_generate
+        sql_agent.rerank.return_value = pred_sql
+        validator = MagicMock()
+        validator.validate.return_value = {
+            "valid": True, "syntax_ok": True, "safety_ok": True,
+            "semantic_ok": True, "error": None,
+        }
+        return sql_agent, validator
+
+    def test_a_stalled_question_is_abandoned_and_the_run_continues(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        t0 = time.perf_counter()
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            question_timeout=0.3, refine=False,
+        )
+        elapsed = time.perf_counter() - t0
+        # Both questions still produce a record, and neither waited 5s.
+        assert len(results) == 2
+        assert elapsed < 4.0, "the budget did not actually release the loop"
+        assert all(r["timed_out"] for r in results)
+
+    def test_an_abandoned_question_stays_in_the_denominator(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        The load-bearing assertion. compute_bird_metrics drops `gold_error`
+        records from the denominator because they are unwinnable. If a timeout
+        were reported that way, abandoning the slowest questions would RAISE
+        the reported EX — a model that stalls would outscore one that answers
+        slowly. A timeout is the model's failure, so it scores 0 and counts.
+        """
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            question_timeout=0.3, refine=False,
+        )
+        metrics = compute_bird_metrics(results)
+        assert metrics["total"] == 2
+        assert metrics["EX"] == 0.0
+        assert metrics["gold_errors"] == 0          # NOT counted as unwinnable
+        assert metrics["EX_winnable"] == 0.0        # denominator intact
+        assert metrics["timeouts"] == 2
+        assert metrics["error_categories"]["timeout"] == 2
+
+    def test_the_failure_is_recorded_as_a_prediction_error(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=0.3, refine=False,
+        )
+        rec = results[0]
+        assert rec["gold_error"] is None
+        assert "budget" in (rec["pred_error"] or "")
+        assert rec["ex"] == 0.0 and rec["f1"] == 0.0 and rec["valid"] is False
+        # The question is still identifiable in the output file.
+        assert rec["question_id"] == 0 and rec["db_id"] == "test_db"
+
+    def test_a_fast_question_is_untouched(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=0.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=30.0,
+        )
+        assert results[0]["ex"] == 1.0
+        assert not results[0].get("timed_out")
+
+    def test_zero_disables_the_budget(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """Off must mean off — the pre-GH#119 behaviour, for a reproduction
+        run that must not have questions abandoned under it."""
+        sql_agent, validator = self._slow_agents(delay=0.4)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=0,
+        )
+        assert results[0]["ex"] == 1.0
+
+    def test_token_accounting_survives_the_worker_thread(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        The budgeted work runs on another thread and usage tracking is
+        thread-local, so without an explicit `usage.bind` every run would
+        report zero tokens and zero cost while looking entirely healthy.
+        """
+        from backend.agents import usage as usage_tracking
+
+        sql_agent = MagicMock()
+
+        def _generate(**_kwargs):
+            tracker = usage_tracking.current()
+            assert tracker is not None, "tracker not bound in the worker thread"
+            tracker.record("generate", "gpt-4o-mini", 100, 20)
+            return ["SELECT COUNT(*) FROM players"]
+
+        sql_agent.generate.side_effect = _generate
+        sql_agent.rerank.return_value = "SELECT COUNT(*) FROM players"
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=30.0, refine=False,
+        )
+        assert results[0]["usage"]["input_tokens"] == 100
+        assert results[0]["usage"]["output_tokens"] == 20
+
+    def test_a_slow_refine_keeps_the_original_prediction(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        Generation succeeded; refine is an optional improvement. Dropping the
+        whole question because the optional step overran would turn a scorable
+        answer into a zero.
+        """
+        sql_agent = MagicMock()
+        # Valid SQL that returns 0 rows → the refine trigger.
+        sql_agent.generate.return_value = ["SELECT id FROM players WHERE id < 0"]
+        sql_agent.rerank.return_value = "SELECT id FROM players WHERE id < 0"
+
+        def _slow_regenerate(**_kwargs):
+            time.sleep(5.0)
+            return ["SELECT COUNT(*) FROM players"]
+
+        sql_agent.regenerate.side_effect = _slow_regenerate
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=2.0, refine=True, exec_voting=False,
+        )
+        rec = results[0]
+        assert not rec.get("timed_out")
+        assert rec["pred_sql"] == "SELECT id FROM players WHERE id < 0"
+        assert rec["refined"] is False
+        assert "budget" in (rec["timeout_note"] or "")
+
+    def test_an_exception_still_propagates_through_the_budget(self):
+        """The budget must not swallow a real error into a fake timeout."""
+        from backend.eval.bird import _Budget
+
+        def _boom():
+            raise ValueError("kaboom")
+
+        with pytest.raises(ValueError, match="kaboom"):
+            _Budget(30.0).run(_boom, "test")
+
+    def test_the_budget_is_shared_across_phases_not_reset(self):
+        """A 60s budget means 60s per QUESTION, not 60s per call — otherwise
+        ten calls could legitimately take ten minutes."""
+        from backend.eval.bird import _Budget
+
+        b = _Budget(1.0)
+        first = b.remaining()
+        time.sleep(0.3)
+        second = b.remaining()
+        assert second < first
+        assert b.expired() is False
+        time.sleep(0.8)
+        assert b.expired() is True
