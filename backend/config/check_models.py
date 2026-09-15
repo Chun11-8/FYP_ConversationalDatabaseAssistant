@@ -33,6 +33,8 @@ from backend.config.config_loader import load_config
 
 _TIMEOUT = 15
 OK, WARN, FAIL = "✓", "!", "✗"
+# OpenAI's own OpenAI-compatible endpoint, for catalogue lookups.
+_OPENAI_BASE = "https://api.openai.com/v1"
 
 
 def _catalogue_raw(base_url: str, api_key: Optional[str]) -> Optional[list]:
@@ -172,9 +174,24 @@ def check(config: dict, do_call: bool = False) -> Tuple[List[dict], int]:
                 row["status"], row["note"] = FAIL, "id not served by provider"
                 failures += 1
         else:
-            # OpenAI's catalogue lists only what the key can reach, so absence
-            # is not proof of a bad id — verified by --call instead.
-            row["note"] = "direct OpenAI — id not catalogue-checked"
+            # GH#115: OpenAI's /models lists exactly what THIS key can reach,
+            # so absence does mean "not usable here" — worth surfacing for a
+            # model the account may not be enabled for (gpt-5-nano and the
+            # like). Reported as a WARNING rather than a failure: a very new
+            # model can be callable before it appears in the listing, and
+            # blocking a run on that would be wrong.
+            if _OPENAI_BASE not in catalogues:
+                catalogues[_OPENAI_BASE] = _catalogue(_OPENAI_BASE,
+                                                      target.api_key)
+            known = catalogues[_OPENAI_BASE]
+            if known is None:
+                row["note"] = "OpenAI catalogue unreachable — id not checked"
+            elif model not in known:
+                row["status"] = WARN
+                row["note"] = ("not in this key's OpenAI model list — the "
+                               "account may not be enabled for it")
+            else:
+                row["note"] = "available to this key"
 
         if do_call and row["status"] != FAIL:
             try:

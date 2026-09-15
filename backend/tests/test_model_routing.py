@@ -242,15 +242,33 @@ class TestCheckModels:
             "providers": CONFIG["llm"]["providers"]}})
         assert fails == 1 and "no API key" in rows[0]["note"]
 
-    def test_direct_openai_models_are_not_catalogue_checked(self):
-        """OpenAI's /models lists only what the key can reach, so absence is
-        not proof of a bad id."""
+    def test_a_direct_openai_model_the_key_can_reach_passes(self):
         from backend.config import check_models as C
-        with patch.object(C, "_catalogue") as cat:
+        with patch.object(C, "_catalogue", return_value={"gpt-4o-mini"}):
             rows, fails = C.check({"llm": {"api_key": "sk-openai",
                                            "selectable_models": ["gpt-4o-mini"]}})
-        cat.assert_not_called()
+        assert fails == 0 and rows[0]["status"] == C.OK
+
+    def test_an_openai_model_the_key_cannot_reach_warns_but_does_not_fail(self):
+        """GH#115: /models lists exactly what THIS key can reach, so absence
+        does mean "not usable here" — worth surfacing for a model the account
+        may not be enabled for. A warning, not a failure: a very new model can
+        be callable before it appears in the listing."""
+        from backend.config import check_models as C
+        with patch.object(C, "_catalogue", return_value={"gpt-4o-mini"}):
+            rows, fails = C.check({"llm": {"api_key": "sk-openai",
+                                           "selectable_models": ["gpt-5-nano"]}})
         assert fails == 0
+        assert rows[0]["status"] == C.WARN
+        assert "may not be enabled" in rows[0]["note"]
+
+    def test_an_unreachable_openai_catalogue_does_not_accuse(self):
+        from backend.config import check_models as C
+        with patch.object(C, "_catalogue", return_value=None):
+            rows, fails = C.check({"llm": {"api_key": "sk-openai",
+                                           "selectable_models": ["gpt-5-nano"]}})
+        assert fails == 0 and rows[0]["status"] == C.OK
+        assert "not checked" in rows[0]["note"]
 
 
 # ── GH#111: the picker list is not the whole pipeline ─────────────────────────
