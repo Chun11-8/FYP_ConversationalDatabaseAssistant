@@ -1201,6 +1201,31 @@ body, html, #root {
   font-style: italic;
 }
 
+.trust-still-shown {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* The query ran and matched nothing — a result, not an absence (GH#113). */
+.records-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-surface);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.records-empty-icon { flex-shrink: 0; margin-top: 0.1rem; color: var(--text-muted); }
+.records-empty strong { color: var(--text-primary); font-weight: 600; }
+
 /* The plain-English read-back of the SQL, under the query it describes. */
 .reads-as {
   display: flex;
