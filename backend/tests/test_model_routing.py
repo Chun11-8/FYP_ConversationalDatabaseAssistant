@@ -502,3 +502,54 @@ class TestPriceSync:
         from backend.config import check_models as C
         with _patch.object(C, "_catalogue_raw", return_value=None):
             assert C._prices("https://x/v1", "k") == {}
+
+
+# ── GH#117: a gateway id must never quietly reach OpenAI ──────────────────────
+
+class TestNamespacedIdGuard:
+    """
+    Reported: a BIRD run logged "invalid model ID" from api.openai.com on every
+    question and kept going. The cause is that a model id which is not EXACTLY
+    an entry in llm.selectable_models carries no provider tag, so it falls back
+    to OpenAI — which does not serve `vendor/model` slugs.
+
+    OpenAI's own ids never contain "/", which makes this deterministically
+    detectable rather than a judgement call.
+    """
+
+    def test_a_namespaced_id_routed_to_openai_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            t = resolve_model_target("deepseek/deepseek-v4-flash", CONFIG)
+        assert t.base_url is None                      # the bug being reported
+        assert "looks like a gateway id" in caplog.text
+
+    def test_a_tagged_namespaced_id_does_not_warn(self, caplog):
+        with caplog.at_level("WARNING"):
+            resolve_model_target("qwen/qwen3.5-122b-a10b", CONFIG)
+        assert "looks like a gateway id" not in caplog.text
+
+    def test_a_plain_openai_id_does_not_warn(self, caplog):
+        with caplog.at_level("WARNING"):
+            resolve_model_target("gpt-4o-mini", CONFIG)
+        assert "looks like a gateway id" not in caplog.text
+
+    def test_the_eval_aborts_before_the_first_question(self):
+        """The expensive part of this bug was the run continuing — 150
+        questions each failing and each billed. The check has to run before
+        the loop, not inside it."""
+        import inspect
+        import backend.eval.bird as B
+        src = inspect.getsource(B.main)
+        guard = src.index('"/" in target.model')
+        loop = src.index("run_bird_eval(")
+        assert guard < loop, "the guard must precede the evaluation loop"
+        assert "sys.exit" in src[guard:loop]
+
+    def test_the_abort_names_the_likely_typo(self):
+        """A near-miss is the common case — the configured id has a date
+        suffix, or a different separator."""
+        configured = ["deepseek/deepseek-v4-flash-0731", "qwen/qwen3.8-flash"]
+        typed = "deepseek/deepseek-v4-flash"
+        near = [c for c in configured
+                if c.split("/")[-1].split("-")[0].lower() in typed.lower()]
+        assert near == ["deepseek/deepseek-v4-flash-0731"]
