@@ -269,3 +269,76 @@ class TestNamespacedModelIds:
     ])
     def test_malformed_ids_are_still_rejected(self, model):
         assert not _MODEL_ID_RE.match(model)
+
+
+# ── GH#106: the key must travel with the endpoint ─────────────────────────────
+
+class TestProviderApiKey:
+    """
+    base_url and the API key are a pair. Until GH#106 the key was always
+    OpenAI's, so pointing base_url at OpenRouter/Groq/DeepSeek sent an OpenAI
+    key to a provider that would reject it — the documented setup did not work.
+    """
+
+    CFG = {"llm": {"api_key": "sk-openai"}}
+
+    def test_without_an_env_var_nothing_changes(self, monkeypatch):
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        assert llm_factory.resolve_api_key(self.CFG) == "sk-openai"
+
+    def test_llm_api_key_overrides_the_openai_key(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "sk-or-v1-abc")
+        assert llm_factory.resolve_api_key(self.CFG) == "sk-or-v1-abc"
+
+    def test_an_explicit_value_beats_the_environment(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "sk-env")
+        assert llm_factory.resolve_api_key(self.CFG, "sk-explicit") == "sk-explicit"
+
+    def test_a_blank_env_var_means_unset(self, monkeypatch):
+        """An exported-but-empty var must not produce a client with no key."""
+        monkeypatch.setenv("LLM_API_KEY", "   ")
+        assert llm_factory.resolve_api_key(self.CFG) == "sk-openai"
+
+    def test_no_key_anywhere_is_none_not_a_crash(self, monkeypatch):
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        assert llm_factory.resolve_api_key({}) is None
+
+    def test_the_judge_inherits_the_query_key_by_default(self, monkeypatch):
+        """One gateway (OpenRouter) serving both needs only one key."""
+        monkeypatch.delenv("JUDGE_API_KEY", raising=False)
+        monkeypatch.setenv("LLM_API_KEY", "sk-or-v1-abc")
+        assert llm_factory.resolve_judge_api_key(self.CFG) == "sk-or-v1-abc"
+
+    def test_the_judge_can_have_its_own_key(self, monkeypatch):
+        """Generator and judge on DIFFERENT providers — the cross-provider
+        configuration is the whole reason the judge is configurable."""
+        monkeypatch.setenv("LLM_API_KEY", "sk-openai-proj")
+        monkeypatch.setenv("JUDGE_API_KEY", "sk-deepseek")
+        assert llm_factory.resolve_judge_api_key(self.CFG) == "sk-deepseek"
+
+    def test_embeddings_are_untouched(self):
+        """They stay on OpenAI: the pgvector columns are sized for
+        text-embedding-3-small, so a different embedder means a re-index."""
+        import inspect
+        from backend.retrieval import embedding
+        src = inspect.getsource(embedding)
+        assert "LLM_API_KEY" not in src
+        assert "resolve_api_key" not in src
+
+
+class TestEveryCallSiteUsesIt:
+    """One stage left on the old key would silently talk to OpenAI while the
+    rest of the run targets the configured provider — which looks like a flaky
+    model rather than a config bug. That is why llm_factory is centralised."""
+
+    def test_no_call_site_still_reads_the_raw_openai_key(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        offenders = []
+        for path in (root / "agents" / "db_agent.py", root / "eval" / "bird.py",
+                     root / "eval" / "bird_predict.py",
+                     root / "eval" / "smoke_examples.py"):
+            text = path.read_text()
+            if 'config["llm"]["api_key"]' in text:
+                offenders.append(path.name)
+        assert offenders == [], f"still passing the OpenAI key directly: {offenders}"
