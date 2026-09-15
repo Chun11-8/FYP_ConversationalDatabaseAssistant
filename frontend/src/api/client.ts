@@ -12,6 +12,8 @@ export interface ChatApiResponse {
   csv_path: string | null;
   turn_id: number | null;
   cache_hit?: boolean;
+  /** GH#114: endpoint that served this turn */
+  provider?: string | null;
   usage?: TurnUsage | null;
   /** How the winning SQL was chosen (GH#67) — evidence, not a verdict */
   verification?: TurnVerification | null;

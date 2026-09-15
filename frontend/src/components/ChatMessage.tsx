@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle, ShieldAlert, ShieldX, CircleHelp, MessageSquareQuote, Database } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Copy, Check, Download, ThumbsUp, ThumbsDown, Zap, ShieldCheck, AlertTriangle, ShieldAlert, ShieldX, CircleHelp, MessageSquareQuote, Database, Cpu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -152,6 +152,39 @@ function CacheChip() {
  * cached answer was reused because the rows hadn't changed — so it gets its own
  * label rather than reading as a suspicious "$0.000000".
  */
+/**
+ * Which model answered, and what it cost (GH#114).
+ *
+ * `cost_known: false` renders "cost n/a" rather than "$0.0000": a missing rate
+ * is not a zero bill, and showing one would quietly tell the user an
+ * OpenRouter run was free.
+ */
+function ModelChip(
+  { usage, provider }: { usage: TurnUsage; provider?: string | null },
+) {
+  const models = usage.models ?? [];
+  if (models.length === 0) return null;
+  const label = models[0];
+  const extra = models.length > 1 ? ` +${models.length - 1}` : '';
+  return (
+    <span
+      className="meta-chip meta-chip--model"
+      title={
+        `Answered by ${models.join(', ')}` +
+        (provider ? `\nvia ${provider}` : '') +
+        (usage.cost_known === false
+          ? `\n\nNo price configured for ${(usage.unpriced_models ?? []).join(', ')}` +
+            `\nTokens are counted; the cost figure would understate the turn.` +
+            `\nAdd rates under llm.pricing in config.yaml.`
+          : '')
+      }
+    >
+      <Cpu size={11} />
+      {label}{extra}
+    </span>
+  );
+}
+
 function UsageChip({ usage }: { usage: TurnUsage }) {
   const tokens = usage.input_tokens + usage.output_tokens;
   const detail = Object.entries(usage.by_stage ?? {})
@@ -173,7 +206,10 @@ function UsageChip({ usage }: { usage: TurnUsage }) {
              `${usage.input_tokens.toLocaleString()} in / ${usage.output_tokens.toLocaleString()} out` +
              (detail ? `\n\n${detail}` : '')}
     >
-      {usage.calls} call{usage.calls !== 1 ? 's' : ''} · {tokens.toLocaleString()} tok · ${usage.est_cost_usd.toFixed(4)}
+      {usage.calls} call{usage.calls !== 1 ? 's' : ''} · {tokens.toLocaleString()} tok
+      {usage.cost_known === false
+        ? ' · cost n/a'
+        : ` · $${usage.est_cost_usd.toFixed(4)}`}
     </span>
   );
 }
@@ -475,6 +511,7 @@ function AssistantMessage({
             {message.intent && <IntentBadge intent={message.intent} />}
             {message.cache_hit && <CacheChip />}
             {message.verification && <AgreementChip v={message.verification} />}
+            {message.usage && <ModelChip usage={message.usage} provider={message.provider} />}
             {message.usage && <UsageChip usage={message.usage} />}
             <span className="msg-time">{formatTime(message.timestamp)}</span>
           </div>

@@ -55,6 +55,16 @@ def set_pricing(table: Optional[Dict[str, Any]]) -> None:
             logger.warning("[USAGE] ignoring malformed pricing entry for %s", model)
 
 
+def is_priced(model: Optional[str]) -> bool:
+    """GH#114: is a rate known for *model*?
+
+    Without this the UI cannot tell "this turn cost nothing" from "nobody told
+    us what this model costs" — both arrive as 0.0, and $0.0000 next to an
+    OpenRouter model reads as free when it is merely unknown.
+    """
+    return _pricing.get(model or "") is not None
+
+
 def cost_usd(model: Optional[str], input_tokens: int, output_tokens: int) -> float:
     rates = _pricing.get(model or "")
     if rates is None:
@@ -75,11 +85,20 @@ class UsageTracker:
         self.output_tokens = 0
         self.est_cost_usd = 0.0
         self.by_stage: Dict[str, Dict[str, Any]] = {}
+        # GH#114: which model(s) this turn actually billed against, in call
+        # order. Usually one; two when a stage is routed elsewhere (GH#38) or
+        # the judge runs on another provider.
+        self.models: list[str] = []
+        self._unpriced: set[str] = set()
 
     def record(self, stage: str, model: Optional[str],
                input_tokens: int, output_tokens: int) -> None:
         c = cost_usd(model, input_tokens, output_tokens)
         with self._lock:
+            if model and model not in self.models:
+                self.models.append(model)
+            if model and not is_priced(model):
+                self._unpriced.add(model)
             self.calls += 1
             self.input_tokens += input_tokens
             self.output_tokens += output_tokens
@@ -99,6 +118,13 @@ class UsageTracker:
                 "input_tokens": self.input_tokens,
                 "output_tokens": self.output_tokens,
                 "est_cost_usd": round(self.est_cost_usd, 6),
+                # GH#114: what was actually billed, and whether the figure
+                # above means anything. `cost_known` False = a rate is missing
+                # for at least one model, so est_cost_usd UNDERSTATES the turn
+                # and must not be rendered as a dollar amount.
+                "models": list(self.models),
+                "cost_known": not self._unpriced,
+                "unpriced_models": sorted(self._unpriced),
                 "by_stage": {
                     k: {**v, "est_cost_usd": round(v["est_cost_usd"], 6)}
                     for k, v in self.by_stage.items()

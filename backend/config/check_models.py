@@ -35,6 +35,49 @@ _TIMEOUT = 15
 OK, WARN, FAIL = "✓", "!", "✗"
 
 
+def _catalogue_raw(base_url: str, api_key: Optional[str]) -> Optional[list]:
+    """The provider's raw /models payload, or None if it could not be read."""
+    url = base_url.rstrip("/") + "/models"
+    req = urllib.request.Request(url)
+    if api_key:
+        req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            payload = json.load(resp)
+    except (urllib.error.URLError, urllib.error.HTTPError, ValueError,
+            TimeoutError, OSError):
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, list) else None
+
+
+def _prices(base_url: str, api_key: Optional[str]) -> Dict[str, Dict[str, float]]:
+    """
+    {model id: {input, output}} in USD per MILLION tokens, from the provider's
+    catalogue (GH#114).
+
+    OpenRouter quotes per-token strings ("0.00000015"); config.yaml and
+    usage.py both work in per-million, so convert once here rather than
+    leaving a unit mismatch for whoever pastes the output.
+    """
+    out: Dict[str, Dict[str, float]] = {}
+    for entry in _catalogue_raw(base_url, api_key) or []:
+        if not isinstance(entry, dict):
+            continue
+        pricing = entry.get("pricing")
+        mid = entry.get("id")
+        if not mid or not isinstance(pricing, dict):
+            continue
+        try:
+            inp = float(pricing.get("prompt", "nan")) * 1e6
+            outp = float(pricing.get("completion", "nan")) * 1e6
+        except (TypeError, ValueError):
+            continue
+        if inp == inp and outp == outp:            # both non-NaN
+            out[str(mid)] = {"input": round(inp, 4), "output": round(outp, 4)}
+    return out
+
+
 def _catalogue(base_url: str, api_key: Optional[str]) -> Optional[Set[str]]:
     """
     The set of ids a provider serves, from its OpenAI-compatible /models
@@ -148,16 +191,66 @@ def check(config: dict, do_call: bool = False) -> Tuple[List[dict], int]:
     return rows, failures
 
 
+def sync_pricing(config: dict) -> None:
+    """Print an `llm.pricing` block with each routed model's real rates."""
+    wanted = [m for _role, m in pipeline_models(config)]
+    by_endpoint: Dict[str, Dict[str, Dict[str, float]]] = {}
+    found: Dict[str, Dict[str, float]] = {}
+    missing: List[str] = []
+
+    for model in wanted:
+        target = resolve_model_target(model, config)
+        if not target.base_url:
+            # Direct OpenAI: no price list is exposed on /models, so the
+            # built-in table in usage.py stays the source for those.
+            continue
+        if target.base_url not in by_endpoint:
+            by_endpoint[target.base_url] = _prices(target.base_url,
+                                                   target.api_key)
+        price = by_endpoint[target.base_url].get(model)
+        if price:
+            found[model] = price
+        else:
+            missing.append(model)
+
+    if not found and not missing:
+        print("No routed models configured — nothing to price.")
+        return
+
+    print("\nPaste this under `llm:` in backend/config/config.yaml\n")
+    print("  pricing:")
+    for model, rates in sorted(found.items()):
+        print(f'    "{model}":')
+        print(f"      input: {rates['input']}")
+        print(f"      output: {rates['output']}")
+    if missing:
+        print("\n  # no price returned by the provider for:")
+        for model in missing:
+            print(f"  #   {model}")
+    print("\nUSD per MILLION tokens. Rates change — re-run before quoting a "
+          "cost figure in a report.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--sync-pricing", action="store_true",
+                    help="Fetch the real per-token prices for the configured "
+                         "models from their provider and print a ready-to-paste "
+                         "llm.pricing block. Until rates are configured the UI "
+                         "reports 'cost n/a' rather than a misleading $0.0000.")
     ap.add_argument("--call", action="store_true",
                     help="Also make one tiny real call per model (costs a few "
                          "tokens each, but proves the whole path end to end)")
     args = ap.parse_args()
 
     config = load_config()
+
+    if args.sync_pricing:
+        sync_pricing(config)
+        return
+
     rows, failures = check(config, do_call=args.call)
     if not rows:
         print("No models configured under llm.selectable_models.")

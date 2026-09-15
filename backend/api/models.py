@@ -56,6 +56,9 @@ class ChatResponse(BaseModel):
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
     cache_hit: bool = False   # answered from the semantic cache (no generation)
+    # GH#114: the endpoint that served this turn ("openai", "openrouter", …),
+    # shown beside the model so a routed answer is identifiable at a glance.
+    provider: Optional[str] = None
     # GH#67: how this answer was arrived at — candidate agreement, how the
     # winner was decided, refine rounds, validation flags. Facts only; no
     # confidence verdict until the calibration study establishes one.

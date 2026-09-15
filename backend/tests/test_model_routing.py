@@ -404,3 +404,83 @@ class TestDefaultKeyIsAFallbackNotAnOverride:
         with patch.object(lf, "ChatOpenAI") as mc:
             a._chat_llm("gpt-4o-mini", None)
         assert mc.call_args.kwargs["api_key"] == "sk-cached"
+
+
+# ── GH#114: show which model answered, and never fake a cost ──────────────────
+
+class TestUsageReportsModelAndCostHonestly:
+    """
+    A cost of $0.0000 beside an OpenRouter model reads as "this was free" when
+    it means "nobody told us what this model costs". The two have to be
+    distinguishable, or the UI quietly misreports spend.
+    """
+
+    def _tracker(self, model):
+        from backend.agents import usage as U
+        t = U.UsageTracker()
+        t.record("generate_sql", model, 1000, 200)
+        return t.as_dict()
+
+    def test_the_model_that_was_billed_is_reported(self):
+        assert self._tracker("gpt-4o-mini")["models"] == ["gpt-4o-mini"]
+
+    def test_a_priced_model_reports_a_real_cost(self):
+        d = self._tracker("gpt-4o-mini")
+        assert d["cost_known"] is True and d["est_cost_usd"] > 0
+
+    def test_an_unpriced_model_is_flagged_rather_than_costed_at_zero(self):
+        d = self._tracker("qwen/qwen3.5-122b-a10b")
+        assert d["cost_known"] is False
+        assert d["unpriced_models"] == ["qwen/qwen3.5-122b-a10b"]
+        assert d["est_cost_usd"] == 0.0        # present, but not to be shown
+
+    def test_several_models_in_one_turn_are_all_listed(self):
+        """GH#38 routes intent/format elsewhere, so a turn can bill two."""
+        from backend.agents import usage as U
+        t = U.UsageTracker()
+        t.record("classify_intent", "gpt-4o-mini", 50, 5)
+        t.record("generate_sql", "qwen/qwen3.5-122b-a10b", 900, 180)
+        d = t.as_dict()
+        assert d["models"] == ["gpt-4o-mini", "qwen/qwen3.5-122b-a10b"]
+        assert d["cost_known"] is False        # one unpriced poisons the total
+
+    def test_a_repeated_model_is_listed_once(self):
+        from backend.agents import usage as U
+        t = U.UsageTracker()
+        for _ in range(3):
+            t.record("generate_sql", "gpt-4o-mini", 10, 2)
+        assert t.as_dict()["models"] == ["gpt-4o-mini"]
+
+    def test_is_priced_distinguishes_unknown_from_free(self):
+        from backend.agents.usage import is_priced
+        assert is_priced("gpt-4o-mini") is True
+        assert is_priced("qwen/qwen3.5-122b-a10b") is False
+        assert is_priced(None) is False
+
+
+class TestPriceSync:
+
+    def test_per_token_strings_become_per_million_floats(self):
+        """OpenRouter quotes per-token; config.yaml and usage.py are per
+        million. Getting this wrong by 10^6 would be invisible in the UI."""
+        from unittest.mock import patch as _patch
+        from backend.config import check_models as C
+        catalogue = [{"id": "qwen/q", "pricing": {"prompt": "0.00000015",
+                                                  "completion": "0.0000006"}}]
+        with _patch.object(C, "_catalogue_raw", return_value=catalogue):
+            prices = C._prices("https://openrouter.ai/api/v1", "k")
+        assert prices == {"qwen/q": {"input": 0.15, "output": 0.6}}
+
+    def test_malformed_or_missing_pricing_is_skipped_not_guessed(self):
+        from unittest.mock import patch as _patch
+        from backend.config import check_models as C
+        catalogue = [{"id": "a", "pricing": {"prompt": "free"}},
+                     {"id": "b"}, {"id": "c", "pricing": {}}, "junk"]
+        with _patch.object(C, "_catalogue_raw", return_value=catalogue):
+            assert C._prices("https://x/v1", "k") == {}
+
+    def test_an_unreachable_catalogue_yields_nothing(self):
+        from unittest.mock import patch as _patch
+        from backend.config import check_models as C
+        with _patch.object(C, "_catalogue_raw", return_value=None):
+            assert C._prices("https://x/v1", "k") == {}
