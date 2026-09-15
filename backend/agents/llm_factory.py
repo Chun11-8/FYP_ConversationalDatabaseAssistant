@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 # Env var wins over config so a benchmark run can retarget a provider without
 # editing config.yaml — mirrors how the eval CLIs already treat --model.
 _BASE_URL_ENV = "LLM_BASE_URL"
+# GH#106: the key for the QUERY-STAGE provider. Env-only — config.yaml must
+# never hold a secret. Unset falls back to OPENAI_API_KEY, so the default
+# OpenAI path is unchanged.
+_API_KEY_ENV = "LLM_API_KEY"
+# The judge's own key (eval only), for a generator and judge on DIFFERENT
+# providers. Unset falls back to the query-stage key, which is right when both
+# run through one gateway such as OpenRouter.
+_JUDGE_KEY_ENV = "JUDGE_API_KEY"
 
 
 def resolve_base_url(config: Optional[dict] = None,
@@ -53,6 +61,46 @@ def resolve_base_url(config: Optional[dict] = None,
         if candidate and str(candidate).strip():
             return str(candidate).strip()
     return None
+
+
+def resolve_api_key(config: Optional[dict] = None,
+                    cli_value: Optional[str] = None,
+                    env_var: str = _API_KEY_ENV) -> Optional[str]:
+    """
+    The API key for the query-stage provider (GH#106).
+
+    Precedence: explicit value → ``$LLM_API_KEY`` → ``llm.api_key`` (which
+    config_loader fills from ``OPENAI_API_KEY``).
+
+    This exists because base_url and the key travel together and were not: the
+    key was always OpenAI's, so pointing base_url at OpenRouter, Groq or
+    DeepSeek sent an OpenAI key to a provider that would reject it. The
+    fallback keeps the default path byte-identical — with no env var set, this
+    returns exactly what the callers passed before.
+
+    Embeddings deliberately do NOT use this: they stay on OpenAI and keep
+    reading ``OPENAI_API_KEY`` (see the module docstring).
+    """
+    for candidate in (cli_value, os.getenv(env_var),
+                      ((config or {}).get("llm") or {}).get("api_key")):
+        if candidate and str(candidate).strip():
+            return str(candidate).strip()
+    return None
+
+
+def resolve_judge_api_key(config: Optional[dict] = None,
+                          cli_value: Optional[str] = None) -> Optional[str]:
+    """
+    The key for the back-translation judge (GH#106), so the judge can run on a
+    different provider from the generator — the configuration the literature
+    reports at 0.82 AUROC against 0.72–0.78 for a single judge.
+
+    Precedence: explicit → ``$JUDGE_API_KEY`` → the query-stage key.
+    """
+    explicit = cli_value or os.getenv(_JUDGE_KEY_ENV)
+    if explicit and str(explicit).strip():
+        return str(explicit).strip()
+    return resolve_api_key(config)
 
 
 def build_chat_llm(model: str, api_key: Optional[str],

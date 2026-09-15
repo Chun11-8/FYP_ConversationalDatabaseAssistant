@@ -22,7 +22,9 @@ from backend.agents.safety import enforce_limit
 from backend.agents.trace import trace, set_pipeline_trace
 from backend.agents.usage import invoke_tracked
 from backend.agents import usage as usage_tracking
-from backend.agents.llm_factory import build_chat_llm, describe_target, resolve_base_url
+from backend.agents.llm_factory import (
+    build_chat_llm, describe_target, resolve_api_key, resolve_base_url,
+)
 from backend.agents.utils import PromptHarness, estimate_tokens, strip_reasoning
 
 from backend.memory.session_memory import SessionMemory
@@ -348,7 +350,10 @@ class OrchestrationAgent:
     def __init__(self, config: dict):
         self._config = config
         self._model = config["llm"]["model"]
-        self._default_api_key = config["llm"]["api_key"]
+        # GH#106: the key for the QUERY-STAGE provider, which is not
+        # necessarily OpenAI's. Falls back to OPENAI_API_KEY when no
+        # LLM_API_KEY is set, so the default path is unchanged.
+        self._default_api_key = resolve_api_key(config)
         # GH#52: models the frontend's per-request picker may choose from.
         # The configured default is always present, even if omitted from the list.
         self._selectable_models = list(config["llm"].get("selectable_models") or [self._model])

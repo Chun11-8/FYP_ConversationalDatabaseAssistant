@@ -897,7 +897,9 @@ identical prompt stack, schema linking and voting configuration:
 
 ```bash
 export OPENAI_API_KEY=sk-...            # still required — embeddings/RAG use OpenAI
-export PROVIDER_KEY=sk-or-...           # your OpenRouter / Groq / DeepSeek key
+export LLM_API_KEY=sk-or-v1-...         # key for the QUERY-STAGE provider
+                                        # (OpenRouter / Groq / DeepSeek / …)
+                                        # unset → falls back to OPENAI_API_KEY
 
 # Baseline
 python -m backend.eval.bird --output out/gpt4omini.json --model gpt-4o-mini
@@ -918,6 +920,23 @@ python -m backend.eval.bird --output out/qwen.json \
 python -m backend.eval.bird --output out/local.json \
   --model qwen2.5-coder --base-url http://localhost:11434/v1
 ```
+
+**Keys travel with the endpoint (GH#106).** `base_url` says *where* to send a
+request and `LLM_API_KEY` says *who you are there*; pointing `base_url` at
+another provider while still sending your OpenAI key returns 401. The
+resolution order is explicit value → `$LLM_API_KEY` → `OPENAI_API_KEY`, so a
+plain OpenAI run needs no new variable at all.
+
+| Variable | Used for | Unset falls back to |
+|---|---|---|
+| `OPENAI_API_KEY` | embeddings / pgvector RAG — **always OpenAI** | (required) |
+| `LLM_API_KEY` | the query stage: every chat call | `OPENAI_API_KEY` |
+| `JUDGE_API_KEY` | the `--trust-eval` back-translation judge | `LLM_API_KEY` |
+
+`JUDGE_API_KEY` exists so the generator and the judge can sit on **different**
+providers — the configuration the literature reports at 0.82 AUROC against
+0.72–0.78 for a single judge. Running both through one gateway (OpenRouter)
+needs only `LLM_API_KEY`.
 
 `--base-url` also works on `bird_predict.py` and `smoke_examples.py`, and can
 be set once via `$LLM_BASE_URL` or `llm.base_url` in `config.yaml`. Each run

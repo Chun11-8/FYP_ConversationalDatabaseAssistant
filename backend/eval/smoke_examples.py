@@ -192,7 +192,7 @@ def run(db_dir: Path, model: str | None = None,
     from backend.agents.sql_validator_agent import SQLValidatorAgent
     from backend.agents.schema_linking_agent import SchemaLinkingAgent
     from backend.agents.llm_factory import (
-        build_chat_llm, describe_target, resolve_base_url,
+        build_chat_llm, describe_target, resolve_api_key, resolve_base_url,
     )
 
     config = load_config()
@@ -200,7 +200,7 @@ def run(db_dir: Path, model: str | None = None,
     model_name = (model or "").strip() or config["llm"]["model"]
     base_url = resolve_base_url(config, base_url)
     print(f"  Target: {describe_target(model_name, base_url)}")
-    llm = build_chat_llm(model_name, config["llm"]["api_key"], base_url,
+    llm = build_chat_llm(model_name, resolve_api_key(config), base_url,
                          max_retries=1)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
