@@ -1007,6 +1007,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         target = target._replace(base_url=base_url,
                                  api_key=resolve_api_key(config, None))
     logger.info("[EVAL] target → %s", describe_target(target.model, target.base_url))
+
+    # GH#117: fail here, not 150 times. A model id that is not EXACTLY an entry
+    # in llm.selectable_models carries no provider tag, so it is sent to
+    # OpenAI — which rejects a gateway slug with "invalid model ID" on every
+    # question while the run keeps going and keeps billing. Caught before the
+    # first call, with the configured ids listed so the typo is obvious.
+    if target.base_url is None and "/" in target.model:
+        configured = [e if isinstance(e, str) else str(e.get("id"))
+                      for e in (config.get("llm") or {}).get("selectable_models") or []]
+        near = [c for c in configured if c.split("/")[-1].split("-")[0].lower()
+                in target.model.lower()]
+        sys.exit(
+            f"\n[BIRD] {target.model!r} has no provider and would be sent to "
+            f"OpenAI, which does not serve gateway ids.\n"
+            f"       Add it to llm.selectable_models with `provider: openrouter`, "
+            f"or fix the spelling.\n"
+            + (f"       Did you mean: {', '.join(near)}?\n" if near else "")
+            + f"       Configured: {', '.join(configured) or '(none)'}\n"
+            f"       Verify with: python -m backend.config.check_models\n")
+
     llm = build_for_target(target)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
