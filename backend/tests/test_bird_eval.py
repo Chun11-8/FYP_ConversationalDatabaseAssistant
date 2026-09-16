@@ -14,6 +14,7 @@ import json
 import math
 import sqlite3
 import time
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ import pytest
 
 from backend.eval.bird import (
     _error_record,
+    select_questions,
     _rows_to_set,
     compute_bird_metrics,
     compute_ex,
@@ -812,3 +814,138 @@ class TestQuestionBudget:
         assert b.expired() is False
         time.sleep(0.8)
         assert b.expired() is True
+
+
+# ── GH#120: cross-domain question selection ─────────────────────────────────────
+
+class TestSelectQuestions:
+    """
+    mini_dev_sqlite.json stores each database as one CONTIGUOUS block, so
+    slicing the front of the file returns a single database. A 20-question run
+    with no --db-id therefore reads as an overall score while measuring one
+    domain. These tests pin the strategies that fix that.
+    """
+
+    @staticmethod
+    def _corpus():
+        """11 databases in contiguous blocks, as the real file is laid out."""
+        qs = []
+        qid = 0
+        for i, db in enumerate(f"db{n:02d}" for n in range(11)):
+            for j in range(10 + i):          # uneven sizes, like the real set
+                qs.append({
+                    "question_id": qid, "db_id": db,
+                    "difficulty": ["simple", "moderate", "challenging"][j % 3],
+                    "question": f"q{qid}", "SQL": "SELECT 1", "evidence": "",
+                })
+                qid += 1
+        return qs
+
+    def test_head_reproduces_the_one_database_problem(self):
+        """Not a bug to fix but the documented default — asserted so the
+        motivation for the other strategies stays visible."""
+        picked = select_questions(self._corpus(), subset=10, strategy="head")
+        assert len({q["db_id"] for q in picked}) == 1
+
+    def test_head_is_unchanged_from_the_pre_gh120_behaviour(self):
+        """Existing result files must stay reproducible."""
+        corpus = self._corpus()
+        assert select_questions(corpus, subset=7, strategy="head") == corpus[:7]
+
+    def test_stratified_covers_every_database(self):
+        corpus = self._corpus()
+        picked = select_questions(corpus, subset=22, strategy="stratified")
+        assert len(picked) == 22
+        assert len({q["db_id"] for q in picked}) == 11
+
+    def test_stratified_gives_each_database_a_slot_when_it_can(self):
+        """A 'cross-domain' sample that silently omits a domain is the failure
+        this strategy exists to prevent, so the small databases get a slot
+        before the large ones get a second."""
+        picked = select_questions(self._corpus(), subset=11, strategy="stratified")
+        assert sorted(q["db_id"] for q in picked) == sorted(
+            f"db{n:02d}" for n in range(11))
+
+    def test_stratified_cannot_over_or_under_deliver(self):
+        corpus = self._corpus()
+        for n in (1, 5, 11, 12, 30, len(corpus) - 1, len(corpus)):
+            assert len(select_questions(corpus, subset=n,
+                                        strategy="stratified")) == n
+
+    def test_stratified_is_proportional_not_equal(self):
+        """Equal-per-database would misrepresent the benchmark's own mix; the
+        allocation tracks each database's share."""
+        corpus = self._corpus()
+        picked = select_questions(corpus, subset=100, strategy="stratified")
+        counts = Counter(q["db_id"] for q in picked)
+        assert counts["db10"] > counts["db00"]      # 20 questions vs 10
+
+    def test_random_mixes_databases(self):
+        picked = select_questions(self._corpus(), subset=20, strategy="random")
+        assert len(picked) == 20
+        assert len({q["db_id"] for q in picked}) > 1
+
+    def test_every_strategy_is_deterministic_under_one_seed(self):
+        """A benchmark number that cannot be re-derived is not a measurement."""
+        corpus = self._corpus()
+        for strategy in ("random", "stratified"):
+            a = select_questions(corpus, subset=15, strategy=strategy, seed=1)
+            b = select_questions(corpus, subset=15, strategy=strategy, seed=1)
+            assert [q["question_id"] for q in a] == [q["question_id"] for q in b]
+
+    def test_a_different_seed_gives_a_different_sample(self):
+        corpus = self._corpus()
+        a = select_questions(corpus, subset=15, strategy="random", seed=1)
+        b = select_questions(corpus, subset=15, strategy="random", seed=2)
+        assert [q["question_id"] for q in a] != [q["question_id"] for q in b]
+
+    def test_no_question_is_duplicated(self):
+        for strategy in ("head", "random", "stratified"):
+            picked = select_questions(self._corpus(), subset=30, strategy=strategy)
+            ids = [q["question_id"] for q in picked]
+            assert len(ids) == len(set(ids))
+
+    def test_filters_still_run_before_subset(self):
+        """GH#116's ordering must survive the new sampling — the other order
+        would narrow whatever the sample happened to pick."""
+        corpus = self._corpus()
+        picked = select_questions(corpus, db_filter="db05", subset=5,
+                                  strategy="stratified")
+        assert len(picked) == 5
+        assert {q["db_id"] for q in picked} == {"db05"}
+
+    def test_both_filters_combine_with_sampling(self):
+        picked = select_questions(self._corpus(), difficulty_filter="simple",
+                                  subset=4, strategy="random")
+        assert len(picked) == 4
+        assert {q["difficulty"] for q in picked} == {"simple"}
+
+    def test_a_subset_larger_than_the_pool_returns_everything(self):
+        corpus = self._corpus()
+        for strategy in ("head", "random", "stratified"):
+            assert len(select_questions(corpus, subset=10_000,
+                                        strategy=strategy)) == len(corpus)
+
+    def test_no_subset_returns_everything_unshuffled(self):
+        corpus = self._corpus()
+        assert select_questions(corpus, strategy="stratified") == corpus
+
+    def test_an_unknown_strategy_is_rejected_not_silently_ignored(self):
+        """Falling back to 'head' on a typo would hand back a single-database
+        sample while the run_config claims it was stratified."""
+        with pytest.raises(ValueError, match="unknown sample strategy"):
+            select_questions(self._corpus(), subset=5, strategy="startified")
+
+    def test_run_bird_eval_threads_the_strategy_through(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent = MagicMock()
+        sql_agent.generate.return_value = ["SELECT COUNT(*) FROM players"]
+        sql_agent.rerank.return_value = "SELECT COUNT(*) FROM players"
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, sample="stratified", seed=3, refine=False,
+        )
+        assert len(results) == 1

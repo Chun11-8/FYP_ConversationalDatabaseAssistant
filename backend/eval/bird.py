@@ -55,6 +55,7 @@ import logging
 import os
 import math
 import re
+import random
 import sqlite3
 import sys
 import threading
@@ -192,6 +193,120 @@ def extract_sqlite_schema(db_path: str) -> str:
         return schema
     finally:
         conn.close()
+
+
+# ── Question selection (GH#120) ───────────────────────────────────────────────
+
+SAMPLE_STRATEGIES = ("head", "random", "stratified")
+
+
+def select_questions(
+    questions: List[Dict],
+    difficulty_filter: Optional[str] = None,
+    db_filter: Optional[str] = None,
+    subset: Optional[int] = None,
+    strategy: str = "head",
+    seed: int = 42,
+) -> List[Dict]:
+    """
+    Apply the filters, then take `subset` questions by `strategy` (GH#120).
+
+    Filters run FIRST and `subset` LAST (GH#116): the other order would take
+    the first N questions and then narrow them, so `--db-id x --subset 20`
+    would evaluate however few of those 20 happened to belong to x — usually
+    none, because dev.json is grouped by database.
+
+    That grouping is also why `strategy` exists. mini_dev_sqlite.json stores
+    each database as one contiguous block, so `head` — slicing the front of
+    the file — returns questions from a SINGLE database. A 20-question run
+    with no --db-id reads as an overall score and is really a
+    debit_card_specializing score. The strategies:
+
+      head        the file's own order. The pre-GH#120 behaviour, kept as the
+                  DEFAULT so existing result files stay reproducible.
+      random      a seeded shuffle before slicing — a genuine mix of domains,
+                  though with 11 databases a small subset may miss some.
+      stratified  proportional allocation across db_id (largest remainder,
+                  at least one per database while the budget allows), shuffled
+                  within each database and again at the end. Use this for a
+                  cross-domain claim: it guarantees the coverage that `random`
+                  only makes likely.
+
+    `seed` makes every strategy reproducible; it is recorded in run_config,
+    because a benchmark number that cannot be re-derived is not a measurement.
+    """
+    if strategy not in SAMPLE_STRATEGIES:
+        raise ValueError(
+            f"unknown sample strategy {strategy!r}; expected one of "
+            f"{', '.join(SAMPLE_STRATEGIES)}")
+
+    if difficulty_filter:
+        questions = [q for q in questions if q.get("difficulty") == difficulty_filter]
+    if db_filter:
+        questions = [q for q in questions if q.get("db_id") == db_filter]
+
+    if not subset or subset >= len(questions):
+        return list(questions)
+
+    rng = random.Random(seed)
+
+    if strategy == "head":
+        return questions[:subset]
+
+    if strategy == "random":
+        picked = list(questions)
+        rng.shuffle(picked)
+        return picked[:subset]
+
+    # ── stratified ───────────────────────────────────────────────────────────
+    by_db: Dict[str, List[Dict]] = {}
+    for q in questions:
+        by_db.setdefault(str(q.get("db_id")), []).append(q)
+    for group in by_db.values():
+        rng.shuffle(group)
+
+    # Largest remainder: floor the proportional share, then hand the leftover
+    # slots to the largest fractional parts. Ties break on the bigger database,
+    # then on name, so the allocation does not depend on dict ordering.
+    names = sorted(by_db)
+    total = len(questions)
+    exact = {db: subset * len(by_db[db]) / total for db in names}
+    quota = {db: int(exact[db]) for db in names}
+
+    # A database that rounds to zero still gets one slot while slots remain —
+    # a "cross-domain" sample that silently omits a domain is the failure this
+    # strategy exists to prevent.
+    for db in sorted(names, key=lambda d: (-len(by_db[d]), d)):
+        if sum(quota.values()) >= subset:
+            break
+        if quota[db] == 0:
+            quota[db] = 1
+
+    leftover = subset - sum(quota.values())
+    if leftover > 0:
+        order = sorted(names, key=lambda d: (-(exact[d] - int(exact[d])),
+                                             -len(by_db[d]), d))
+        for db in order:
+            if leftover == 0:
+                break
+            if quota[db] < len(by_db[db]):
+                quota[db] += 1
+                leftover -= 1
+    elif leftover < 0:
+        # Over-allocated by the at-least-one pass; take back from the largest.
+        order = sorted(names, key=lambda d: (-quota[d], d))
+        for db in order:
+            if leftover == 0:
+                break
+            if quota[db] > 1:
+                quota[db] -= 1
+                leftover += 1
+
+    picked: List[Dict] = []
+    for db in names:
+        picked.extend(by_db[db][:quota[db]])
+    rng.shuffle(picked)
+    return picked[:subset]
 
 
 # ── Per-question wall-clock budget (GH#119) ───────────────────────────────────
@@ -656,6 +771,8 @@ def run_bird_eval(
     plan_diversity: bool = False,
     judge_llm: Any = None,
     question_timeout: Optional[float] = 60.0,
+    sample: str = "head",
+    seed: int = 42,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -691,19 +808,17 @@ def run_bird_eval(
                        as the GH#118 per-request HTTP cap: a question makes
                        roughly ten LLM calls, so a run can stall without any
                        single request timing out.
+    sample           : GH#120 — how `subset` picks its questions: "head" (the
+                       file's order, the default and the old behaviour),
+                       "random", or "stratified" (proportional across db_id).
+                       dev.json is grouped by database, so "head" with no
+                       db_filter returns ONE database's questions.
+    seed             : RNG seed for "random" and "stratified", so a subset is
+                       reproducible
     """
-    questions = load_dev_json(dev_json_path)
-
-    # GH#116: filters first, `subset` last. The other order would take the
-    # first N questions and THEN narrow them, so `--db-id x --subset 20` would
-    # silently evaluate however few of those 20 happened to belong to x —
-    # usually none, since dev.json is grouped by database.
-    if difficulty_filter:
-        questions = [q for q in questions if q.get("difficulty") == difficulty_filter]
-    if db_filter:
-        questions = [q for q in questions if q.get("db_id") == db_filter]
-    if subset:
-        questions = questions[:subset]
+    all_questions = load_dev_json(dev_json_path)
+    questions = select_questions(
+        all_questions, difficulty_filter, db_filter, subset, sample, seed)
 
     total = len(questions)
     if total == 0:
@@ -712,6 +827,23 @@ def run_bird_eval(
             "spelling against the db_id values in dev.json.",
             difficulty_filter, db_filter)
     logger.info(f"[BIRD] Starting evaluation — {total} question(s)")
+
+    # GH#120: say what was actually selected. A subset that quietly covers one
+    # database reads in the results file exactly like an overall score.
+    dbs = sorted({str(q.get("db_id")) for q in questions})
+    if subset and total < subset:
+        logger.warning(
+            "[BIRD] --subset %d asked for more than the filters left (%d "
+            "matched). Running all %d.", subset, total, total)
+    if total:
+        logger.info("[BIRD] Sampling: %s (seed=%d) — %d database(s): %s",
+                    sample, seed, len(dbs), ", ".join(dbs))
+    if sample == "head" and not db_filter and len(dbs) == 1 and subset:
+        logger.warning(
+            "[BIRD] All %d question(s) came from ONE database (%s). dev.json "
+            "is grouped by database and --sample head slices the front of the "
+            "file, so this is a single-domain run, not an overall score. Use "
+            "--sample stratified for a cross-domain subset.", total, dbs[0])
     if question_timeout and question_timeout > 0:
         logger.info("[BIRD] Per-question budget: %gs (GH#119) — a question that "
                     "overruns is scored 0, not dropped", question_timeout)
@@ -1138,6 +1270,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--sample", choices=SAMPLE_STRATEGIES, default="head",
+                        help="GH#120: how --subset picks questions. dev.json is "
+                             "GROUPED BY DATABASE, so 'head' (the default, and "
+                             "the original behaviour) slices the front of the "
+                             "file and returns ONE database's questions. Use "
+                             "'stratified' for a cross-domain subset "
+                             "(proportional across db_id, every database "
+                             "represented), or 'random' for a seeded shuffle.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="RNG seed for --sample random/stratified, so a "
+                             "subset is reproducible (default: 42)")
     parser.add_argument("--question-timeout", type=float, default=60.0,
                         help="GH#119: wall-clock budget in seconds for ONE "
                              "question's LLM work; on expiry the question is "
@@ -1273,6 +1416,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         plan_diversity=bool(args.plan_diversity),
         judge_llm=judge_llm,
         question_timeout=args.question_timeout,
+        sample=args.sample,
+        seed=args.seed,
     )
     metrics = compute_bird_metrics(results)
     run_config = {
@@ -1299,6 +1444,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         # GH#119: recorded because it can CHANGE the score — two runs at
         # different budgets are not comparable if either one abandoned work.
         "question_timeout": args.question_timeout,
+        # GH#120: which questions a subset actually contained. Without these
+        # two, a results file cannot be re-derived or even interpreted — the
+        # same --subset 20 means a different 20 under a different strategy.
+        "sample": args.sample,
+        "seed": args.seed,
+        "databases_evaluated": sorted({str(r.get("db_id")) for r in results}),
     }
     write_results(results, metrics, args.output, run_config=run_config)
 

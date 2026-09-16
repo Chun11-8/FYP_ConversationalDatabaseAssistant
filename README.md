@@ -893,6 +893,47 @@ python -m backend.eval.bird --dev-json … --db-dir … \
 `--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
 set and `--subset` then slices what is left.
 
+#### `--sample` — a subset that is actually cross-domain (GH#120)
+
+`mini_dev_sqlite.json` stores each database as one **contiguous block**:
+
+```
+  30 debit_card_specializing | 48 student_club | 50 thrombosis_prediction
+  51 european_football_2     | 66 formula_1    | 52 superhero  …
+```
+
+So `--subset 20` with no `--db-id` slices the front of the file and returns
+**20 questions from `debit_card_specializing`** — a single-domain score that
+reads like an overall one. `--sample` decides how the subset is drawn:
+
+| Strategy | 20 questions from mini-dev cover |
+|---|---|
+| `head` (default) | **1** database — the file's own order |
+| `random` | ~9 of 11, seeded shuffle |
+| `stratified` | **all 11**, proportional to each database's size |
+
+```bash
+# cross-domain subset — every database represented, reproducible
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --subset 20 --sample stratified --seed 42
+```
+
+`head` stays the default so existing result files remain reproducible. Use
+`stratified` for any number you intend to call an overall or cross-domain
+score; `random` is the plain shuffle, and with 11 databases a small random
+subset may miss some of them.
+
+`sample`, `seed` and `databases_evaluated` are recorded in the results file's
+`run_config`: the same `--subset 20` means a different 20 under a different
+strategy, so without them a run cannot be re-derived or even interpreted. The
+harness also warns when a `head` subset turns out to cover one database.
+
+**Cross-domain means generalisation, not cross-database joins.** Every BIRD
+question carries exactly one `db_id` and its gold SQL runs against that one
+SQLite file — no question joins two databases, and none uses `ATTACH`. What a
+cross-domain run demonstrates is that the model reads a schema it has not seen
+before, across 11 unrelated subject areas.
+
 #### `--question-timeout` — don't let one question hold the run (GH#119)
 
 A wall-clock budget for **one question's LLM work**, default **60 s**. On
