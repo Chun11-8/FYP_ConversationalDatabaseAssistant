@@ -55,8 +55,10 @@ import logging
 import os
 import math
 import re
+import random
 import sqlite3
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -191,6 +193,200 @@ def extract_sqlite_schema(db_path: str) -> str:
         return schema
     finally:
         conn.close()
+
+
+# ── Question selection (GH#120) ───────────────────────────────────────────────
+
+SAMPLE_STRATEGIES = ("head", "random", "stratified")
+
+
+def select_questions(
+    questions: List[Dict],
+    difficulty_filter: Optional[str] = None,
+    db_filter: Optional[str] = None,
+    subset: Optional[int] = None,
+    strategy: str = "head",
+    seed: int = 42,
+) -> List[Dict]:
+    """
+    Apply the filters, then take `subset` questions by `strategy` (GH#120).
+
+    Filters run FIRST and `subset` LAST (GH#116): the other order would take
+    the first N questions and then narrow them, so `--db-id x --subset 20`
+    would evaluate however few of those 20 happened to belong to x — usually
+    none, because dev.json is grouped by database.
+
+    That grouping is also why `strategy` exists. mini_dev_sqlite.json stores
+    each database as one contiguous block, so `head` — slicing the front of
+    the file — returns questions from a SINGLE database. A 20-question run
+    with no --db-id reads as an overall score and is really a
+    debit_card_specializing score. The strategies:
+
+      head        the file's own order. The pre-GH#120 behaviour, kept as the
+                  DEFAULT so existing result files stay reproducible.
+      random      a seeded shuffle before slicing — a genuine mix of domains,
+                  though with 11 databases a small subset may miss some.
+      stratified  proportional allocation across db_id (largest remainder,
+                  at least one per database while the budget allows), shuffled
+                  within each database and again at the end. Use this for a
+                  cross-domain claim: it guarantees the coverage that `random`
+                  only makes likely.
+
+    `seed` makes every strategy reproducible; it is recorded in run_config,
+    because a benchmark number that cannot be re-derived is not a measurement.
+    """
+    if strategy not in SAMPLE_STRATEGIES:
+        raise ValueError(
+            f"unknown sample strategy {strategy!r}; expected one of "
+            f"{', '.join(SAMPLE_STRATEGIES)}")
+
+    if difficulty_filter:
+        questions = [q for q in questions if q.get("difficulty") == difficulty_filter]
+    if db_filter:
+        questions = [q for q in questions if q.get("db_id") == db_filter]
+
+    if not subset or subset >= len(questions):
+        return list(questions)
+
+    rng = random.Random(seed)
+
+    if strategy == "head":
+        return questions[:subset]
+
+    if strategy == "random":
+        picked = list(questions)
+        rng.shuffle(picked)
+        return picked[:subset]
+
+    # ── stratified ───────────────────────────────────────────────────────────
+    by_db: Dict[str, List[Dict]] = {}
+    for q in questions:
+        by_db.setdefault(str(q.get("db_id")), []).append(q)
+    for group in by_db.values():
+        rng.shuffle(group)
+
+    # Largest remainder: floor the proportional share, then hand the leftover
+    # slots to the largest fractional parts. Ties break on the bigger database,
+    # then on name, so the allocation does not depend on dict ordering.
+    names = sorted(by_db)
+    total = len(questions)
+    exact = {db: subset * len(by_db[db]) / total for db in names}
+    quota = {db: int(exact[db]) for db in names}
+
+    # A database that rounds to zero still gets one slot while slots remain —
+    # a "cross-domain" sample that silently omits a domain is the failure this
+    # strategy exists to prevent.
+    for db in sorted(names, key=lambda d: (-len(by_db[d]), d)):
+        if sum(quota.values()) >= subset:
+            break
+        if quota[db] == 0:
+            quota[db] = 1
+
+    leftover = subset - sum(quota.values())
+    if leftover > 0:
+        order = sorted(names, key=lambda d: (-(exact[d] - int(exact[d])),
+                                             -len(by_db[d]), d))
+        for db in order:
+            if leftover == 0:
+                break
+            if quota[db] < len(by_db[db]):
+                quota[db] += 1
+                leftover -= 1
+    elif leftover < 0:
+        # Over-allocated by the at-least-one pass; take back from the largest.
+        order = sorted(names, key=lambda d: (-quota[d], d))
+        for db in order:
+            if leftover == 0:
+                break
+            if quota[db] > 1:
+                quota[db] -= 1
+                leftover += 1
+
+    picked: List[Dict] = []
+    for db in names:
+        picked.extend(by_db[db][:quota[db]])
+    rng.shuffle(picked)
+    return picked[:subset]
+
+
+# ── Per-question wall-clock budget (GH#119) ───────────────────────────────────
+
+class _QuestionTimeout(Exception):
+    """One question's LLM work ran past its wall-clock budget."""
+
+
+class _Budget:
+    """
+    A wall-clock ceiling for one question, so a stalled call cannot hold the
+    whole run (GH#119).
+
+    A per-REQUEST timeout would not give the same guarantee: a moderate
+    question makes roughly ten LLM calls, so a run can crawl for many minutes
+    without any single request ever being slow enough to trip one. This bounds
+    the question instead.
+
+    The work runs on a DAEMON thread and is ABANDONED on expiry rather than
+    cancelled — Python cannot interrupt a thread blocked in a socket read, and
+    there is no honest way to pretend otherwise. Two consequences worth
+    knowing: the abandoned call keeps running until the HTTP client gives up
+    on its own (by default that is the OpenAI SDK's 600s per attempt, retries
+    included), and it keeps billing until then. What this buys is that the
+    LOOP moves on. Daemon, specifically, so an abandoned thread cannot hold
+    the interpreter open at exit — which is exactly what a ThreadPoolExecutor
+    would do, since its atexit hook joins every worker.
+    """
+
+    def __init__(self, seconds: Optional[float]) -> None:
+        self._limit = float(seconds) if seconds and seconds > 0 else None
+        self._t0 = time.perf_counter()
+
+    @property
+    def limit(self) -> Optional[float]:
+        return self._limit
+
+    def remaining(self) -> Optional[float]:
+        if self._limit is None:
+            return None
+        return max(0.0, self._limit - (time.perf_counter() - self._t0))
+
+    def expired(self) -> bool:
+        left = self.remaining()
+        return left is not None and left <= 0.0
+
+    def run(self, fn: Any, label: str, tracker: Any = None) -> Any:
+        """
+        Call *fn* under the remaining budget, raising :class:`_QuestionTimeout`
+        if it does not finish in time. An exception from *fn* propagates
+        unchanged, so existing error handling around the call site still sees
+        what it expects.
+
+        *tracker* is re-bound inside the worker because token accounting is
+        thread-local (``usage.bind`` exists for exactly this); without it every
+        BIRD run would silently report zero tokens and zero cost.
+        """
+        if self._limit is None:
+            return fn()
+
+        box: Dict[str, Any] = {}
+
+        def _target() -> None:
+            if tracker is not None:
+                usage_tracking.bind(tracker)
+            try:
+                box["value"] = fn()
+            except BaseException as exc:            # noqa: BLE001 — re-raised below
+                box["error"] = exc
+
+        thread = threading.Thread(target=_target, daemon=True,
+                                  name=f"bird-{label}")
+        thread.start()
+        thread.join(self.remaining())
+        if thread.is_alive():
+            raise _QuestionTimeout(
+                f"{label} exceeded the {self._limit:g}s question budget")
+        if "error" in box:
+            raise box["error"]
+        return box.get("value")
 
 
 # ── SQLite execution with timeout ─────────────────────────────────────────────
@@ -356,6 +552,11 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         "VES": round(ves_score, 2),
         "gold_errors": gold_errors,
         "EX_winnable": ex_winnable,
+        # GH#119: abandoned questions are scored 0 and stay in the denominator,
+        # so a run with a non-zero count here UNDERSTATES the model. Surfaced
+        # as its own number because the alternative — noticing it in the
+        # error_categories dict — is how a slow run gets mistaken for a bad one.
+        "timeouts": sum(1 for r in results if r.get("timed_out")),
         "error_categories": summarize(results),
         "llm_calls": total_calls,
         "llm_calls_per_question": round(total_calls / n, 2),
@@ -571,6 +772,9 @@ def run_bird_eval(
     refine: bool = True,
     plan_diversity: bool = False,
     judge_llm: Any = None,
+    question_timeout: Optional[float] = 60.0,
+    sample: str = "head",
+    seed: int = 42,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -599,19 +803,24 @@ def run_bird_eval(
                        failure (invalid SQL, execution error, or 0 rows); the
                        refined SQL is kept only when it is strictly better
     timeout          : per-query SQLite execution timeout in seconds
+    question_timeout : GH#119 — wall-clock ceiling in seconds for ONE question's
+                       LLM work. On expiry the question is abandoned and scored
+                       0, and the loop moves to the next one. 0 or None disables
+                       it. This is NOT the same guard as `timeout`, which
+                       bounds one SQLite execution: a question makes roughly
+                       ten LLM calls, so a run can stall without any single
+                       request being slow on its own.
+    sample           : GH#120 — how `subset` picks its questions: "head" (the
+                       file's order, the default and the old behaviour),
+                       "random", or "stratified" (proportional across db_id).
+                       dev.json is grouped by database, so "head" with no
+                       db_filter returns ONE database's questions.
+    seed             : RNG seed for "random" and "stratified", so a subset is
+                       reproducible
     """
-    questions = load_dev_json(dev_json_path)
-
-    # GH#116: filters first, `subset` last. The other order would take the
-    # first N questions and THEN narrow them, so `--db-id x --subset 20` would
-    # silently evaluate however few of those 20 happened to belong to x —
-    # usually none, since dev.json is grouped by database.
-    if difficulty_filter:
-        questions = [q for q in questions if q.get("difficulty") == difficulty_filter]
-    if db_filter:
-        questions = [q for q in questions if q.get("db_id") == db_filter]
-    if subset:
-        questions = questions[:subset]
+    all_questions = load_dev_json(dev_json_path)
+    questions = select_questions(
+        all_questions, difficulty_filter, db_filter, subset, sample, seed)
 
     total = len(questions)
     if total == 0:
@@ -621,7 +830,28 @@ def run_bird_eval(
             difficulty_filter, db_filter)
     logger.info(f"[BIRD] Starting evaluation — {total} question(s)")
 
+    # GH#120: say what was actually selected. A subset that quietly covers one
+    # database reads in the results file exactly like an overall score.
+    dbs = sorted({str(q.get("db_id")) for q in questions})
+    if subset and total < subset:
+        logger.warning(
+            "[BIRD] --subset %d asked for more than the filters left (%d "
+            "matched). Running all %d.", subset, total, total)
+    if total:
+        logger.info("[BIRD] Sampling: %s (seed=%d) — %d database(s): %s",
+                    sample, seed, len(dbs), ", ".join(dbs))
+    if sample == "head" and not db_filter and len(dbs) == 1 and subset:
+        logger.warning(
+            "[BIRD] All %d question(s) came from ONE database (%s). dev.json "
+            "is grouped by database and --sample head slices the front of the "
+            "file, so this is a single-domain run, not an overall score. Use "
+            "--sample stratified for a cross-domain subset.", total, dbs[0])
+    if question_timeout and question_timeout > 0:
+        logger.info("[BIRD] Per-question budget: %gs (GH#119) — a question that "
+                    "overruns is scored 0, not dropped", question_timeout)
+
     results: List[Dict] = []
+    timed_out = 0
 
     for idx, item in enumerate(questions, start=1):
         qid = item.get("question_id", idx - 1)
@@ -630,6 +860,7 @@ def run_bird_eval(
         gold_sql: str = item["SQL"]
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
+        budget = _Budget(question_timeout)
 
         # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
         db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
@@ -662,7 +893,19 @@ def run_bird_eval(
         q_usage = usage_tracking.start_request()
         if linker is not None:
             try:
-                query_plan = linker.analyze(full_query, schema_context)
+                query_plan = budget.run(
+                    lambda: linker.analyze(full_query, schema_context),
+                    "schema-linking", q_usage)
+            except _QuestionTimeout as exc:
+                # Planning alone burned the budget. Generation without a plan
+                # is the documented fallback (`query_plan=None` is a supported
+                # input), but there is no time left to attempt it.
+                logger.warning(f"[BIRD] qid={qid} SKIPPED — {exc}")
+                results.append(_timeout_record(
+                    qid, db_id, difficulty, question, evidence, gold_sql,
+                    str(exc), q_usage))
+                timed_out += 1
+                continue
             except Exception as exc:
                 logger.warning(f"[BIRD] schema linking failed qid={qid}: {exc}")
 
@@ -682,6 +925,7 @@ def run_bird_eval(
         t_gen = time.perf_counter()
         pred_sql = ""
         vote_info: Optional[Dict[str, Any]] = None
+        timeout_note: Optional[str] = None
         try:
             def _gen(plan_for_batch):
                 return sql_agent.generate(
@@ -693,20 +937,30 @@ def run_bird_eval(
                     tier=difficulty,  # BIRD gives the real tier; agent gates via config
                 )
 
-            sqls = _gen(query_plan)
-            # GH#76: candidates from a SECOND plan that disagrees on grain or
-            # aggregation. Every candidate otherwise descends from one plan,
-            # so voting confirms that plan rather than testing it.
-            if plan_diversity and linker is not None and query_plan:
-                try:
-                    alt = linker.analyze_alternative(
-                        query=full_query, schema_context=schema_context,
-                        first_plan=query_plan)
-                    if alt:
-                        sqls = sqls + [x for x in _gen(alt) if x not in sqls]
-                except Exception as exc:
-                    logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
-            pred_sql, vote_info = _select(sqls)
+            def _generate() -> Tuple[str, Optional[Dict[str, Any]]]:
+                sqls = _gen(query_plan)
+                # GH#76: candidates from a SECOND plan that disagrees on grain
+                # or aggregation. Every candidate otherwise descends from one
+                # plan, so voting confirms that plan rather than testing it.
+                if plan_diversity and linker is not None and query_plan:
+                    try:
+                        alt = linker.analyze_alternative(
+                            query=full_query, schema_context=schema_context,
+                            first_plan=query_plan)
+                        if alt:
+                            sqls = sqls + [x for x in _gen(alt) if x not in sqls]
+                    except Exception as exc:
+                        logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
+                return _select(sqls)
+
+            pred_sql, vote_info = budget.run(_generate, "generation", q_usage)
+        except _QuestionTimeout as exc:
+            logger.warning(f"[BIRD] qid={qid} SKIPPED — {exc}")
+            results.append(_timeout_record(
+                qid, db_id, difficulty, question, evidence, gold_sql,
+                str(exc), q_usage))
+            timed_out += 1
+            continue
         except Exception as exc:
             logger.warning(f"[BIRD] Generation failed qid={qid}: {exc}")
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
@@ -746,7 +1000,7 @@ def run_bird_eval(
         # Triggers on outcomes visible WITHOUT looking at gold: no/invalid SQL,
         # an execution error, or a valid query that returned 0 rows.
         refined = False
-        if refine and not gold_error:
+        if refine and not gold_error and not budget.expired():
             zero_rows = bool(
                 pred_sql and validation.get("valid") and not pred_error and not pred_rows
             )
@@ -763,18 +1017,29 @@ def run_bird_eval(
                     observation = (
                         f"The query failed validation: {validation.get('error', 'no SQL generated')}"
                     )
+                # A refine that overruns keeps the ORIGINAL prediction rather
+                # than discarding the question: generation already produced a
+                # scorable answer, and throwing it away would turn a slow
+                # optional improvement into a zero.
                 try:
-                    re_sqls = sql_agent.regenerate(
-                        query=full_query,
-                        schema_context=schema_context,
-                        original_sql=pred_sql or "",
-                        error=observation,
-                        history=[],
-                    )
+                    new_sql, _ = budget.run(
+                        lambda: _select(sql_agent.regenerate(
+                            query=full_query,
+                            schema_context=schema_context,
+                            original_sql=pred_sql or "",
+                            error=observation,
+                            history=[],
+                        )),
+                        "refine", q_usage)
+                except _QuestionTimeout as exc:
+                    logger.warning(
+                        f"[BIRD] qid={qid} refine abandoned — {exc}; keeping "
+                        f"the un-refined prediction")
+                    timeout_note = str(exc)
+                    new_sql = ""
                 except Exception as exc:
                     logger.warning(f"[BIRD] refine failed qid={qid}: {exc}")
-                    re_sqls = []
-                new_sql, _ = _select(re_sqls)
+                    new_sql = ""
                 if new_sql:
                     v2, rows2, err2, t2 = _attempt(new_sql)
                     orig_ok = bool(pred_sql and validation.get("valid") and not pred_error)
@@ -809,11 +1074,20 @@ def run_bird_eval(
         # here rather than reconstructed later because the executed ROWS and
         # the schema context exist only at this point — five of the ten checks
         # need them, and a harness replaying from disk cannot get them back.
+        # The judge is the one remaining LLM call. Out of budget, it is
+        # dropped rather than run past the ceiling — the ten deterministic
+        # checks still run, and a dropped judge is recorded as NOT CHECKED
+        # by _verification_for, never as nothing-wrong.
+        judge_for_q = judge_llm
+        if judge_llm is not None and budget.expired():
+            logger.warning(f"[BIRD] qid={qid} judge skipped — question budget spent")
+            timeout_note = timeout_note or "judge skipped: question budget spent"
+            judge_for_q = None
         verification = _verification_for(
             sql=pred_sql, rows=pred_rows, question=question,
             evidence=evidence, schema_context=schema_context,
             query_plan=query_plan, validation=validation,
-            vote_info=vote_info, refined=refined, judge_llm=judge_llm,
+            vote_info=vote_info, refined=refined, judge_llm=judge_for_q,
         )
 
         record: Dict[str, Any] = {
@@ -837,6 +1111,7 @@ def run_bird_eval(
             "pred_elapsed_ms": int(pred_elapsed * 1000),
             "exec_vote":      vote_info,
             "refined":        refined,
+            "timeout_note":   timeout_note,
             "gold_transpiled": gold_transpiled,
             "query_plan":     query_plan,
             "verification":   verification,
@@ -854,6 +1129,12 @@ def run_bird_eval(
             f"db={db_id} diff={difficulty} | {question[:55]}"
         )
 
+    if timed_out:
+        logger.warning(
+            "[BIRD] %d/%d question(s) hit the %gs budget and were scored 0. "
+            "They stay in the denominator — raise --question-timeout if the "
+            "model is slow rather than stuck, or the score understates it.",
+            timed_out, total, question_timeout)
     return results
 
 
@@ -885,6 +1166,54 @@ def _error_record(
         "gen_ms":         0,
         "gold_elapsed_ms": 0,
         "pred_elapsed_ms": 0,
+    }
+
+
+def _timeout_record(
+    qid: Any,
+    db_id: str,
+    difficulty: str,
+    question: str,
+    evidence: str,
+    gold_sql: str,
+    error: str,
+    tracker: Any = None,
+) -> Dict[str, Any]:
+    """
+    A question abandoned on its wall-clock budget (GH#119).
+
+    Deliberately NOT ``_error_record``. That one reports through ``gold_error``,
+    which means "this question is unwinnable — the BIRD gold SQL itself does
+    not run on SQLite", and compute_bird_metrics drops those from the
+    denominator entirely. Routing a timeout there would REMOVE the hardest,
+    slowest questions from the score: a model that stalls on every challenging
+    question would post a better EX than one that answers them slowly. The
+    error belongs in ``pred_error`` — the model failed to produce an answer,
+    which is a wrong answer, and it stays in the denominator scoring 0.
+    """
+    return {
+        "question_id":    qid,
+        "db_id":          db_id,
+        "difficulty":     difficulty,
+        "question":       question,
+        "evidence":       evidence,
+        "gold_sql":       gold_sql,
+        "pred_sql":       "",
+        "valid":          False,
+        "gold_error":     None,
+        "pred_error":     error,
+        "timed_out":      True,
+        "timeout_note":   error,
+        "ex":             0.0,
+        "f1":             0.0,
+        "ves_reward":     0.0,
+        "gold_row_count": 0,
+        "pred_row_count": 0,
+        "gen_ms":         0,
+        "gold_elapsed_ms": 0,
+        "pred_elapsed_ms": 0,
+        "usage":          tracker.as_dict() if tracker is not None else None,
+        "error_category": "timeout",
     }
 
 
@@ -943,6 +1272,25 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--sample", choices=SAMPLE_STRATEGIES, default="head",
+                        help="GH#120: how --subset picks questions. dev.json is "
+                             "GROUPED BY DATABASE, so 'head' (the default, and "
+                             "the original behaviour) slices the front of the "
+                             "file and returns ONE database's questions. Use "
+                             "'stratified' for a cross-domain subset "
+                             "(proportional across db_id, every database "
+                             "represented), or 'random' for a seeded shuffle.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="RNG seed for --sample random/stratified, so a "
+                             "subset is reproducible (default: 42)")
+    parser.add_argument("--question-timeout", type=float, default=60.0,
+                        help="GH#119: wall-clock budget in seconds for ONE "
+                             "question's LLM work; on expiry the question is "
+                             "abandoned, SCORED 0 (it stays in the denominator) "
+                             "and the run moves on. 0 disables. Distinct from "
+                             "--timeout, which bounds ONE SQLite execution: "
+                             "this bounds a whole question's LLM work. "
+                             "Default: 60")
     parser.add_argument("--no-schema-linking", action="store_true",
                         help="Disable the schema-linking stage (#17) for A/B comparison")
     parser.add_argument("--no-exec-voting", action="store_true",
@@ -1007,6 +1355,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         target = target._replace(base_url=base_url,
                                  api_key=resolve_api_key(config, None))
     logger.info("[EVAL] target → %s", describe_target(target.model, target.base_url))
+
+    # GH#117: fail here, not 150 times. A model id that is not EXACTLY an entry
+    # in llm.selectable_models carries no provider tag, so it is sent to
+    # OpenAI — which rejects a gateway slug with "invalid model ID" on every
+    # question while the run keeps going and keeps billing. Caught before the
+    # first call, with the configured ids listed so the typo is obvious.
+    if target.base_url is None and "/" in target.model:
+        configured = [e if isinstance(e, str) else str(e.get("id"))
+                      for e in (config.get("llm") or {}).get("selectable_models") or []]
+        near = [c for c in configured if c.split("/")[-1].split("-")[0].lower()
+                in target.model.lower()]
+        sys.exit(
+            f"\n[BIRD] {target.model!r} has no provider and would be sent to "
+            f"OpenAI, which does not serve gateway ids.\n"
+            f"       Add it to llm.selectable_models with `provider: openrouter`, "
+            f"or fix the spelling.\n"
+            + (f"       Did you mean: {', '.join(near)}?\n" if near else "")
+            + f"       Configured: {', '.join(configured) or '(none)'}\n"
+            f"       Verify with: python -m backend.config.check_models\n")
+
     llm = build_for_target(target)
     sql_agent = SQLCodeAgent(bird_config, llm)
     validator = SQLValidatorAgent(bird_config)
@@ -1070,6 +1438,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         refine=use_refine,
         plan_diversity=bool(args.plan_diversity),
         judge_llm=judge_llm,
+        question_timeout=args.question_timeout,
+        sample=args.sample,
+        seed=args.seed,
     )
     metrics = compute_bird_metrics(results)
     run_config = {
@@ -1093,6 +1464,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         "subset": args.subset,
         "difficulty": args.difficulty,
         "db_id": args.db_id,
+        # GH#119: recorded because it can CHANGE the score — two runs at
+        # different budgets are not comparable if either one abandoned work.
+        "question_timeout": args.question_timeout,
+        # GH#120: which questions a subset actually contained. Without these
+        # two, a results file cannot be re-derived or even interpreted — the
+        # same --subset 20 means a different 20 under a different strategy.
+        "sample": args.sample,
+        "seed": args.seed,
+        "databases_evaluated": sorted({str(r.get("db_id")) for r in results}),
     }
     write_results(results, metrics, args.output, run_config=run_config)
 
@@ -1105,6 +1485,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if metrics.get("gold_errors"):
         print(f"  ⚠️  UNWINNABLE (gold errored on SQLite): {metrics['gold_errors']} "
               f"question(s) — EX over winnable subset: {metrics.get('EX_winnable', 0):.2f}")
+    if metrics.get("timeouts"):
+        print(f"  ⏱  ABANDONED (hit the per-question budget): {metrics['timeouts']} "
+              f"question(s) — scored 0 and still counted; raise "
+              f"--question-timeout if the model is slow rather than stuck")
     if metrics.get("by_difficulty"):
         print()
         for diff, stats in metrics["by_difficulty"].items():

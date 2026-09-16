@@ -893,6 +893,84 @@ python -m backend.eval.bird --dev-json … --db-dir … \
 `--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
 set and `--subset` then slices what is left.
 
+#### `--sample` — a subset that is actually cross-domain (GH#120)
+
+`mini_dev_sqlite.json` stores each database as one **contiguous block**:
+
+```
+  30 debit_card_specializing | 48 student_club | 50 thrombosis_prediction
+  51 european_football_2     | 66 formula_1    | 52 superhero  …
+```
+
+So `--subset 20` with no `--db-id` slices the front of the file and returns
+**20 questions from `debit_card_specializing`** — a single-domain score that
+reads like an overall one. `--sample` decides how the subset is drawn:
+
+| Strategy | 20 questions from mini-dev cover |
+|---|---|
+| `head` (default) | **1** database — the file's own order |
+| `random` | ~9 of 11, seeded shuffle |
+| `stratified` | **all 11**, proportional to each database's size |
+
+```bash
+# cross-domain subset — every database represented, reproducible
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --subset 20 --sample stratified --seed 42
+```
+
+`head` stays the default so existing result files remain reproducible. Use
+`stratified` for any number you intend to call an overall or cross-domain
+score; `random` is the plain shuffle, and with 11 databases a small random
+subset may miss some of them.
+
+`sample`, `seed` and `databases_evaluated` are recorded in the results file's
+`run_config`: the same `--subset 20` means a different 20 under a different
+strategy, so without them a run cannot be re-derived or even interpreted. The
+harness also warns when a `head` subset turns out to cover one database.
+
+**Cross-domain means generalisation, not cross-database joins.** Every BIRD
+question carries exactly one `db_id` and its gold SQL runs against that one
+SQLite file — no question joins two databases, and none uses `ATTACH`. What a
+cross-domain run demonstrates is that the model reads a schema it has not seen
+before, across 11 unrelated subject areas.
+
+#### `--question-timeout` — don't let one question hold the run (GH#119)
+
+A wall-clock budget for **one question's LLM work**, default **60 s**. On
+expiry the question is abandoned and the loop moves on:
+
+```bash
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --question-timeout 180        # a slow reasoning model
+python -m backend.eval.bird --dev-json … --db-dir … \
+    --question-timeout 0          # disabled — pre-GH#119 behaviour
+```
+
+Two guards exist and they are easy to confuse:
+
+| Knob | Bounds |
+|---|---|
+| `--question-timeout` | one question, all its LLM calls |
+| `--timeout` | one SQLite execution |
+
+A per-request HTTP timeout would not replace this one: a moderate question
+makes roughly ten LLM calls, so a run can crawl for many minutes without any
+single request being slow enough to trip one.
+
+**An abandoned question is scored 0 and stays in the denominator.** It is
+*not* treated like a question whose gold SQL fails on SQLite — those are
+genuinely unwinnable and are excluded from `EX_winnable`. Excluding timeouts
+would mean a model that stalls on the hardest questions outscores one that
+answers them slowly. The run summary prints the count, `metrics.timeouts`
+records it, and `run_config.question_timeout` stores the budget, because two
+runs at different budgets are not comparable if either abandoned work.
+
+Caveat worth knowing: Python cannot interrupt a thread blocked on a socket
+read, so the call is **abandoned, not cancelled** — it keeps running until the
+HTTP client gives up on its own (by default the OpenAI SDK waits 600s per
+attempt, retries included), and it keeps billing until then. What
+`--question-timeout` buys you is the loop moving on.
+
 **`--trust-eval` is not needed for accuracy.** EX / F1 / VES are computed from
 the gold SQL on every run regardless. The flag adds the back-translation judge
 — evidence for `trust_eval.py`, which measures the DETECTOR rather than the

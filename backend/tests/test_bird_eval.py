@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+import time
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +22,7 @@ import pytest
 
 from backend.eval.bird import (
     _error_record,
+    select_questions,
     _rows_to_set,
     compute_bird_metrics,
     compute_ex,
@@ -624,3 +627,325 @@ class TestDbIdFilter:
     def test_no_filter_keeps_every_question(self, tmp_path):
         dbs, _ = self._selected(tmp_path)
         assert len(dbs) == 6
+
+
+# ── GH#119: per-question wall-clock budget ──────────────────────────────────────
+
+class TestQuestionBudget:
+    """
+    A stalled question must not hold the run — and, just as importantly, must
+    not quietly vanish from the score. See `_timeout_record`.
+    """
+
+    def _slow_agents(self, delay: float, pred_sql: str = "SELECT COUNT(*) FROM players"):
+        """A generator that blocks for `delay` seconds before answering."""
+        sql_agent = MagicMock()
+
+        def _slow_generate(**_kwargs):
+            time.sleep(delay)
+            return [pred_sql]
+
+        sql_agent.generate.side_effect = _slow_generate
+        sql_agent.rerank.return_value = pred_sql
+        validator = MagicMock()
+        validator.validate.return_value = {
+            "valid": True, "syntax_ok": True, "safety_ok": True,
+            "semantic_ok": True, "error": None,
+        }
+        return sql_agent, validator
+
+    def test_a_stalled_question_is_abandoned_and_the_run_continues(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        t0 = time.perf_counter()
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            question_timeout=0.3, refine=False,
+        )
+        elapsed = time.perf_counter() - t0
+        # Both questions still produce a record, and neither waited 5s.
+        assert len(results) == 2
+        assert elapsed < 4.0, "the budget did not actually release the loop"
+        assert all(r["timed_out"] for r in results)
+
+    def test_an_abandoned_question_stays_in_the_denominator(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        The load-bearing assertion. compute_bird_metrics drops `gold_error`
+        records from the denominator because they are unwinnable. If a timeout
+        were reported that way, abandoning the slowest questions would RAISE
+        the reported EX — a model that stalls would outscore one that answers
+        slowly. A timeout is the model's failure, so it scores 0 and counts.
+        """
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            question_timeout=0.3, refine=False,
+        )
+        metrics = compute_bird_metrics(results)
+        assert metrics["total"] == 2
+        assert metrics["EX"] == 0.0
+        assert metrics["gold_errors"] == 0          # NOT counted as unwinnable
+        assert metrics["EX_winnable"] == 0.0        # denominator intact
+        assert metrics["timeouts"] == 2
+        assert metrics["error_categories"]["timeout"] == 2
+
+    def test_the_failure_is_recorded_as_a_prediction_error(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=5.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=0.3, refine=False,
+        )
+        rec = results[0]
+        assert rec["gold_error"] is None
+        assert "budget" in (rec["pred_error"] or "")
+        assert rec["ex"] == 0.0 and rec["f1"] == 0.0 and rec["valid"] is False
+        # The question is still identifiable in the output file.
+        assert rec["question_id"] == 0 and rec["db_id"] == "test_db"
+
+    def test_a_fast_question_is_untouched(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent, validator = self._slow_agents(delay=0.0)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=30.0,
+        )
+        assert results[0]["ex"] == 1.0
+        assert not results[0].get("timed_out")
+
+    def test_zero_disables_the_budget(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """Off must mean off — the pre-GH#119 behaviour, for a reproduction
+        run that must not have questions abandoned under it."""
+        sql_agent, validator = self._slow_agents(delay=0.4)
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=0,
+        )
+        assert results[0]["ex"] == 1.0
+
+    def test_token_accounting_survives_the_worker_thread(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        The budgeted work runs on another thread and usage tracking is
+        thread-local, so without an explicit `usage.bind` every run would
+        report zero tokens and zero cost while looking entirely healthy.
+        """
+        from backend.agents import usage as usage_tracking
+
+        sql_agent = MagicMock()
+
+        def _generate(**_kwargs):
+            tracker = usage_tracking.current()
+            assert tracker is not None, "tracker not bound in the worker thread"
+            tracker.record("generate", "gpt-4o-mini", 100, 20)
+            return ["SELECT COUNT(*) FROM players"]
+
+        sql_agent.generate.side_effect = _generate
+        sql_agent.rerank.return_value = "SELECT COUNT(*) FROM players"
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=30.0, refine=False,
+        )
+        assert results[0]["usage"]["input_tokens"] == 100
+        assert results[0]["usage"]["output_tokens"] == 20
+
+    def test_a_slow_refine_keeps_the_original_prediction(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """
+        Generation succeeded; refine is an optional improvement. Dropping the
+        whole question because the optional step overran would turn a scorable
+        answer into a zero.
+        """
+        sql_agent = MagicMock()
+        # Valid SQL that returns 0 rows → the refine trigger.
+        sql_agent.generate.return_value = ["SELECT id FROM players WHERE id < 0"]
+        sql_agent.rerank.return_value = "SELECT id FROM players WHERE id < 0"
+
+        def _slow_regenerate(**_kwargs):
+            time.sleep(5.0)
+            return ["SELECT COUNT(*) FROM players"]
+
+        sql_agent.regenerate.side_effect = _slow_regenerate
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, question_timeout=2.0, refine=True, exec_voting=False,
+        )
+        rec = results[0]
+        assert not rec.get("timed_out")
+        assert rec["pred_sql"] == "SELECT id FROM players WHERE id < 0"
+        assert rec["refined"] is False
+        assert "budget" in (rec["timeout_note"] or "")
+
+    def test_an_exception_still_propagates_through_the_budget(self):
+        """The budget must not swallow a real error into a fake timeout."""
+        from backend.eval.bird import _Budget
+
+        def _boom():
+            raise ValueError("kaboom")
+
+        with pytest.raises(ValueError, match="kaboom"):
+            _Budget(30.0).run(_boom, "test")
+
+    def test_the_budget_is_shared_across_phases_not_reset(self):
+        """A 60s budget means 60s per QUESTION, not 60s per call — otherwise
+        ten calls could legitimately take ten minutes."""
+        from backend.eval.bird import _Budget
+
+        b = _Budget(1.0)
+        first = b.remaining()
+        time.sleep(0.3)
+        second = b.remaining()
+        assert second < first
+        assert b.expired() is False
+        time.sleep(0.8)
+        assert b.expired() is True
+
+
+# ── GH#120: cross-domain question selection ─────────────────────────────────────
+
+class TestSelectQuestions:
+    """
+    mini_dev_sqlite.json stores each database as one CONTIGUOUS block, so
+    slicing the front of the file returns a single database. A 20-question run
+    with no --db-id therefore reads as an overall score while measuring one
+    domain. These tests pin the strategies that fix that.
+    """
+
+    @staticmethod
+    def _corpus():
+        """11 databases in contiguous blocks, as the real file is laid out."""
+        qs = []
+        qid = 0
+        for i, db in enumerate(f"db{n:02d}" for n in range(11)):
+            for j in range(10 + i):          # uneven sizes, like the real set
+                qs.append({
+                    "question_id": qid, "db_id": db,
+                    "difficulty": ["simple", "moderate", "challenging"][j % 3],
+                    "question": f"q{qid}", "SQL": "SELECT 1", "evidence": "",
+                })
+                qid += 1
+        return qs
+
+    def test_head_reproduces_the_one_database_problem(self):
+        """Not a bug to fix but the documented default — asserted so the
+        motivation for the other strategies stays visible."""
+        picked = select_questions(self._corpus(), subset=10, strategy="head")
+        assert len({q["db_id"] for q in picked}) == 1
+
+    def test_head_is_unchanged_from_the_pre_gh120_behaviour(self):
+        """Existing result files must stay reproducible."""
+        corpus = self._corpus()
+        assert select_questions(corpus, subset=7, strategy="head") == corpus[:7]
+
+    def test_stratified_covers_every_database(self):
+        corpus = self._corpus()
+        picked = select_questions(corpus, subset=22, strategy="stratified")
+        assert len(picked) == 22
+        assert len({q["db_id"] for q in picked}) == 11
+
+    def test_stratified_gives_each_database_a_slot_when_it_can(self):
+        """A 'cross-domain' sample that silently omits a domain is the failure
+        this strategy exists to prevent, so the small databases get a slot
+        before the large ones get a second."""
+        picked = select_questions(self._corpus(), subset=11, strategy="stratified")
+        assert sorted(q["db_id"] for q in picked) == sorted(
+            f"db{n:02d}" for n in range(11))
+
+    def test_stratified_cannot_over_or_under_deliver(self):
+        corpus = self._corpus()
+        for n in (1, 5, 11, 12, 30, len(corpus) - 1, len(corpus)):
+            assert len(select_questions(corpus, subset=n,
+                                        strategy="stratified")) == n
+
+    def test_stratified_is_proportional_not_equal(self):
+        """Equal-per-database would misrepresent the benchmark's own mix; the
+        allocation tracks each database's share."""
+        corpus = self._corpus()
+        picked = select_questions(corpus, subset=100, strategy="stratified")
+        counts = Counter(q["db_id"] for q in picked)
+        assert counts["db10"] > counts["db00"]      # 20 questions vs 10
+
+    def test_random_mixes_databases(self):
+        picked = select_questions(self._corpus(), subset=20, strategy="random")
+        assert len(picked) == 20
+        assert len({q["db_id"] for q in picked}) > 1
+
+    def test_every_strategy_is_deterministic_under_one_seed(self):
+        """A benchmark number that cannot be re-derived is not a measurement."""
+        corpus = self._corpus()
+        for strategy in ("random", "stratified"):
+            a = select_questions(corpus, subset=15, strategy=strategy, seed=1)
+            b = select_questions(corpus, subset=15, strategy=strategy, seed=1)
+            assert [q["question_id"] for q in a] == [q["question_id"] for q in b]
+
+    def test_a_different_seed_gives_a_different_sample(self):
+        corpus = self._corpus()
+        a = select_questions(corpus, subset=15, strategy="random", seed=1)
+        b = select_questions(corpus, subset=15, strategy="random", seed=2)
+        assert [q["question_id"] for q in a] != [q["question_id"] for q in b]
+
+    def test_no_question_is_duplicated(self):
+        for strategy in ("head", "random", "stratified"):
+            picked = select_questions(self._corpus(), subset=30, strategy=strategy)
+            ids = [q["question_id"] for q in picked]
+            assert len(ids) == len(set(ids))
+
+    def test_filters_still_run_before_subset(self):
+        """GH#116's ordering must survive the new sampling — the other order
+        would narrow whatever the sample happened to pick."""
+        corpus = self._corpus()
+        picked = select_questions(corpus, db_filter="db05", subset=5,
+                                  strategy="stratified")
+        assert len(picked) == 5
+        assert {q["db_id"] for q in picked} == {"db05"}
+
+    def test_both_filters_combine_with_sampling(self):
+        picked = select_questions(self._corpus(), difficulty_filter="simple",
+                                  subset=4, strategy="random")
+        assert len(picked) == 4
+        assert {q["difficulty"] for q in picked} == {"simple"}
+
+    def test_a_subset_larger_than_the_pool_returns_everything(self):
+        corpus = self._corpus()
+        for strategy in ("head", "random", "stratified"):
+            assert len(select_questions(corpus, subset=10_000,
+                                        strategy=strategy)) == len(corpus)
+
+    def test_no_subset_returns_everything_unshuffled(self):
+        corpus = self._corpus()
+        assert select_questions(corpus, strategy="stratified") == corpus
+
+    def test_an_unknown_strategy_is_rejected_not_silently_ignored(self):
+        """Falling back to 'head' on a typo would hand back a single-database
+        sample while the run_config claims it was stratified."""
+        with pytest.raises(ValueError, match="unknown sample strategy"):
+            select_questions(self._corpus(), subset=5, strategy="startified")
+
+    def test_run_bird_eval_threads_the_strategy_through(
+            self, dev_json: str, db_dir_with_test_db: str):
+        sql_agent = MagicMock()
+        sql_agent.generate.return_value = ["SELECT COUNT(*) FROM players"]
+        sql_agent.rerank.return_value = "SELECT COUNT(*) FROM players"
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+        results = run_bird_eval(
+            dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+            sql_agent=sql_agent, validator=validator,
+            subset=1, sample="stratified", seed=3, refine=False,
+        )
+        assert len(results) == 1

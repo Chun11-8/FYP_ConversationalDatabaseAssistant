@@ -187,6 +187,17 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
         key = api_key or resolve_api_key(config) or default_api_key
         label = "openai" if base_url is None else "via base_url"
 
+    # GH#117: a namespaced id reaching OpenAI is always a mistake. OpenAI's
+    # own ids never contain "/", so "vendor/model" here means the entry is
+    # missing from llm.selectable_models, or is spelled differently there —
+    # and the request will come back "invalid model ID" from a provider that
+    # was never meant to serve it.
+    if base_url is None and "/" in model:
+        logger.warning(
+            "[LLM] %r looks like a gateway id but is routed to OpenAI. Add it "
+            "to llm.selectable_models with a `provider:` tag, or check the "
+            "spelling — OpenAI model ids never contain '/'.", model)
+
     # Per-model call kwargs. `temperature: null` OMITS the parameter, which is
     # how a reasoning model that rejects a non-default temperature is handled;
     # absent means the caller's default (0) is kept, so existing models are
