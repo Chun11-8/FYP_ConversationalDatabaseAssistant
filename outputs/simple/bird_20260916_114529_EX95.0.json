@@ -1,0 +1,1933 @@
+{
+  "run_config": {
+    "model": "meta-llama/llama-4-maverick",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 20,
+    "difficulty": "simple",
+    "db_id": "student_club"
+  },
+  "metrics": {
+    "total": 20,
+    "EX": 95.0,
+    "F1": 95.0,
+    "VES": 86.04,
+    "gold_errors": 0,
+    "EX_winnable": 95.0,
+    "error_categories": {
+      "correct": 19,
+      "disjoint": 1
+    },
+    "llm_calls": 40,
+    "llm_calls_per_question": 2.0,
+    "tokens_in": 158912,
+    "tokens_out": 9258,
+    "cost_usd": 0.0,
+    "cost_usd_per_question": 0.0,
+    "by_difficulty": {
+      "simple": {
+        "count": 20,
+        "EX": 95.0,
+        "F1": 95.0,
+        "VES": 86.04
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1312,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What's Angela Sanders's major?",
+      "evidence": "Angela Sanders is the full name; full name refers to first_name, last_name; major refers to major_name.",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Angela' AND T1.last_name = 'Sanders'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.first_name = 'Angela' AND t1.last_name = 'Sanders'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3241,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "first_name = 'Angela' AND last_name = 'Sanders'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7943,
+        "output_tokens": 420,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2011,
+            "output_tokens": 110,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5932,
+            "output_tokens": 310,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1331,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the amount of the funds that the Vice President received?",
+      "evidence": "'Vice President' is a position of Student Club; funds received refers to amount.",
+      "gold_sql": "SELECT T2.amount FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.position = 'Vice President'",
+      "pred_sql": "SELECT SUM(t1.amount) FROM income AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.position = 'Vice President'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2250,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(amount)",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.position = 'Vice President'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7937,
+        "output_tokens": 324,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2010,
+            "output_tokens": 103,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5927,
+            "output_tokens": 221,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1334,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List the full name of the Student_Club members that grew up in Illinois state.",
+      "evidence": "full name of member refers to first_name, last_name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN zip_code AS T2 ON T1.zip = T2.zip_code WHERE T2.state = 'Illinois'",
+      "pred_sql": "SELECT DISTINCT t1.first_name, t1.last_name FROM member AS t1 INNER JOIN zip_code AS t2 ON t1.zip = t2.zip_code WHERE t2.state = 'Illinois'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 1937,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name, last_name",
+        "tables": [
+          "member",
+          "zip_code"
+        ],
+        "join_path": [
+          "member.zip = zip_code.zip_code"
+        ],
+        "filters": [
+          "zip_code.state = 'Illinois'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7937,
+        "output_tokens": 290,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2010,
+            "output_tokens": 105,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5927,
+            "output_tokens": 185,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1344,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was the notes of the fundraising on 2019/9/14?",
+      "evidence": "fundraising on 2019/9/14 refers to source = 'Fundraising' where date_received = '2019-09-14'",
+      "gold_sql": "SELECT notes FROM income WHERE source = 'Fundraising' AND date_received = '2019-09-14'",
+      "pred_sql": "SELECT notes FROM income WHERE date_received = '2019-09-14' AND source = 'Fundraising'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4479,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "notes",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "date_received = '2019-09-14'",
+          "source = 'Fundraising'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7960,
+        "output_tokens": 396,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2027,
+            "output_tokens": 99,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5933,
+            "output_tokens": 297,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1346,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Tell the phone number of \"Carlo Jacobs\".",
+      "evidence": "Carlo Jacobs is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT phone FROM member WHERE first_name = 'Carlo' AND last_name = 'Jacobs'",
+      "pred_sql": "SELECT phone FROM member WHERE first_name = 'Carlo' AND last_name = 'Jacobs'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3979,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "phone",
+        "tables": [
+          "member"
+        ],
+        "join_path": null,
+        "filters": [
+          "first_name = 'Carlo' AND last_name = 'Jacobs'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7915,
+        "output_tokens": 399,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2007,
+            "output_tokens": 97,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5908,
+            "output_tokens": 302,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1351,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was Brent Thomason's major?",
+      "evidence": "Brent Thomason is the full name; full name refers to first_name, last_name; major refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Brent' AND T1.last_name = 'Thomason'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.first_name = 'Brent' AND t1.last_name = 'Thomason'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8187,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.first_name = 'Brent' AND member.last_name = 'Thomason'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7952,
+        "output_tokens": 483,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2014,
+            "output_tokens": 113,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5938,
+            "output_tokens": 370,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1356,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which department was the President of the club in?",
+      "evidence": "'President' is a position of Student Club",
+      "gold_sql": "SELECT T2.department FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.position = 'President'",
+      "pred_sql": "SELECT t2.department FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.position = 'President'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7375,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "department",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.position = 'President'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7911,
+        "output_tokens": 430,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2000,
+            "output_tokens": 99,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5911,
+            "output_tokens": 331,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1357,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State the date Connor Hilton paid his/her dues.",
+      "evidence": "Connor Hilton is the full name; full name refers to first_name, last_name; date the dues was paid refers to date_received where source = 'Dues';",
+      "gold_sql": "SELECT T2.date_received FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Connor' AND T1.last_name = 'Hilton' AND T2.source = 'Dues'",
+      "pred_sql": "SELECT t2.date_received FROM member AS t1 INNER JOIN income AS t2 ON t1.member_id = t2.link_to_member WHERE t1.first_name = 'Connor' AND t1.last_name = 'Hilton' AND t2.source = 'Dues'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 9536,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "date_received",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "member.member_id = income.link_to_member"
+        ],
+        "filters": [
+          "member.first_name = 'Connor' AND member.last_name = 'Hilton' AND income.source = 'Dues'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7980,
+        "output_tokens": 602,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2025,
+            "output_tokens": 119,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5955,
+            "output_tokens": 483,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1361,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total cost of the pizzas for all the events?",
+      "evidence": "total cost of the pizzas refers to SUM(cost) where expense_description = 'Pizza'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_description = 'Pizza'",
+      "pred_sql": "SELECT SUM(cost) FROM expense WHERE expense_description = 'Pizza'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3463,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": null,
+        "filters": [
+          "expense_description = 'Pizza'"
+        ],
+        "evidence_predicates": [
+          "expense_description = 'Pizza'"
+        ],
+        "evidence_formula": "SUM(cost)",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7944,
+        "output_tokens": 344,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2011,
+            "output_tokens": 99,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5933,
+            "output_tokens": 245,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1362,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many cities are there in Orange County, Virginia?",
+      "evidence": "Orange County is the county name, Virginia is the state name",
+      "gold_sql": "SELECT COUNT(city) FROM zip_code WHERE county = 'Orange County' AND state = 'Virginia'",
+      "pred_sql": "SELECT COUNT(DISTINCT city) FROM zip_code WHERE county = 'Orange County' AND state = 'Virginia'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3151,
+      "gold_elapsed_ms": 8,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "zip_code"
+        ],
+        "join_path": null,
+        "filters": [
+          "county = 'Orange County'",
+          "state = 'Virginia'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7916,
+        "output_tokens": 386,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2005,
+            "output_tokens": 98,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5911,
+            "output_tokens": 288,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1368,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What does the person with the phone number \"809-555-3360\" major in?",
+      "evidence": "major in refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.phone = '809-555-3360'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.phone = '809-555-3360'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2737,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.phone = '809-555-3360'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7931,
+        "output_tokens": 386,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2007,
+            "output_tokens": 106,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5924,
+            "output_tokens": 280,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1371,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members attended the \"Women's Soccer\" event?",
+      "evidence": "'Women's Soccer' is the event name;",
+      "gold_sql": "SELECT COUNT(T2.link_to_member) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'Women''s Soccer'",
+      "pred_sql": "SELECT COUNT(DISTINCT t2.link_to_member) FROM event AS t1 INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event WHERE t1.event_name = 'Women''s Soccer'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 16790,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT attendance.link_to_member)",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "event.event_id = attendance.link_to_event"
+        ],
+        "filters": [
+          "event.event_name = 'Women''s Soccer'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7930,
+        "output_tokens": 607,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2002,
+            "output_tokens": 111,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5928,
+            "output_tokens": 496,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1378,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the highest amount of budget spend for an event?",
+      "evidence": "highest amount of budget spend refers to MAX(spent)",
+      "gold_sql": "SELECT MAX(spent) FROM budget",
+      "pred_sql": "SELECT MAX(spent) FROM budget",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 19226,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "MAX(spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "MAX(spent)",
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7910,
+        "output_tokens": 572,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2004,
+            "output_tokens": 86,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5906,
+            "output_tokens": 486,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1380,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total amount of money spent for food?",
+      "evidence": "total amount of money spent refers to SUM(spent); spent for food refers to category = 'Food'",
+      "gold_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "pred_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9098,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": null,
+        "filters": [
+          "category = 'Food'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": "SUM(spent)",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7937,
+        "output_tokens": 334,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2013,
+            "output_tokens": 94,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5924,
+            "output_tokens": 240,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1389,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which event has the lowest cost?",
+      "evidence": "event refers to event_name; lowest cost means MIN(cost)",
+      "gold_sql": "SELECT T1.event_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget ORDER BY T3.cost LIMIT 1",
+      "pred_sql": "SELECT t3.event_name FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id GROUP BY t3.event_id ORDER BY SUM(t1.cost) ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 38628,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event_name",
+        "tables": [
+          "event",
+          "budget",
+          "expense"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id",
+          "expense.link_to_budget = budget.budget_id"
+        ],
+        "filters": null,
+        "evidence_predicates": null,
+        "evidence_formula": "MIN(cost)",
+        "aggregation": "MIN",
+        "group_by": "event_name",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "plan_aggregate_mismatch",
+            "severity": "high",
+            "message": "The plan called for MIN but the query uses SUM — these answer different questions.",
+            "detail": {
+              "plan": [
+                "min"
+              ],
+              "sql": [
+                "sum"
+              ]
+            }
+          }
+        ],
+        "risk_score": 3,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7940,
+        "output_tokens": 849,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2000,
+            "output_tokens": 114,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5940,
+            "output_tokens": 735,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1392,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Indicate the top source of funds received in September 2019 based on their amount.",
+      "evidence": "top source funds refers to MAX(source); September 2019 means date_received BETWEEN '2019-09-01' and '2019-09-30'",
+      "gold_sql": "SELECT source FROM income WHERE date_received BETWEEN '2019-09-01' and '2019-09-30' ORDER BY source DESC LIMIT 1",
+      "pred_sql": "SELECT source FROM income WHERE date_received BETWEEN '2019-09-01' AND '2019-09-30' GROUP BY source ORDER BY SUM(amount) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4783,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "source",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "date_received BETWEEN '2019-09-01' AND '2019-09-30'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "MAX(source)",
+        "aggregation": null,
+        "group_by": "source",
+        "having": "SUM(amount) = (SELECT MAX(sum_amount) FROM (SELECT SUM(amount) AS sum_amount FROM income WHERE date_received BETWEEN '2019-09-01' AND '2019-09-30' GROUP BY source))",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8034,
+        "output_tokens": 578,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2031,
+            "output_tokens": 150,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6003,
+            "output_tokens": 428,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1394,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members of the Student_Club have major in 'Physics Teaching'?",
+      "evidence": "'Physics Teaching' is the major_name;",
+      "gold_sql": "SELECT COUNT(T2.member_id) FROM major AS T1 INNER JOIN member AS T2 ON T1.major_id = T2.link_to_major WHERE T1.major_name = 'Physics Teaching'",
+      "pred_sql": "SELECT COUNT(*) FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t2.major_name = 'Physics Teaching'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3646,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Physics Teaching'"
+        ],
+        "evidence_predicates": [
+          "major.major_name = 'Physics Teaching'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7942,
+        "output_tokens": 420,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2005,
+            "output_tokens": 112,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5937,
+            "output_tokens": 308,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1409,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Mention the total expense used on 8/20/2019.",
+      "evidence": "total expense refers SUM(cost) where expense_date = '2019-08-20'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "pred_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2581,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": [],
+        "filters": [
+          "expense_date = '2019-08-20'"
+        ],
+        "evidence_predicates": [
+          "expense_date = '2019-08-20'"
+        ],
+        "evidence_formula": "SUM(cost)",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7958,
+        "output_tokens": 315,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2013,
+            "output_tokens": 108,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5945,
+            "output_tokens": 207,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1410,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List out the full name and total cost that member id \"rec4BLdZHS2Blfp4v\" incurred?",
+      "evidence": "full name refers to first_name, last name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name, SUM(T2.cost) FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.member_id = 'rec4BLdZHS2Blfp4v'",
+      "pred_sql": "SELECT t1.first_name, t1.last_name, SUM(t2.cost) AS total_cost FROM member AS t1 INNER JOIN expense AS t2 ON t1.member_id = t2.link_to_member WHERE t1.member_id = 'rec4BLdZHS2Blfp4v'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5725,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name, last_name, SUM(cost)",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "member.member_id = expense.link_to_member"
+        ],
+        "filters": [
+          "member.member_id = 'rec4BLdZHS2Blfp4v'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "first_name, last_name",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "plan_group_by_dropped",
+            "severity": "medium",
+            "message": "The plan groups by 'first_name, last_name', but the query has no GROUP BY — it returns a single overall figure instead of one row per group.",
+            "detail": {
+              "plan_group_by": "first_name, last_name"
+            }
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7976,
+        "output_tokens": 634,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2017,
+            "output_tokens": 124,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5959,
+            "output_tokens": 510,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1411,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State what kind of expenses that Sacha Harrison incurred?",
+      "evidence": "kind of expenses refers to expense_description; Sacha Harrison is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT T2.expense_description FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Sacha' AND T1.last_name = 'Harrison'",
+      "pred_sql": "SELECT DISTINCT t1.expense_description FROM expense AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.first_name = 'Sacha' AND t2.last_name = 'Harrison'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 12,
+      "pred_row_count": 7,
+      "gen_ms": 30558,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense_description",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.first_name = 'Sacha' AND member.last_name = 'Harrison'"
+        ],
+        "evidence_predicates": null,
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7959,
+        "output_tokens": 489,
+        "est_cost_usd": 0.0,
+        "models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "meta-llama/llama-4-maverick"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2018,
+            "output_tokens": 112,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5941,
+            "output_tokens": 377,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}

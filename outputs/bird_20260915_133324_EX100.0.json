@@ -1,0 +1,142 @@
+{
+  "run_config": {
+    "model": "qwen/qwen3.5-122b-a10b",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 1,
+    "difficulty": "simple",
+    "db_id": "student_club"
+  },
+  "metrics": {
+    "total": 1,
+    "EX": 100.0,
+    "F1": 100.0,
+    "VES": 100.0,
+    "gold_errors": 0,
+    "EX_winnable": 100.0,
+    "error_categories": {
+      "correct": 1
+    },
+    "llm_calls": 2,
+    "llm_calls_per_question": 2.0,
+    "tokens_in": 8522,
+    "tokens_out": 1046,
+    "cost_usd": 0.0,
+    "cost_usd_per_question": 0.0,
+    "by_difficulty": {
+      "simple": {
+        "count": 1,
+        "EX": 100.0,
+        "F1": 100.0,
+        "VES": 100.0
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1312,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What's Angela Sanders's major?",
+      "evidence": "Angela Sanders is the full name; full name refers to first_name, last_name; major refers to major_name.",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Angela' AND T1.last_name = 'Sanders'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.first_name = 'Angela' AND t1.last_name = 'Sanders'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4432,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "first_name = 'Angela'",
+          "last_name = 'Sanders'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8522,
+        "output_tokens": 1046,
+        "est_cost_usd": 0.0,
+        "models": [
+          "qwen/qwen3.5-122b-a10b"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "qwen/qwen3.5-122b-a10b"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2201,
+            "output_tokens": 582,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6321,
+            "output_tokens": 464,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}

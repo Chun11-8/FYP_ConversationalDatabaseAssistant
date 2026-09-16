@@ -1,0 +1,2064 @@
+{
+  "run_config": {
+    "model": "minimax/minimax-m3",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 20,
+    "difficulty": "moderate",
+    "db_id": "student_club"
+  },
+  "metrics": {
+    "total": 20,
+    "EX": 75.0,
+    "F1": 75.0,
+    "VES": 69.95,
+    "gold_errors": 0,
+    "EX_winnable": 75.0,
+    "error_categories": {
+      "correct": 15,
+      "disjoint": 2,
+      "pred_invalid": 1,
+      "zero_rows": 1,
+      "arity_mismatch": 1
+    },
+    "llm_calls": 49,
+    "llm_calls_per_question": 2.45,
+    "tokens_in": 198086,
+    "tokens_out": 56086,
+    "cost_usd": 0.0,
+    "cost_usd_per_question": 0.0,
+    "by_difficulty": {
+      "moderate": {
+        "count": 20,
+        "EX": 75.0,
+        "F1": 75.0,
+        "VES": 69.95
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1317,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among the students from the Student_Club who attended the event \"Women's Soccer\", how many of them want a T-shirt that's in medium size?",
+      "evidence": "Women's Soccer is an event name; T-shirt that is in medium size refers to t_shirt_size = 'Medium'",
+      "gold_sql": "SELECT COUNT(T1.event_id) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event INNER JOIN member AS T3 ON T2.link_to_member = T3.member_id WHERE T1.event_name = 'Women''s Soccer' AND T3.t_shirt_size = 'Medium'",
+      "pred_sql": "SELECT COUNT(t3.member_id) FROM event AS t1 INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event INNER JOIN member AS t3 ON t2.link_to_member = t3.member_id WHERE t1.event_name = 'Women''s Soccer' AND t3.t_shirt_size = 'Medium'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 10612,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(member.member_id)",
+        "tables": [
+          "event",
+          "attendance",
+          "member"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id",
+          "attendance.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "event.event_name = 'Women''s Soccer'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'Women''s Soccer'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8325,
+        "output_tokens": 1664,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2197,
+            "output_tokens": 334,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6128,
+            "output_tokens": 1330,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1322,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among the events attended by more than 10 members of the Student_Club, how many of them are meetings?",
+      "evidence": "meetings events refers to type = 'Meeting'; attended by more than 10 members refers to COUNT(event_id) > 10",
+      "gold_sql": "SELECT COUNT(DISTINCT T1.event_id) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.type = 'Meeting' GROUP BY T1.event_id HAVING COUNT(T2.link_to_event) > 10",
+      "pred_sql": "SELECT COUNT(*) FROM (SELECT t1.event_id FROM event AS t1 INNER JOIN attendance AS t2 ON t1.event_id = t2.link_to_event WHERE t1.type = 'Meeting' GROUP BY t1.event_id HAVING COUNT(t2.link_to_member) > 10)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 1,
+      "gen_ms": 7590,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT of distinct events where type = 'Meeting' AND attended by more than 10 members",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.type = 'Meeting'"
+        ],
+        "evidence_predicates": [
+          "COUNT(event_id) > 10"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": "event.event_id",
+        "having": "COUNT(event.event_id) > 10",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8308,
+        "output_tokens": 2803,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2194,
+            "output_tokens": 1112,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6114,
+            "output_tokens": 1691,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1323,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List all the names of events that had an attendance of over 20 students but were not fundraisers.",
+      "evidence": "name of events refers to event_name; attendance of over 20 students COUNT(event_id) > 20.",
+      "gold_sql": "SELECT T1.event_name FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event GROUP BY T1.event_id HAVING COUNT(T2.link_to_event) > 20 EXCEPT SELECT T1.event_name FROM event AS T1  WHERE T1.type = 'Fundraiser'",
+      "pred_sql": "SELECT DISTINCT e.event_name FROM event AS e JOIN attendance AS a ON e.event_id = a.link_to_event WHERE e.type <> 'Fundraiser' GROUP BY e.event_id, e.event_name HAVING COUNT(a.link_to_member) > 20",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 8,
+      "pred_row_count": 8,
+      "gen_ms": 16806,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.type != 'Fundraiser'"
+        ],
+        "evidence_predicates": [
+          "COUNT(event_id) > 20"
+        ],
+        "evidence_formula": "COUNT(event_id) > 20",
+        "aggregation": "COUNT",
+        "group_by": "event.event_id, event.event_name",
+        "having": "COUNT(attendance.link_to_event) > 20",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 15166,
+        "output_tokens": 7422,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2187,
+            "output_tokens": 3501,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6116,
+            "output_tokens": 2760,
+            "est_cost_usd": 0.0
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2701,
+            "output_tokens": 2,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4162,
+            "output_tokens": 1159,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1338,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Was each expense in October Meeting on October 8, 2019 approved?",
+      "evidence": "event_name = 'October Meeting' where event_date = '2019-10-08'; approved = True means expenses was approved; approved = False means expenses was not approved",
+      "gold_sql": "SELECT T3.approved FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'October Meeting' AND T1.event_date LIKE '2019-10-08%'",
+      "pred_sql": "/* Candidate 3: NOT EXISTS subquery (returns 1 if no unapproved expense exists) */ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM event AS t1 INNER JOIN budget AS t2 ON t1.event_id = t2.link_to_event INNER JOIN expense AS t3 ON t2.budget_id = t3.link_to_budget WHERE t1.event_name = 'October Meeting' AND t1.event_date = '2019-10-08' AND t3.approved <> '1') THEN 1 ELSE 0 END",
+      "valid": false,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 3,
+      "pred_row_count": 0,
+      "gen_ms": 59491,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense.approved (verification that each expense is approved)",
+        "tables": [
+          "event",
+          "budget",
+          "expense"
+        ],
+        "join_path": [
+          "event.event_id = budget.link_to_event",
+          "budget.budget_id = expense.link_to_budget"
+        ],
+        "filters": [
+          "event.event_name = 'October Meeting'",
+          "event.event_date = '2019-10-08'"
+        ],
+        "evidence_predicates": [
+          "event_name = 'October Meeting'",
+          "event_date = '2019-10-08'",
+          "approved = 'true'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": false,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": false,
+          "semantic_ok": false
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 5,
+        "input_tokens": 18234,
+        "output_tokens": 14756,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2196,
+            "output_tokens": 1019,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6138,
+            "output_tokens": 1961,
+            "est_cost_usd": 0.0
+          },
+          "rerank": {
+            "calls": 2,
+            "input_tokens": 5696,
+            "output_tokens": 8043,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4204,
+            "output_tokens": 3733,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "pred_invalid"
+    },
+    {
+      "question_id": 1340,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Calculate the difference of the total amount spent in all events by the Student_Club in year 2019 and 2020.",
+      "evidence": "The first 4 strings of the event_date values in the event table can represent year; The difference of the total amount spent = SUBTRACT(spent where YEAR(event_date) = 2019, spent where YEAR(event_date) = 2020)",
+      "gold_sql": "SELECT SUM(CASE WHEN SUBSTR(T1.event_date, 1, 4) = '2019' THEN T2.spent ELSE 0 END) - SUM(CASE WHEN SUBSTR(T1.event_date, 1, 4) = '2020' THEN T2.spent ELSE 0 END) AS num FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event",
+      "pred_sql": "SELECT SUM(CASE WHEN SUBSTRING(t2.event_date, 1, 4) = '2019' THEN t1.spent ELSE 0 END) - SUM(CASE WHEN SUBSTRING(t2.event_date, 1, 4) = '2020' THEN t1.spent ELSE 0 END) FROM budget AS t1 INNER JOIN event AS t2 ON t1.link_to_event = t2.event_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 19006,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(SUM(spent) for events where YEAR(event_date) = 2019, SUM(spent) for events where YEAR(event_date) = 2020)",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "YEAR(event_date) = 2019",
+          "YEAR(event_date) = 2020"
+        ],
+        "evidence_formula": "SUBTRACT(spent where YEAR(event_date) = 2019, spent where YEAR(event_date) = 2020)",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8394,
+        "output_tokens": 1668,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2220,
+            "output_tokens": 1047,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6174,
+            "output_tokens": 621,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1350,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "What is the status of the event which bought \"Post Cards, Posters\" on 2019/8/20?",
+      "evidence": "'Post Cards, Posters' is an expense description; on 2019/8/20 refers to expense_date = '2019-8-20'; status of event refers to event_status",
+      "gold_sql": "SELECT T1.event_status FROM budget AS T1 INNER JOIN expense AS T2 ON T1.budget_id = T2.link_to_budget WHERE T2.expense_description = 'Post Cards, Posters' AND T2.expense_date = '2019-08-20'",
+      "pred_sql": "SELECT t2.event_status FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id WHERE t1.expense_description = 'Post Cards, Posters' AND t1.expense_date = '2019-08-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9502,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "budget.event_status",
+        "tables": [
+          "expense",
+          "budget"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id"
+        ],
+        "filters": [
+          "expense.expense_description = 'Post Cards, Posters'",
+          "expense.expense_date = '2019-8-20'"
+        ],
+        "evidence_predicates": [
+          "expense.expense_description = 'Post Cards, Posters'",
+          "expense.expense_date = '2019-8-20'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12536,
+        "output_tokens": 3035,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2209,
+            "output_tokens": 678,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6134,
+            "output_tokens": 978,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4193,
+            "output_tokens": 1379,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1352,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "For all the club members from \"Business\" major, how many of them wear medium size t-shirt?",
+      "evidence": "'Business' is a major name; wear medium size t-shirt refers to t_shirt_size = 'Medium'",
+      "gold_sql": "SELECT COUNT(T1.member_id) FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T2.major_name = 'Business' AND T1.t_shirt_size = 'Medium'",
+      "pred_sql": "SELECT COUNT(t1.member_id) FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t2.major_name = 'Business' AND t1.t_shirt_size = 'Medium'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3585,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(member.member_id)",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Business'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_predicates": [
+          "major.major_name = 'Business'",
+          "member.t_shirt_size = 'Medium'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8287,
+        "output_tokens": 798,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2187,
+            "output_tokens": 261,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6100,
+            "output_tokens": 537,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1375,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List all the members of the \"School of Applied Sciences, Technology and Education\" department.",
+      "evidence": "list all members means to list all the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T2.department = 'School of Applied Sciences, Technology and Education'",
+      "pred_sql": "SELECT DISTINCT t2.first_name, t2.last_name FROM major AS t1 INNER JOIN member AS t2 ON t1.major_id = t2.link_to_major WHERE t1.department = 'School of Applied Sciences, Technology and Education'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 5,
+      "pred_row_count": 5,
+      "gen_ms": 2698,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name, last_name (full names of all members in the specified department)",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.department = 'School of Applied Sciences, Technology and Education'"
+        ],
+        "evidence_predicates": [
+          "major.department = 'School of Applied Sciences, Technology and Education'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8276,
+        "output_tokens": 776,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2183,
+            "output_tokens": 342,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6093,
+            "output_tokens": 434,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1376,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Among all the closed events, which event has the highest spend-to-budget ratio?",
+      "evidence": "closed events refers to event_name where status = 'Closed'; highest spend-to budget ratio refers to MAX(DIVIDE(spent, amount))",
+      "gold_sql": "SELECT T2.event_name FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T2.status = 'Closed' ORDER BY T1.spent / T1.amount DESC LIMIT 1",
+      "pred_sql": "SELECT t1.event_name FROM event AS t1 INNER JOIN budget AS t2 ON t1.event_id = t2.link_to_event WHERE t1.status = 'Closed' AND t2.amount > 0 ORDER BY CAST(t2.spent AS REAL) / t2.amount DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 17737,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event_name of the event with the maximum spent/amount ratio (among Closed events)",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.status = 'Closed'"
+        ],
+        "evidence_predicates": [
+          "event.status = 'Closed'"
+        ],
+        "evidence_formula": "MAX(DIVIDE(spent, amount))",
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": "DIVIDE(budget.spent, budget.amount) DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 15150,
+        "output_tokens": 4324,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2189,
+            "output_tokens": 654,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6120,
+            "output_tokens": 1492,
+            "est_cost_usd": 0.0
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2693,
+            "output_tokens": 721,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4148,
+            "output_tokens": 1457,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1381,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List the name of students that have attended more than 7 events.",
+      "evidence": "name of students means the full name; full name refers to first_name, last_name; attended more than 7 events refers to COUNT(link_to_event) > 7",
+      "gold_sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN attendance AS T2 ON T1.member_id = T2.link_to_member GROUP BY T2.link_to_member HAVING COUNT(T2.link_to_event) > 7",
+      "pred_sql": "SELECT t2.first_name, t2.last_name FROM attendance AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id GROUP BY t2.member_id HAVING COUNT(t1.link_to_event) > 7",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 29,
+      "pred_row_count": 29,
+      "gen_ms": 4969,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name, last_name (full name of students)",
+        "tables": [
+          "member",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_member = member.member_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "COUNT(attendance.link_to_event) > 7"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": "member.member_id, member.first_name, member.last_name",
+        "having": "COUNT(attendance.link_to_event) > 7",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8312,
+        "output_tokens": 870,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2193,
+            "output_tokens": 357,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6119,
+            "output_tokens": 513,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1387,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Which student has been entrusted to manage the budget for the Yearly Kickoff?",
+      "evidence": "name of students means the full name; full name refers to first_name, last_name;'Yearly Kickoff' is an event name;",
+      "gold_sql": "SELECT T4.first_name, T4.last_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget INNER JOIN member AS T4 ON T3.link_to_member = T4.member_id WHERE T1.event_name = 'Yearly Kickoff'",
+      "pred_sql": "SELECT t4.first_name, t4.last_name FROM event AS t1 INNER JOIN budget AS t2 ON t1.event_id = t2.link_to_event INNER JOIN expense AS t3 ON t2.budget_id = t3.link_to_budget INNER JOIN member AS t4 ON t3.link_to_member = t4.member_id WHERE t1.event_name = 'Yearly Kickoff'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 4,
+      "pred_row_count": 4,
+      "gen_ms": 5435,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name, member.last_name",
+        "tables": [
+          "event",
+          "budget",
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id",
+          "expense.link_to_budget = budget.budget_id",
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "event.event_name = 'Yearly Kickoff'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'Yearly Kickoff'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8301,
+        "output_tokens": 2130,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2188,
+            "output_tokens": 700,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6113,
+            "output_tokens": 1430,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1390,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Based on the total cost for all event, what is the percentage of cost for Yearly Kickoff event?",
+      "evidence": "percentage = DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+      "gold_sql": "SELECT CAST(SUM(CASE WHEN T1.event_name = 'Yearly Kickoff' THEN T3.cost ELSE 0 END) AS REAL) * 100 / SUM(T3.cost) FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN t3.event_name = 'Yearly Kickoff' THEN t1.cost ELSE 0 END) AS REAL) * 100 / SUM(t1.cost) FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9878,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "event.event_name = 'Yearly Kickoff'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(cost where event_name = 'Yearly Kickoff'), SUM(cost)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8329,
+        "output_tokens": 2669,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2192,
+            "output_tokens": 674,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6137,
+            "output_tokens": 1995,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1398,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Name the event with the highest amount spent on advertisement.",
+      "evidence": "Name of event refers to event_name; highest amount spent on advertisement refers to MAX(spent) where category = 'Advertisement'",
+      "gold_sql": "SELECT T2.event_name FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T1.category = 'Advertisement' ORDER BY T1.spent DESC LIMIT 1",
+      "pred_sql": "SELECT T2.event_name FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T1.category = 'Advertisement' ORDER BY T1.spent DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4266,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event_name",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "budget.category = 'Advertisement'"
+        ],
+        "evidence_predicates": [
+          "budget.category = 'Advertisement'",
+          "MAX(budget.spent)"
+        ],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": "budget.spent DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8260,
+        "output_tokens": 1207,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2180,
+            "output_tokens": 306,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6080,
+            "output_tokens": 901,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1399,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Did Maya Mclean attend the 'Women's Soccer' event?",
+      "evidence": "Maya Mclean is the full name; full name refers to first_name, last_name; 'Women's Soccer' is an event_name",
+      "gold_sql": "SELECT CASE WHEN T3.event_name = 'Women''s Soccer' THEN 'YES' END AS result FROM member AS T1 INNER JOIN attendance AS T2 ON T1.member_id = T2.link_to_member INNER JOIN event AS T3 ON T2.link_to_event = T3.event_id WHERE T1.first_name = 'Maya' AND T1.last_name = 'Mclean'",
+      "pred_sql": "SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attendance AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id INNER JOIN event AS t3 ON t1.link_to_event = t3.event_id WHERE t2.first_name = 'Maya' AND t2.last_name = 'Mclean' AND t3.event_name = 'Women''s Soccer'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 14,
+      "pred_row_count": 1,
+      "gen_ms": 3937,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event_name",
+        "tables": [
+          "member",
+          "attendance",
+          "event"
+        ],
+        "join_path": [
+          "attendance.link_to_member = member.member_id",
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "member.first_name = 'Maya'",
+          "member.last_name = 'Mclean'",
+          "event.event_name = 'Women''s Soccer'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8273,
+        "output_tokens": 1586,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2183,
+            "output_tokens": 657,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6090,
+            "output_tokens": 929,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1401,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Indicate the cost of posters for 'September Speaker' event.",
+      "evidence": "'Posters' is the expense description; 'September Speaker' is an event name",
+      "gold_sql": "SELECT T3.cost FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'September Speaker' AND T3.expense_description = 'Posters'",
+      "pred_sql": "SELECT SUM(t1.cost) FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id WHERE t1.expense_description = 'Posters' AND t3.event_name = 'September Speaker'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4820,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(expense.cost)",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "expense.expense_description = 'Posters'",
+          "event.event_name = 'September Speaker'"
+        ],
+        "evidence_predicates": [
+          "expense.expense_description = 'Posters'",
+          "event.event_name = 'September Speaker'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8278,
+        "output_tokens": 1246,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2174,
+            "output_tokens": 657,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6104,
+            "output_tokens": 589,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1403,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Indicate the name of the closed event whose cost has exceeded the budget the most.",
+      "evidence": "closed events refers to event_name where status = 'Closed'; exceed the budget the most refers to MIN(remaining) where remaining < 0",
+      "gold_sql": "SELECT T2.event_name FROM budget AS T1 INNER JOIN event AS T2 ON T2.event_id = T1.link_to_event WHERE T1.event_status = 'Closed' AND T1.remaining < 0 ORDER BY T1.remaining LIMIT 1",
+      "pred_sql": "SELECT t1.event_name FROM event AS t1 INNER JOIN budget AS t2 ON t1.event_id = t2.link_to_event WHERE t1.status = 'Closed' AND t2.remaining < 0 ORDER BY t2.remaining ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 11504,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.status = 'Closed'",
+          "budget.remaining < 0"
+        ],
+        "evidence_predicates": [
+          "event.status = 'Closed'",
+          "MIN(budget.remaining) WHERE budget.remaining < 0"
+        ],
+        "evidence_formula": null,
+        "aggregation": "MIN",
+        "group_by": null,
+        "having": null,
+        "order_by": "budget.remaining ASC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8298,
+        "output_tokens": 2132,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2190,
+            "output_tokens": 720,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6108,
+            "output_tokens": 1412,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1404,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Identify the type of expenses and their total value approved for 'October Meeting' event.",
+      "evidence": "total value refers to SUM(cost); 'October Meeting' is an event name;",
+      "gold_sql": "SELECT T1.type, SUM(T3.cost) FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'October Meeting'",
+      "pred_sql": "SELECT t1.expense_description, SUM(t1.cost) FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id WHERE t3.event_name = 'October Meeting' AND t1.approved = '1' GROUP BY t1.expense_description",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 3454,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense_description and SUM(cost) per expense type",
+        "tables": [
+          "expense",
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'October Meeting'",
+          "expense.approved = 'true'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'October Meeting'",
+          "expense.approved = 'true'"
+        ],
+        "evidence_formula": "SUM(cost)",
+        "aggregation": "SUM",
+        "group_by": "expense.expense_description",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12501,
+        "output_tokens": 2723,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2178,
+            "output_tokens": 757,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6141,
+            "output_tokens": 238,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4182,
+            "output_tokens": 1728,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1405,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "Calculate the amount budgeted for 'April Speaker' event. List all the budgeted categories for said event in an ascending order based on their amount budgeted.",
+      "evidence": "'April Speaker' is an event name; amount budgeted refers to SUM(amount); budget categories refers to category",
+      "gold_sql": "SELECT T2.category, SUM(T2.amount) FROM event AS T1 JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'April Speaker' GROUP BY T2.category ORDER BY SUM(T2.amount) ASC",
+      "pred_sql": "SELECT t1.category, SUM(t1.amount) AS amount_budgeted FROM budget AS t1 INNER JOIN event AS t2 ON t1.link_to_event = t2.event_id WHERE t2.event_name = 'April Speaker' GROUP BY t1.category ORDER BY SUM(t1.amount) ASC NULLS LAST",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 4,
+      "pred_row_count": 4,
+      "gen_ms": 15356,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "category, amount (list budget categories with their amounts for 'April Speaker' event)",
+        "tables": [
+          "event",
+          "budget"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'April Speaker'"
+        ],
+        "evidence_predicates": [
+          "event.event_name = 'April Speaker'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "amount ASC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8300,
+        "output_tokens": 2148,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2198,
+            "output_tokens": 724,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6102,
+            "output_tokens": 1424,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1426,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "List the last name of members with a major in environmental engineering and include its department and college name.",
+      "evidence": "'Environmental Engineering' is the major_name;",
+      "gold_sql": "SELECT T2.last_name, T1.department, T1.college FROM major AS T1 INNER JOIN member AS T2 ON T1.major_id = T2.link_to_major WHERE T2.position = 'Member' AND T1.major_name = 'Environmental Engineering'",
+      "pred_sql": "SELECT DISTINCT t1.last_name, t2.department, t2.college FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t2.major_name = 'Environmental Engineering'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 3066,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.last_name, major.department, major.college",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Environmental Engineering'"
+        ],
+        "evidence_predicates": [
+          "major.major_name = 'Environmental Engineering'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8240,
+        "output_tokens": 793,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2172,
+            "output_tokens": 261,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6068,
+            "output_tokens": 532,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1427,
+      "db_id": "student_club",
+      "difficulty": "moderate",
+      "question": "What are the budget category of the events located at MU 215 and a guest speaker type with a 0 budget spent?",
+      "evidence": "budget category refers to category; events located at refers to location; type = 'Guest Speaker'; 0 budget spent refers to spent = 0; ",
+      "gold_sql": "SELECT DISTINCT T2.category, T1.type FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.location = 'MU 215' AND T2.spent = 0 AND T1.type = 'Guest Speaker'",
+      "pred_sql": "SELECT T1.category FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T2.location = 'MU 215' AND T2.type = 'Guest Speaker' AND T1.spent = 0",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 16,
+      "gen_ms": 11303,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "budget.category",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.location = 'MU 215'",
+          "event.type = 'Guest Speaker'",
+          "budget.spent = 0"
+        ],
+        "evidence_predicates": [
+          "event.location = 'MU 215'",
+          "event.type = 'Guest Speaker'",
+          "budget.spent = 0"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8318,
+        "output_tokens": 1336,
+        "est_cost_usd": 0.0,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "minimax/minimax-m3"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2199,
+            "output_tokens": 330,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6119,
+            "output_tokens": 1006,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    }
+  ]
+}

@@ -1,0 +1,2036 @@
+{
+  "run_config": {
+    "model": "deepseek/deepseek-v4-flash",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 20,
+    "difficulty": "simple",
+    "db_id": "student_club"
+  },
+  "metrics": {
+    "total": 20,
+    "EX": 85.0,
+    "F1": 85.0,
+    "VES": 87.36,
+    "gold_errors": 0,
+    "EX_winnable": 85.0,
+    "error_categories": {
+      "correct": 17,
+      "arity_mismatch": 1,
+      "disjoint": 2
+    },
+    "llm_calls": 58,
+    "llm_calls_per_question": 2.9,
+    "tokens_in": 239056,
+    "tokens_out": 17621,
+    "cost_usd": 0.0,
+    "cost_usd_per_question": 0.0,
+    "by_difficulty": {
+      "simple": {
+        "count": 20,
+        "EX": 85.0,
+        "F1": 85.0,
+        "VES": 87.36
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1312,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What's Angela Sanders's major?",
+      "evidence": "Angela Sanders is the full name; full name refers to first_name, last_name; major refers to major_name.",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Angela' AND T1.last_name = 'Sanders'",
+      "pred_sql": "SELECT major.major_name FROM member INNER JOIN major ON member.link_to_major = major.major_id WHERE member.first_name = 'Angela' AND member.last_name = 'Sanders'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7204,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.first_name = 'Angela'",
+          "member.last_name = 'Sanders'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8235,
+        "output_tokens": 319,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2064,
+            "output_tokens": 271,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6171,
+            "output_tokens": 48,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1331,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the amount of the funds that the Vice President received?",
+      "evidence": "'Vice President' is a position of Student Club; funds received refers to amount.",
+      "gold_sql": "SELECT T2.amount FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.position = 'Vice President'",
+      "pred_sql": "SELECT SUM(t2.amount) FROM member AS t1 INNER JOIN income AS t2 ON t1.member_id = t2.link_to_member WHERE t1.position = 'Vice President'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 21208,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "income.amount",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "member.member_id = income.link_to_member"
+        ],
+        "filters": [
+          "member.position = 'Vice President'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8222,
+        "output_tokens": 1365,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2063,
+            "output_tokens": 104,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6159,
+            "output_tokens": 1261,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1334,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List the full name of the Student_Club members that grew up in Illinois state.",
+      "evidence": "full name of member refers to first_name, last_name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN zip_code AS T2 ON T1.zip = T2.zip_code WHERE T2.state = 'Illinois'",
+      "pred_sql": "SELECT m.first_name, m.last_name FROM member AS m JOIN zip_code AS z ON m.zip = z.zip_code WHERE z.state = 'Illinois'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 4421,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name || ' ' || last_name",
+        "tables": [
+          "member",
+          "zip_code"
+        ],
+        "join_path": [
+          "member.zip = zip_code.zip_code"
+        ],
+        "filters": [
+          "zip_code.state = 'Illinois'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12438,
+        "output_tokens": 2410,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2062,
+            "output_tokens": 696,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6161,
+            "output_tokens": 84,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4215,
+            "output_tokens": 1630,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1344,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was the notes of the fundraising on 2019/9/14?",
+      "evidence": "fundraising on 2019/9/14 refers to source = 'Fundraising' where date_received = '2019-09-14'",
+      "gold_sql": "SELECT notes FROM income WHERE source = 'Fundraising' AND date_received = '2019-09-14'",
+      "pred_sql": "SELECT notes FROM income WHERE source = 'Fundraising' AND date_received = '2019-09-14'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6227,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "income.notes",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "income.source = 'Fundraising'",
+          "income.date_received = '2019-09-14'"
+        ],
+        "evidence_predicates": [
+          "income.source = 'Fundraising'",
+          "income.date_received = '2019-09-14'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12429,
+        "output_tokens": 989,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2081,
+            "output_tokens": 127,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6199,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4149,
+            "output_tokens": 784,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1346,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Tell the phone number of \"Carlo Jacobs\".",
+      "evidence": "Carlo Jacobs is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT phone FROM member WHERE first_name = 'Carlo' AND last_name = 'Jacobs'",
+      "pred_sql": "SELECT phone FROM member WHERE first_name = 'Carlo' AND last_name = 'Jacobs'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6051,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.phone",
+        "tables": [
+          "member"
+        ],
+        "join_path": [],
+        "filters": [
+          "member.first_name = 'Carlo'",
+          "member.last_name = 'Jacobs'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12334,
+        "output_tokens": 1031,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2060,
+            "output_tokens": 100,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6146,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4128,
+            "output_tokens": 853,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1351,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was Brent Thomason's major?",
+      "evidence": "Brent Thomason is the full name; full name refers to first_name, last_name; major refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Brent' AND T1.last_name = 'Thomason'",
+      "pred_sql": "SELECT major.major_name FROM member JOIN major ON member.link_to_major = major.major_id WHERE member.first_name = 'Brent' AND member.last_name = 'Thomason'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4482,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.first_name = 'Brent'",
+          "member.last_name = 'Thomason'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12373,
+        "output_tokens": 1115,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2066,
+            "output_tokens": 115,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6173,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4134,
+            "output_tokens": 922,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1356,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which department was the President of the club in?",
+      "evidence": "'President' is a position of Student Club",
+      "gold_sql": "SELECT T2.department FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.position = 'President'",
+      "pred_sql": "SELECT major.department FROM member JOIN major ON member.link_to_major = major.major_id WHERE member.position = 'President' LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7837,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.department",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.position = 'President'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12318,
+        "output_tokens": 1030,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2052,
+            "output_tokens": 102,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6146,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4120,
+            "output_tokens": 850,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1357,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State the date Connor Hilton paid his/her dues.",
+      "evidence": "Connor Hilton is the full name; full name refers to first_name, last_name; date the dues was paid refers to date_received where source = 'Dues';",
+      "gold_sql": "SELECT T2.date_received FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Connor' AND T1.last_name = 'Hilton' AND T2.source = 'Dues'",
+      "pred_sql": "SELECT m.first_name, m.last_name FROM member AS m JOIN income AS i ON m.member_id = i.link_to_member WHERE m.first_name = 'Connor' AND m.last_name = 'Hilton' AND i.source = 'Dues'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 5410,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "income.date_received",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "member.member_id = income.link_to_member"
+        ],
+        "filters": [
+          "member.first_name = 'Connor'",
+          "member.last_name = 'Hilton'",
+          "income.source = 'Dues'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12417,
+        "output_tokens": 266,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2078,
+            "output_tokens": 123,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6193,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4146,
+            "output_tokens": 65,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1361,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total cost of the pizzas for all the events?",
+      "evidence": "total cost of the pizzas refers to SUM(cost) where expense_description = 'Pizza'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_description = 'Pizza'",
+      "pred_sql": "SELECT SUM(e.cost) FROM expense AS e JOIN budget AS b ON e.link_to_budget = b.budget_id JOIN event AS ev ON b.link_to_event = ev.event_id WHERE e.expense_description = 'Pizza'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4476,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": [],
+        "filters": [
+          "expense_description = 'Pizza'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12352,
+        "output_tokens": 329,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2068,
+            "output_tokens": 92,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6148,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4136,
+            "output_tokens": 159,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1362,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many cities are there in Orange County, Virginia?",
+      "evidence": "Orange County is the county name, Virginia is the state name",
+      "gold_sql": "SELECT COUNT(city) FROM zip_code WHERE county = 'Orange County' AND state = 'Virginia'",
+      "pred_sql": "SELECT COUNT(z.city) FROM zip_code AS z WHERE z.county = 'Orange' AND z.short_state = 'VA'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8827,
+      "gold_elapsed_ms": 19,
+      "pred_elapsed_ms": 16,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT zip_code.city)",
+        "tables": [
+          "zip_code"
+        ],
+        "join_path": [],
+        "filters": [
+          "zip_code.county = 'Orange County'",
+          "zip_code.state = 'Virginia'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12335,
+        "output_tokens": 362,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2057,
+            "output_tokens": 106,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6153,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4125,
+            "output_tokens": 178,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1368,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What does the person with the phone number \"809-555-3360\" major in?",
+      "evidence": "major in refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.phone = '809-555-3360'",
+      "pred_sql": "SELECT mjr.major_name FROM member AS mbr JOIN major AS mjr ON mbr.link_to_major = mjr.major_id WHERE mbr.phone = '809-555-3360'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6302,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.phone = '809-555-3360'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12346,
+        "output_tokens": 1113,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2059,
+            "output_tokens": 109,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6160,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4127,
+            "output_tokens": 926,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1371,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members attended the \"Women's Soccer\" event?",
+      "evidence": "'Women's Soccer' is the event name;",
+      "gold_sql": "SELECT COUNT(T2.link_to_member) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'Women''s Soccer'",
+      "pred_sql": "SELECT COUNT(DISTINCT attendance.link_to_member) FROM attendance JOIN event ON attendance.link_to_event = event.event_id WHERE event.event_name = 'Women''s Soccer'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7386,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(attendance.link_to_member)",
+        "tables": [
+          "event",
+          "attendance"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'Women''s Soccer'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12336,
+        "output_tokens": 233,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2054,
+            "output_tokens": 112,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6160,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4122,
+            "output_tokens": 43,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1378,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the highest amount of budget spend for an event?",
+      "evidence": "highest amount of budget spend refers to MAX(spent)",
+      "gold_sql": "SELECT MAX(spent) FROM budget",
+      "pred_sql": "SELECT MAX(spent) FROM budget",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4628,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "MAX(budget.spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12309,
+        "output_tokens": 731,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2057,
+            "output_tokens": 85,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6127,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4125,
+            "output_tokens": 568,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1380,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total amount of money spent for food?",
+      "evidence": "total amount of money spent refers to SUM(spent); spent for food refers to category = 'Food'",
+      "gold_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "pred_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9660,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": [],
+        "filters": [
+          "category = 'Food'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12339,
+        "output_tokens": 1332,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2066,
+            "output_tokens": 89,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6144,
+            "output_tokens": 73,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4129,
+            "output_tokens": 1170,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1389,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which event has the lowest cost?",
+      "evidence": "event refers to event_name; lowest cost means MIN(cost)",
+      "gold_sql": "SELECT T1.event_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget ORDER BY T3.cost LIMIT 1",
+      "pred_sql": "SELECT e.event_name FROM event AS e JOIN budget AS b ON e.event_id = b.link_to_event WHERE b.event_status = 'Closed' ORDER BY b.amount ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4379,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "budget",
+          "expense"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id",
+          "expense.link_to_budget = budget.budget_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MIN",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12330,
+        "output_tokens": 241,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2053,
+            "output_tokens": 113,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6156,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4121,
+            "output_tokens": 50,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1392,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Indicate the top source of funds received in September 2019 based on their amount.",
+      "evidence": "top source funds refers to MAX(source); September 2019 means date_received BETWEEN '2019-09-01' and '2019-09-30'",
+      "gold_sql": "SELECT source FROM income WHERE date_received BETWEEN '2019-09-01' and '2019-09-30' ORDER BY source DESC LIMIT 1",
+      "pred_sql": "SELECT source FROM income WHERE date_received BETWEEN '2019-09-01' AND '2019-09-30' GROUP BY source ORDER BY SUM(amount) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8990,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "source",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "date_received BETWEEN '2019-09-01' AND '2019-09-30'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": "source",
+        "having": null,
+        "order_by": "SUM(amount) DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [
+          {
+            "code": "plan_aggregate_mismatch",
+            "severity": "high",
+            "message": "The plan called for MAX but the query uses SUM — these answer different questions.",
+            "detail": {
+              "plan": [
+                "max"
+              ],
+              "sql": [
+                "sum"
+              ]
+            }
+          }
+        ],
+        "risk_score": 3,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12432,
+        "output_tokens": 1755,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2086,
+            "output_tokens": 108,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6192,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4154,
+            "output_tokens": 1569,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1394,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members of the Student_Club have major in 'Physics Teaching'?",
+      "evidence": "'Physics Teaching' is the major_name;",
+      "gold_sql": "SELECT COUNT(T2.member_id) FROM major AS T1 INNER JOIN member AS T2 ON T1.major_id = T2.link_to_major WHERE T1.major_name = 'Physics Teaching'",
+      "pred_sql": "SELECT COUNT(*) AS member_count FROM member JOIN major ON member.link_to_major = major.major_id WHERE major.major_name = 'Physics Teaching'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5132,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(member.member_id)",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "major.major_name = 'Physics Teaching'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12350,
+        "output_tokens": 880,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2057,
+            "output_tokens": 109,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6162,
+            "output_tokens": 87,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4131,
+            "output_tokens": 684,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1409,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Mention the total expense used on 8/20/2019.",
+      "evidence": "total expense refers SUM(cost) where expense_date = '2019-08-20'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "pred_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 9335,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": [],
+        "filters": [
+          "expense_date = '2019-08-20'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12362,
+        "output_tokens": 1269,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2068,
+            "output_tokens": 96,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6152,
+            "output_tokens": 87,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4142,
+            "output_tokens": 1086,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1410,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List out the full name and total cost that member id \"rec4BLdZHS2Blfp4v\" incurred?",
+      "evidence": "full name refers to first_name, last name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name, SUM(T2.cost) FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.member_id = 'rec4BLdZHS2Blfp4v'",
+      "pred_sql": "SELECT m.first_name, m.last_name, SUM(e.cost) AS total_cost FROM member AS m JOIN expense AS e ON m.member_id = e.link_to_member WHERE m.member_id = 'rec4BLdZHS2Blfp4v' GROUP BY m.member_id, m.first_name, m.last_name",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4516,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "first_name, last_name, SUM(cost)",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.member_id = 'rec4BLdZHS2Blfp4v'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "member.member_id, member.first_name, member.last_name",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12414,
+        "output_tokens": 604,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2069,
+            "output_tokens": 135,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6202,
+            "output_tokens": 87,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4143,
+            "output_tokens": 382,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1411,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State what kind of expenses that Sacha Harrison incurred?",
+      "evidence": "kind of expenses refers to expense_description; Sacha Harrison is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT T2.expense_description FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Sacha' AND T1.last_name = 'Harrison'",
+      "pred_sql": "SELECT e.expense_description FROM expense AS e JOIN member AS m ON e.link_to_member = m.member_id WHERE m.first_name = 'Sacha' AND m.last_name = 'Harrison'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 12,
+      "pred_row_count": 12,
+      "gen_ms": 12508,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense.expense_description",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.first_name = 'Sacha'",
+          "member.last_name = 'Harrison'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12385,
+        "output_tokens": 247,
+        "est_cost_usd": 0.0,
+        "models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "cost_known": false,
+        "unpriced_models": [
+          "deepseek/deepseek-v4-flash"
+        ],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2070,
+            "output_tokens": 118,
+            "est_cost_usd": 0.0
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6177,
+            "output_tokens": 78,
+            "est_cost_usd": 0.0
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4138,
+            "output_tokens": 51,
+            "est_cost_usd": 0.0
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}

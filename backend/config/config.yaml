@@ -68,7 +68,7 @@ llm:
       provider: openrouter
     - id: minimax/minimax-m2.5
       provider: openrouter
-    - id: deepseek/deepseek-v4-flash-0731
+    - id: deepseek/deepseek-v4-flash
       provider: openrouter
     - id: z-ai/glm-5.3-flash
       provider: openrouter
@@ -166,18 +166,18 @@ sql:
   # both. Today every candidate comes from one plan, which is why 41 of 57
   # errors had unanimous agreement — candidates cannot disagree about a
   # decision none of them made. Costs one extra LLM call per hard question.
-  plan_diversity: true
+  plan_diversity: false
   # plan_rationale: make the linker name the answer's GRAIN and justify the
   # aggregate against the evidence (100% of these failures carried evidence
   # describing the computation). Costs a longer planner prompt, no extra call.
-  plan_rationale: true
+  plan_rationale: false
   # GH#41: cap on candidates executed during voting + early plurality stop.
   vote_max_candidates: 5
   # GH#48: reasoning-path-diverse candidates (moderate/challenging tiers only):
   # part of the candidate budget goes to a divide-and-conquer and a
   # query-plan-CoT prompt instead of N× the direct prompt — decorrelated errors
   # give execution voting real signal. Set false to A/B.
-  path_diversity: true
+  path_diversity: false
   # GH#48: when execution voting is inconclusive, resolve with a unit-test
   # screen + pairwise LLM comparison over the ACTUAL result rows ("pairwise");
   # "reranker" restores the rows-blind text reranker.
@@ -293,3 +293,35 @@ logging:
   # GH#42: rich console pipeline banners (the tuning workflow). Set false for
   # structured logs only — request IDs + per-stage timings remain either way.
   pipeline_trace: true
+
+pricing:
+    "deepseek/deepseek-v4-flash":
+      input: 0.06
+      output: 0.12
+    "google/gemini-3.7-flash":
+      input: 0.75
+      output: 3.75
+    "meta-llama/llama-4-maverick":
+      input: 0.1875
+      output: 0.6525
+    "minimax/minimax-m2.5":
+      input: 0.27
+      output: 1.08
+    "minimax/minimax-m3":
+      input: 0.3
+      output: 1.2
+    "openai/gpt-5.4-mini":
+      input: 0.75
+      output: 4.5
+    "openai/gpt-5.6-luna":
+      input: 0.2
+      output: 1.2
+    "qwen/qwen3.5-122b-a10b":
+      input: 0.26
+      output: 2.08
+    "qwen/qwen3.8-flash":
+      input: 0.15
+      output: 0.47
+    "z-ai/glm-5.3-flash":
+      input: 0.15
+      output: 0.5

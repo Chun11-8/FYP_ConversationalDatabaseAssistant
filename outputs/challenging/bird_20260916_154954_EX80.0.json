@@ -1,0 +1,531 @@
+{
+  "run_config": {
+    "model": "gpt-4o-mini",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 20,
+    "difficulty": "challenging",
+    "db_id": "student_club"
+  },
+  "metrics": {
+    "total": 5,
+    "EX": 80.0,
+    "F1": 80.0,
+    "VES": 77.0,
+    "gold_errors": 0,
+    "EX_winnable": 80.0,
+    "error_categories": {
+      "correct": 4,
+      "zero_rows": 1
+    },
+    "llm_calls": 11,
+    "llm_calls_per_question": 2.2,
+    "tokens_in": 44688,
+    "tokens_out": 4173,
+    "cost_usd": 0.0092,
+    "cost_usd_per_question": 0.001841,
+    "by_difficulty": {
+      "challenging": {
+        "count": 5,
+        "EX": 80.0,
+        "F1": 80.0,
+        "VES": 77.0
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1339,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Calculate the total average cost that Elijah Allen spent in the events on September and October.",
+      "evidence": "Elijah Allen is the full name; full name refers to first_name, last_name; The 5th and 6th string of the expense_date in the expense table can refer to month; events in September and October refers to month(expense_date) = 9 OR month(expense_date) = 10",
+      "gold_sql": "SELECT AVG(T2.cost) FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.last_name = 'Allen' AND T1.first_name = 'Elijah' AND (SUBSTR(T2.expense_date, 6, 2) = '09' OR SUBSTR(T2.expense_date, 6, 2) = '10')",
+      "pred_sql": "SELECT AVG(t1.cost) FROM expense AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.first_name = 'Elijah' AND t2.last_name = 'Allen' AND STRFTIME('%m', t1.expense_date) IN ('09', '10')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6086,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(cost)",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.first_name = 'Elijah'",
+          "member.last_name = 'Allen'",
+          "month(expense.expense_date) = 9",
+          "month(expense.expense_date) = 10"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "AVG",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 7,
+        "executed": 7,
+        "agreement": 5,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8179,
+        "output_tokens": 732,
+        "est_cost_usd": 0.001666,
+        "models": [
+          "gpt-4o-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2064,
+            "output_tokens": 130,
+            "est_cost_usd": 0.000388
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6115,
+            "output_tokens": 602,
+            "est_cost_usd": 0.001278
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1359,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "How many times was the budget in Advertisement for \"Yearly Kickoff\" meeting more than \"October Meeting\"?",
+      "evidence": "budget in Advertisement refer to category = 'Advertisement' in the budget table; DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+      "gold_sql": "SELECT CAST(SUM(CASE WHEN T2.event_name = 'Yearly Kickoff' THEN T1.amount ELSE 0 END) AS REAL) / SUM(CASE WHEN T2.event_name = 'October Meeting' THEN T1.amount ELSE 0 END) FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T1.category = 'Advertisement' AND T2.type = 'Meeting'",
+      "pred_sql": "WITH YearlyKickoffBudget AS (SELECT SUM(amount) AS total_amount FROM budget AS b INNER JOIN event AS e ON b.link_to_event = e.event_id WHERE e.event_name = 'Yearly Kickoff' AND b.category = 'Advertisement'), OctoberMeetingBudget AS (SELECT SUM(amount) AS total_amount FROM budget AS b INNER JOIN event AS e ON b.link_to_event = e.event_id WHERE e.event_name = 'October Meeting' AND b.category = 'Advertisement') SELECT (CAST((SELECT total_amount FROM YearlyKickoffBudget) AS REAL) / (SELECT total_amount FROM OctoberMeetingBudget))",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8658,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+        "tables": [
+          "budget",
+          "event"
+        ],
+        "join_path": [
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "category = 'Advertisement'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUM(amount when event_name = 'Yearly Kickoff'), SUM(amount when event_name = 'October Meeting'))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 7,
+        "executed": 7,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8157,
+        "output_tokens": 1168,
+        "est_cost_usd": 0.001924,
+        "models": [
+          "gpt-4o-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2046,
+            "output_tokens": 143,
+            "est_cost_usd": 0.000393
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6111,
+            "output_tokens": 1025,
+            "est_cost_usd": 0.001532
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1457,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Give the full name and contact number of members who had to spend more than average on each expense.",
+      "evidence": "full name refers to first_name, last_name; contact number refers to phone; had spent more than average on each expense refers to cost > AVG(cost)",
+      "gold_sql": "SELECT DISTINCT T3.first_name, T3.last_name, T3.phone FROM expense AS T1 INNER JOIN budget AS T2 ON T1.link_to_budget = T2.budget_id INNER JOIN member AS T3 ON T3.member_id = T1.link_to_member WHERE T1.cost > ( SELECT AVG(T1.cost) FROM expense AS T1 INNER JOIN budget AS T2 ON T1.link_to_budget = T2.budget_id INNER JOIN member AS T3 ON T3.member_id = T1.link_to_member )",
+      "pred_sql": "WITH average_cost AS (SELECT AVG(cost) AS avg_cost FROM expense) SELECT t1.first_name, t1.last_name, t1.phone FROM member AS t1 INNER JOIN expense AS t2 ON t1.member_id = t2.link_to_member WHERE t2.cost > (SELECT avg_cost FROM average_cost)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 3,
+      "pred_row_count": 11,
+      "gen_ms": 4381,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "CONCAT(member.first_name, ' ', member.last_name), member.phone",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "expense.cost > AVG(expense.cost)"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 7,
+        "executed": 7,
+        "agreement": 7,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "missing_group_by",
+            "severity": "medium",
+            "message": "The question asks for a value per group, but the query aggregates everything into a single total.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8089,
+        "output_tokens": 641,
+        "est_cost_usd": 0.001598,
+        "models": [
+          "gpt-4o-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2033,
+            "output_tokens": 110,
+            "est_cost_usd": 0.000371
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6056,
+            "output_tokens": 531,
+            "est_cost_usd": 0.001227
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1460,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Write the full name of the member who spent money for water, veggie tray and supplies and include the cost of it.",
+      "evidence": "full name refers to first_name, last name; spent money for refers expense description; expense_description = 'Water, Veggie tray, supplies'",
+      "gold_sql": "SELECT T2.first_name, T2.last_name, T1.cost FROM expense AS T1 INNER JOIN member AS T2 ON T1.link_to_member = T2.member_id WHERE T1.expense_description = 'Water, Veggie tray, supplies'",
+      "pred_sql": "SELECT t1.first_name, t1.last_name, SUM(t2.cost) FROM member AS t1 INNER JOIN expense AS t2 ON t1.member_id = t2.link_to_member WHERE t2.expense_description IN ('Water', 'Veggie tray', 'supplies') GROUP BY t1.member_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 4816,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "CONCAT(member.first_name, ' ', member.last_name), SUM(expense.cost)",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "expense.expense_description IN ('Water', 'Veggie tray', 'supplies')"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "member.member_id",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 7,
+        "executed": 7,
+        "agreement": 7,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12166,
+        "output_tokens": 1113,
+        "est_cost_usd": 0.002493,
+        "models": [
+          "gpt-4o-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2035,
+            "output_tokens": 125,
+            "est_cost_usd": 0.00038
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6080,
+            "output_tokens": 577,
+            "est_cost_usd": 0.001258
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4051,
+            "output_tokens": 411,
+            "est_cost_usd": 0.000854
+          }
+        }
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1464,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Write the full names of students who received funds on the date of 9/9/2019 and include the amount received.",
+      "evidence": "full name refers to first_name, last_name, amount of funds received refers to amount, received funds on date refers to date_received",
+      "gold_sql": "SELECT DISTINCT T3.first_name, T3.last_name, T4.amount FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event INNER JOIN member AS T3 ON T3.member_id = T2.link_to_member INNER JOIN income AS T4 ON T4.link_to_member = T3.member_id WHERE T4.date_received = '2019-09-09'",
+      "pred_sql": "SELECT t1.first_name, t1.last_name, t2.amount FROM member AS t1 INNER JOIN income AS t2 ON t1.member_id = t2.link_to_member WHERE t2.date_received = '2019-09-09'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 3250,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 7,
+        "executed": 7,
+        "groups": 1,
+        "winner_votes": 7,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "CONCAT(member.first_name, ' ', member.last_name), income.amount",
+        "tables": [
+          "member",
+          "income"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "income.date_received = '2019-09-09'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 7,
+        "executed": 7,
+        "agreement": 7,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8097,
+        "output_tokens": 519,
+        "est_cost_usd": 0.001526,
+        "models": [
+          "gpt-4o-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2035,
+            "output_tokens": 114,
+            "est_cost_usd": 0.000374
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6062,
+            "output_tokens": 405,
+            "est_cost_usd": 0.001152
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}

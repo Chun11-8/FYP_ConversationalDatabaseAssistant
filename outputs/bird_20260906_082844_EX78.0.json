@@ -1,0 +1,3550 @@
+{
+  "run_config": {
+    "model": "gpt-4o-mini",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 50,
+    "difficulty": "simple"
+  },
+  "metrics": {
+    "total": 50,
+    "EX": 78.0,
+    "F1": 78.8,
+    "VES": 70.97,
+    "gold_errors": 0,
+    "EX_winnable": 78.0,
+    "error_categories": {
+      "correct": 39,
+      "disjoint": 8,
+      "zero_rows": 2,
+      "subset": 1
+    },
+    "llm_calls": 108,
+    "llm_calls_per_question": 2.16,
+    "tokens_in": 431632,
+    "tokens_out": 11389,
+    "cost_usd": 0.0716,
+    "cost_usd_per_question": 0.001432,
+    "by_difficulty": {
+      "simple": {
+        "count": 50,
+        "EX": 78.0,
+        "F1": 78.8,
+        "VES": 70.97
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 1471,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What is the ratio of customers who pay in EUR against customers who pay in CZK?",
+      "evidence": "ratio of customers who pay in EUR against customers who pay in CZK = count(Currency = 'EUR') / count(Currency = 'CZK').",
+      "gold_sql": "SELECT CAST(SUM(IIF(Currency = 'EUR', 1, 0)) AS FLOAT) / SUM(IIF(Currency = 'CZK', 1, 0)) AS ratio FROM customers",
+      "pred_sql": "SELECT CAST(COUNT(CASE WHEN Currency = 'EUR' THEN 1 END) AS REAL) / COUNT(CASE WHEN Currency = 'CZK' THEN 1 END) FROM customers",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1890,
+      "gold_elapsed_ms": 8,
+      "pred_elapsed_ms": 51,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "ratio of customers who pay in EUR against customers who pay in CZK",
+        "tables": [
+          "customers"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "count(Currency = 'EUR') / count(Currency = 'CZK')",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 8460,
+        "output_tokens": 188,
+        "est_cost_usd": 0.001382,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1426,
+            "output_tokens": 105,
+            "est_cost_usd": 0.000277
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5434,
+            "output_tokens": 82,
+            "est_cost_usd": 0.000864
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 1600,
+            "output_tokens": 1,
+            "est_cost_usd": 0.000241
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1483,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "How much did customer 6 consume in total between August and November 2013?",
+      "evidence": "Between August And November 2013 refers to Between 201308 And 201311; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
+      "gold_sql": "SELECT SUM(Consumption) FROM yearmonth WHERE CustomerID = 6 AND Date BETWEEN '201308' AND '201311'",
+      "pred_sql": "SELECT SUM(t2.consumption) FROM yearmonth AS t2 WHERE t2.customerid = 6 AND t2.date >= '201308' AND t2.date <= '201311'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1496,
+      "gold_elapsed_ms": 8,
+      "pred_elapsed_ms": 8,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(Consumption)",
+        "tables": [
+          "yearmonth"
+        ],
+        "join_path": [],
+        "filters": [
+          "CustomerID = 6",
+          "Date >= '201308'",
+          "Date <= '201311'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6895,
+        "output_tokens": 188,
+        "est_cost_usd": 0.001147,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1446,
+            "output_tokens": 101,
+            "est_cost_usd": 0.000277
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5449,
+            "output_tokens": 87,
+            "est_cost_usd": 0.00087
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1484,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "How many more \"discount\" gas stations does the Czech Republic have compared to Slovakia?",
+      "evidence": "Czech Republic can be represented as the Country value in gasstations table is 'CZE'; Slovakia can be represented as the Country value in the gasstations table is 'SVK';  Computation of more \"discount\" gas stations= Total no. of discount gas stations in Czech Republic - Total no. of discount gas stations in Slovakia",
+      "gold_sql": "SELECT SUM(IIF(Country = 'CZE', 1, 0)) - SUM(IIF(Country = 'SVK', 1, 0)) FROM gasstations WHERE Segment = 'Discount'",
+      "pred_sql": "SELECT (SELECT COUNT(*) FROM gasstations WHERE Country = 'CZE' AND Segment = 'Discount') - (SELECT COUNT(*) FROM gasstations WHERE Country = 'SVK' AND Segment = 'Discount') AS discount_difference",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1811,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Total no. of discount gas stations in Czech Republic - Total no. of discount gas stations in Slovakia",
+        "tables": [
+          "gasstations"
+        ],
+        "join_path": [],
+        "filters": [
+          "Country = 'CZE'",
+          "Segment = 'Discount'",
+          "Country = 'SVK'",
+          "Segment = 'Discount'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 8575,
+        "output_tokens": 204,
+        "est_cost_usd": 0.001409,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1461,
+            "output_tokens": 123,
+            "est_cost_usd": 0.000293
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5487,
+            "output_tokens": 80,
+            "est_cost_usd": 0.000871
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 1627,
+            "output_tokens": 1,
+            "est_cost_usd": 0.000245
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1486,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "Is it true that more SMEs pay in Czech koruna than in euros? If so, how many more?",
+      "evidence": "Amount of more SMEs = Total of SMEs pay using Currency CZK - Total of SMEs pay using Currency EUR",
+      "gold_sql": "SELECT SUM(Currency = 'CZK') - SUM(Currency = 'EUR') FROM customers WHERE Segment = 'SME'",
+      "pred_sql": "SELECT (SUM(CASE WHEN t2.Currency = 'CZK' THEN t1.Price ELSE 0 END) - SUM(CASE WHEN t2.Currency = 'EUR' THEN t1.Price ELSE 0 END)) AS Amount_of_more_SMEs FROM transactions_1k AS t1 INNER JOIN customers AS t2 ON t1.CustomerID = t2.CustomerID WHERE t2.Segment = 'SME'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2563,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(CASE WHEN Currency = 'CZK' THEN Price ELSE 0 END), SUM(CASE WHEN Currency = 'EUR' THEN Price ELSE 0 END))",
+        "tables": [
+          "customers",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "Segment = 'SME'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 12071,
+        "output_tokens": 769,
+        "est_cost_usd": 0.002272,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1420,
+            "output_tokens": 136,
+            "est_cost_usd": 0.000295
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5461,
+            "output_tokens": 179,
+            "est_cost_usd": 0.000927
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 1682,
+            "output_tokens": 1,
+            "est_cost_usd": 0.000253
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 3508,
+            "output_tokens": 453,
+            "est_cost_usd": 0.000798
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1493,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "In February 2012, what percentage of customers consumed more than 528.3?",
+      "evidence": "February 2012 refers to '201202' in yearmonth.date; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
+      "gold_sql": "SELECT CAST(SUM(IIF(Consumption > 528.3, 1, 0)) AS FLOAT) * 100 / COUNT(CustomerID) FROM yearmonth WHERE Date = '201202'",
+      "pred_sql": "SELECT CAST(COUNT(CASE WHEN t2.consumption > 528.3 THEN 1 END) AS REAL) * 100 / COUNT(*) FROM yearmonth AS t2 WHERE t2.date = '201202'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1991,
+      "gold_elapsed_ms": 20,
+      "pred_elapsed_ms": 21,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(CASE WHEN Consumption > 528.3 THEN 1 END), COUNT(*)) * 100",
+        "tables": [
+          "yearmonth"
+        ],
+        "join_path": [],
+        "filters": [
+          "Date = '201202'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6896,
+        "output_tokens": 213,
+        "est_cost_usd": 0.001162,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1444,
+            "output_tokens": 108,
+            "est_cost_usd": 0.000281
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5452,
+            "output_tokens": 105,
+            "est_cost_usd": 0.000881
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1498,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What is the highest monthly consumption in the year 2012?",
+      "evidence": "The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
+      "gold_sql": "SELECT SUM(Consumption) FROM yearmonth WHERE SUBSTR(Date, 1, 4) = '2012' GROUP BY SUBSTR(Date, 5, 2) ORDER BY SUM(Consumption) DESC LIMIT 1",
+      "pred_sql": "SELECT MAX(t2.consumption) FROM yearmonth AS t2 WHERE SUBSTRING(t2.date, 1, 4) = '2012'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1166,
+      "gold_elapsed_ms": 98,
+      "pred_elapsed_ms": 43,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "MAX(Consumption)",
+        "tables": [
+          "yearmonth"
+        ],
+        "join_path": [],
+        "filters": [
+          "Date LIKE '2012%'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6833,
+        "output_tokens": 154,
+        "est_cost_usd": 0.001117,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1423,
+            "output_tokens": 87,
+            "est_cost_usd": 0.000266
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5410,
+            "output_tokens": 67,
+            "est_cost_usd": 0.000852
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1500,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "Please list the product description of the products consumed in September, 2013.",
+      "evidence": "September 2013 refers to 201309; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
+      "gold_sql": "SELECT T3.Description FROM transactions_1k AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID INNER JOIN products AS T3 ON T1.ProductID = T3.ProductID WHERE T2.Date = '201309'",
+      "pred_sql": "SELECT DISTINCT p.Description FROM products AS p INNER JOIN transactions_1k AS t ON p.ProductID = t.ProductID WHERE SUBSTRING(t.Date, 1, 6) = '201309'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 976,
+      "pred_row_count": 0,
+      "gen_ms": 1357,
+      "gold_elapsed_ms": 6,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "products.Description",
+        "tables": [
+          "products",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.ProductID = products.ProductID"
+        ],
+        "filters": [
+          "transactions_1k.Date LIKE '201309%'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 10392,
+        "output_tokens": 794,
+        "est_cost_usd": 0.002035,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1437,
+            "output_tokens": 105,
+            "est_cost_usd": 0.000279
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5445,
+            "output_tokens": 89,
+            "est_cost_usd": 0.00087
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 3510,
+            "output_tokens": 600,
+            "est_cost_usd": 0.000886
+          }
+        }
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1505,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "Among the customers who paid in euro, how many of them have a monthly consumption of over 1000?",
+      "evidence": "Pays in euro = Currency = 'EUR'.",
+      "gold_sql": "SELECT COUNT(*) FROM yearmonth AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T2.Currency = 'EUR' AND T1.Consumption > 1000.00",
+      "pred_sql": "SELECT COUNT(DISTINCT t1.CustomerID) FROM customers AS t1 INNER JOIN yearmonth AS t2 ON t1.CustomerID = t2.CustomerID WHERE t1.Currency = 'EUR' AND t2.Consumption > 1000",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1603,
+      "gold_elapsed_ms": 110,
+      "pred_elapsed_ms": 130,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT customers.CustomerID)",
+        "tables": [
+          "customers",
+          "yearmonth"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'EUR'",
+          "yearmonth.Consumption > 1000"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6836,
+        "output_tokens": 225,
+        "est_cost_usd": 0.00116,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1408,
+            "output_tokens": 112,
+            "est_cost_usd": 0.000278
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5428,
+            "output_tokens": 113,
+            "est_cost_usd": 0.000882
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1507,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "Please list the disparate time of the transactions taken place in the gas stations from chain no. 11.",
+      "evidence": "",
+      "gold_sql": "SELECT DISTINCT T1.Time FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T2.ChainID = 11",
+      "pred_sql": "SELECT DISTINCT t1.time FROM transactions_1k AS t1 INNER JOIN gasstations AS t2 ON t1.gasstationid = t2.gasstationid WHERE t2.chainid = 11",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 1265,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Time",
+        "tables": [
+          "transactions_1k",
+          "gasstations"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "gasstations.ChainID = 11"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6792,
+        "output_tokens": 208,
+        "est_cost_usd": 0.001144,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1390,
+            "output_tokens": 108,
+            "est_cost_usd": 0.000273
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5402,
+            "output_tokens": 100,
+            "est_cost_usd": 0.00087
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1514,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What kind of currency did the customer paid at 16:25:00 in 2012/8/24?",
+      "evidence": "'2012/8/24' can be represented by '2012-08-24'; ",
+      "gold_sql": "SELECT DISTINCT T3.Currency FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID INNER JOIN customers AS T3 ON T1.CustomerID = T3.CustomerID WHERE T1.Date = '2012-08-24' AND T1.Time = '16:25:00'",
+      "pred_sql": "SELECT t1.Currency FROM customers AS t1 INNER JOIN transactions_1k AS t2 ON t1.CustomerID = t2.CustomerID WHERE t2.Time = '16:25:00' AND t2.Date = '2012-08-24'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 3,
+      "gen_ms": 1423,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Currency",
+        "tables": [
+          "customers",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "transactions_1k.Time = '16:25:00'",
+          "transactions_1k.Date = '2012-08-24'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6866,
+        "output_tokens": 243,
+        "est_cost_usd": 0.001176,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1420,
+            "output_tokens": 122,
+            "est_cost_usd": 0.000286
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5446,
+            "output_tokens": 121,
+            "est_cost_usd": 0.00089
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1515,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What segment did the customer have at 2012/8/23 21:20:00?",
+      "evidence": "'2012/8/23' can be represented by '2012-08-23'",
+      "gold_sql": "SELECT T2.Segment FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.date = '2012-08-23' AND T1.time = '21:20:00'",
+      "pred_sql": "SELECT t1.segment FROM customers AS t1 INNER JOIN transactions_1k AS t2 ON t1.customerid = t2.customerid WHERE t2.date = '2012-08-23' AND t2.time = '21:20:00'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1531,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Segment",
+        "tables": [
+          "customers",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "transactions_1k.Date = '2012-08-23'",
+          "transactions_1k.Time = '21:20:00'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6858,
+        "output_tokens": 243,
+        "est_cost_usd": 0.001174,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1416,
+            "output_tokens": 122,
+            "est_cost_usd": 0.000286
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5442,
+            "output_tokens": 121,
+            "est_cost_usd": 0.000889
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1524,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What's the nationality of the customer who spent 548.4 in 2012/8/24?",
+      "evidence": "'2012/8/24' can be represented by '2012-08-24'",
+      "gold_sql": "SELECT T2.Country FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.Date = '2012-08-24' AND T1.Price  = 548.4",
+      "pred_sql": "SELECT t3.Country FROM gasstations AS t3 INNER JOIN transactions_1k AS t2 ON t3.GasStationID = t2.GasStationID INNER JOIN customers AS t1 ON t1.CustomerID = t2.CustomerID WHERE t2.Price = 548.4 AND t2.Date = '2012-08-24'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1507,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Country",
+        "tables": [
+          "customers",
+          "transactions_1k",
+          "gasstations"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID",
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "transactions_1k.Price = 548.4",
+          "transactions_1k.Date = '2012-08-24'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6879,
+        "output_tokens": 278,
+        "est_cost_usd": 0.001199,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1416,
+            "output_tokens": 141,
+            "est_cost_usd": 0.000297
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5463,
+            "output_tokens": 137,
+            "est_cost_usd": 0.000902
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1525,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What is the percentage of the customers who used EUR in 2012/8/25?",
+      "evidence": "'2012/8/25' can be represented by '2012-08-25'",
+      "gold_sql": "SELECT CAST(SUM(IIF(T2.Currency = 'EUR', 1, 0)) AS FLOAT) * 100 / COUNT(T1.CustomerID) FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Date = '2012-08-25'",
+      "pred_sql": "SELECT CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM customers) FROM transactions_1k AS t1 INNER JOIN customers AS t2 ON t1.customerid = t2.customerid WHERE t2.currency = 'EUR' AND t1.date = '2012-08-25'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1550,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(*), (SELECT COUNT(*) FROM customers)) * 100",
+        "tables": [
+          "customers",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'EUR'",
+          "transactions_1k.Date = '2012-08-25'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6866,
+        "output_tokens": 274,
+        "est_cost_usd": 0.001194,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1414,
+            "output_tokens": 131,
+            "est_cost_usd": 0.000291
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5452,
+            "output_tokens": 143,
+            "est_cost_usd": 0.000904
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1528,
+      "db_id": "debit_card_specializing",
+      "difficulty": "simple",
+      "question": "What is the percentage of \"premium\" against the overall segment in Country = \"SVK\"?",
+      "evidence": "",
+      "gold_sql": "SELECT CAST(SUM(IIF(Country = 'SVK' AND Segment = 'Premium', 1, 0)) AS FLOAT) * 100 / SUM(IIF(Country = 'SVK', 1, 0)) FROM gasstations",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN t1.Segment = 'Premium' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(*) FROM gasstations AS t1 INNER JOIN transactions_1k AS t2 ON t1.GasStationID = t2.GasStationID WHERE t1.Country = 'SVK'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1716,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(CASE WHEN gasstations.Segment = 'Premium' THEN 1 ELSE 0 END), COUNT(*)) * 100",
+        "tables": [
+          "gasstations",
+          "transactions_1k"
+        ],
+        "join_path": [
+          "transactions_1k.GasStationID = gasstations.GasStationID"
+        ],
+        "filters": [
+          "gasstations.Country = 'SVK'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6821,
+        "output_tokens": 292,
+        "est_cost_usd": 0.001198,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1389,
+            "output_tokens": 137,
+            "est_cost_usd": 0.000291
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5432,
+            "output_tokens": 155,
+            "est_cost_usd": 0.000908
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1312,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What's Angela Sanders's major?",
+      "evidence": "Angela Sanders is the full name; full name refers to first_name, last_name; major refers to major_name.",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Angela' AND T1.last_name = 'Sanders'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.first_name = 'Angela' AND t1.last_name = 'Sanders'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1337,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.first_name = 'Angela'",
+          "member.last_name = 'Sanders'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8063,
+        "output_tokens": 214,
+        "est_cost_usd": 0.001338,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2026,
+            "output_tokens": 107,
+            "est_cost_usd": 0.000368
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6037,
+            "output_tokens": 107,
+            "est_cost_usd": 0.00097
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1331,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the amount of the funds that the Vice President received?",
+      "evidence": "'Vice President' is a position of Student Club; funds received refers to amount.",
+      "gold_sql": "SELECT T2.amount FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.position = 'Vice President'",
+      "pred_sql": "SELECT SUM(t1.amount) FROM income AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.position = 'Vice President'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1549,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(amount)",
+        "tables": [
+          "income",
+          "member"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.position = 'Vice President'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8056,
+        "output_tokens": 184,
+        "est_cost_usd": 0.001319,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2026,
+            "output_tokens": 98,
+            "est_cost_usd": 0.000363
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6030,
+            "output_tokens": 86,
+            "est_cost_usd": 0.000956
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1334,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List the full name of the Student_Club members that grew up in Illinois state.",
+      "evidence": "full name of member refers to first_name, last_name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN zip_code AS T2 ON T1.zip = T2.zip_code WHERE T2.state = 'Illinois'",
+      "pred_sql": "SELECT DISTINCT t1.first_name, t1.last_name FROM member AS t1 INNER JOIN zip_code AS t2 ON t1.zip = t2.zip_code WHERE t2.state = 'Illinois'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 1265,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "CONCAT(member.first_name, ' ', member.last_name)",
+        "tables": [
+          "member",
+          "zip_code"
+        ],
+        "join_path": [
+          "member.zip = zip_code.zip_code"
+        ],
+        "filters": [
+          "zip_code.state = 'Illinois'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8060,
+        "output_tokens": 192,
+        "est_cost_usd": 0.001324,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2026,
+            "output_tokens": 106,
+            "est_cost_usd": 0.000367
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6034,
+            "output_tokens": 86,
+            "est_cost_usd": 0.000957
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1344,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was the notes of the fundraising on 2019/9/14?",
+      "evidence": "fundraising on 2019/9/14 refers to source = 'Fundraising' where date_received = '2019-09-14'",
+      "gold_sql": "SELECT notes FROM income WHERE source = 'Fundraising' AND date_received = '2019-09-14'",
+      "pred_sql": "SELECT t1.notes FROM income AS t1 WHERE t1.source = 'Fundraising' AND t1.date_received = '2019-09-14'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1233,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "notes",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "source = 'Fundraising'",
+          "date_received = '2019-09-14'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8079,
+        "output_tokens": 172,
+        "est_cost_usd": 0.001315,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2043,
+            "output_tokens": 95,
+            "est_cost_usd": 0.000363
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6036,
+            "output_tokens": 77,
+            "est_cost_usd": 0.000952
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1346,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Tell the phone number of \"Carlo Jacobs\".",
+      "evidence": "Carlo Jacobs is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT phone FROM member WHERE first_name = 'Carlo' AND last_name = 'Jacobs'",
+      "pred_sql": "SELECT t1.phone FROM member AS t1 WHERE t1.first_name = 'Carlo' AND t1.last_name = 'Jacobs'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.5,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1319,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "phone",
+        "tables": [
+          "member"
+        ],
+        "join_path": [],
+        "filters": [
+          "first_name = 'Carlo'",
+          "last_name = 'Jacobs'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8040,
+        "output_tokens": 163,
+        "est_cost_usd": 0.001304,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2025,
+            "output_tokens": 92,
+            "est_cost_usd": 0.000359
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6015,
+            "output_tokens": 71,
+            "est_cost_usd": 0.000945
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1351,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What was Brent Thomason's major?",
+      "evidence": "Brent Thomason is the full name; full name refers to first_name, last_name; major refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.first_name = 'Brent' AND T1.last_name = 'Thomason'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.first_name = 'Brent' AND t1.last_name = 'Thomason'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1401,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.first_name = 'Brent'",
+          "member.last_name = 'Thomason'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8073,
+        "output_tokens": 220,
+        "est_cost_usd": 0.001343,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2030,
+            "output_tokens": 109,
+            "est_cost_usd": 0.00037
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6043,
+            "output_tokens": 111,
+            "est_cost_usd": 0.000973
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1356,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which department was the President of the club in?",
+      "evidence": "'President' is a position of Student Club",
+      "gold_sql": "SELECT T2.department FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.position = 'President'",
+      "pred_sql": "SELECT t2.department FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.position = 'President'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1282,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "department",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.position = 'President'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8030,
+        "output_tokens": 178,
+        "est_cost_usd": 0.001311,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2016,
+            "output_tokens": 95,
+            "est_cost_usd": 0.000359
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6014,
+            "output_tokens": 83,
+            "est_cost_usd": 0.000952
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1357,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State the date Connor Hilton paid his/her dues.",
+      "evidence": "Connor Hilton is the full name; full name refers to first_name, last_name; date the dues was paid refers to date_received where source = 'Dues';",
+      "gold_sql": "SELECT T2.date_received FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Connor' AND T1.last_name = 'Hilton' AND T2.source = 'Dues'",
+      "pred_sql": "SELECT t1.date_received FROM income AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.first_name = 'Connor' AND t2.last_name = 'Hilton' AND t1.source = 'Dues'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 1475,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "date_received",
+        "tables": [
+          "income",
+          "member"
+        ],
+        "join_path": [
+          "income.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.first_name = 'Connor'",
+          "member.last_name = 'Hilton'",
+          "income.source = 'Dues'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8101,
+        "output_tokens": 239,
+        "est_cost_usd": 0.001359,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2041,
+            "output_tokens": 114,
+            "est_cost_usd": 0.000375
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6060,
+            "output_tokens": 125,
+            "est_cost_usd": 0.000984
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1361,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total cost of the pizzas for all the events?",
+      "evidence": "total cost of the pizzas refers to SUM(cost) where expense_description = 'Pizza'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_description = 'Pizza'",
+      "pred_sql": "SELECT SUM(cost) FROM expense WHERE expense_description = 'Pizza'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1026,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": [],
+        "filters": [
+          "expense_description = 'Pizza'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8039,
+        "output_tokens": 122,
+        "est_cost_usd": 0.001279,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2027,
+            "output_tokens": 85,
+            "est_cost_usd": 0.000355
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6012,
+            "output_tokens": 37,
+            "est_cost_usd": 0.000924
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1362,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many cities are there in Orange County, Virginia?",
+      "evidence": "Orange County is the county name, Virginia is the state name",
+      "gold_sql": "SELECT COUNT(city) FROM zip_code WHERE county = 'Orange County' AND state = 'Virginia'",
+      "pred_sql": "SELECT COUNT(DISTINCT city) FROM zip_code WHERE county = 'Orange County' AND state = 'Virginia'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1165,
+      "gold_elapsed_ms": 12,
+      "pred_elapsed_ms": 11,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT city)",
+        "tables": [
+          "zip_code"
+        ],
+        "join_path": [],
+        "filters": [
+          "county = 'Orange County'",
+          "state = 'Virginia'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8038,
+        "output_tokens": 152,
+        "est_cost_usd": 0.001297,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2021,
+            "output_tokens": 95,
+            "est_cost_usd": 0.00036
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6017,
+            "output_tokens": 57,
+            "est_cost_usd": 0.000937
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1368,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What does the person with the phone number \"809-555-3360\" major in?",
+      "evidence": "major in refers to major_name",
+      "gold_sql": "SELECT T2.major_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T1.phone = '809-555-3360'",
+      "pred_sql": "SELECT t2.major_name FROM member AS t1 INNER JOIN major AS t2 ON t1.link_to_major = t2.major_id WHERE t1.phone = '809-555-3360'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1281,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "major.major_name",
+        "tables": [
+          "member",
+          "major"
+        ],
+        "join_path": [
+          "member.link_to_major = major.major_id"
+        ],
+        "filters": [
+          "member.phone = '809-555-3360'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8051,
+        "output_tokens": 197,
+        "est_cost_usd": 0.001326,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2023,
+            "output_tokens": 102,
+            "est_cost_usd": 0.000365
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6028,
+            "output_tokens": 95,
+            "est_cost_usd": 0.000961
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1371,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members attended the \"Women's Soccer\" event?",
+      "evidence": "'Women's Soccer' is the event name;",
+      "gold_sql": "SELECT COUNT(T2.link_to_member) FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'Women''s Soccer'",
+      "pred_sql": "SELECT COUNT(*) FROM attendance AS t1 INNER JOIN event AS t2 ON t1.link_to_event = t2.event_id WHERE t2.event_name = 'Women''s Soccer'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1227,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "attendance",
+          "event"
+        ],
+        "join_path": [
+          "attendance.link_to_event = event.event_id"
+        ],
+        "filters": [
+          "event.event_name = 'Women's Soccer'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8037,
+        "output_tokens": 192,
+        "est_cost_usd": 0.001321,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2016,
+            "output_tokens": 99,
+            "est_cost_usd": 0.000362
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6021,
+            "output_tokens": 93,
+            "est_cost_usd": 0.000959
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1378,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the highest amount of budget spend for an event?",
+      "evidence": "highest amount of budget spend refers to MAX(spent)",
+      "gold_sql": "SELECT MAX(spent) FROM budget",
+      "pred_sql": "SELECT MAX(spent) FROM budget",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1121,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "MAX(spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8016,
+        "output_tokens": 111,
+        "est_cost_usd": 0.001269,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2020,
+            "output_tokens": 79,
+            "est_cost_usd": 0.00035
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5996,
+            "output_tokens": 32,
+            "est_cost_usd": 0.000919
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1380,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "What is the total amount of money spent for food?",
+      "evidence": "total amount of money spent refers to SUM(spent); spent for food refers to category = 'Food'",
+      "gold_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "pred_sql": "SELECT SUM(spent) FROM budget WHERE category = 'Food'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 914,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(spent)",
+        "tables": [
+          "budget"
+        ],
+        "join_path": [],
+        "filters": [
+          "category = 'Food'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8043,
+        "output_tokens": 122,
+        "est_cost_usd": 0.00128,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2029,
+            "output_tokens": 85,
+            "est_cost_usd": 0.000355
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6014,
+            "output_tokens": 37,
+            "est_cost_usd": 0.000924
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1389,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Which event has the lowest cost?",
+      "evidence": "event refers to event_name; lowest cost means MIN(cost)",
+      "gold_sql": "SELECT T1.event_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget ORDER BY T3.cost LIMIT 1",
+      "pred_sql": "SELECT t3.event_name FROM expense AS t1 INNER JOIN budget AS t2 ON t1.link_to_budget = t2.budget_id INNER JOIN event AS t3 ON t2.link_to_event = t3.event_id GROUP BY t3.event_name ORDER BY MIN(t1.cost) ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1472,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.event_name",
+        "tables": [
+          "event",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_budget = budget.budget_id",
+          "budget.link_to_event = event.event_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "MIN(cost)",
+        "aggregation": "MIN",
+        "group_by": "event.event_name",
+        "having": null,
+        "order_by": "cost ASC",
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8063,
+        "output_tokens": 249,
+        "est_cost_usd": 0.001359,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2016,
+            "output_tokens": 109,
+            "est_cost_usd": 0.000368
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6047,
+            "output_tokens": 140,
+            "est_cost_usd": 0.000991
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1392,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Indicate the top source of funds received in September 2019 based on their amount.",
+      "evidence": "top source funds refers to MAX(source); September 2019 means date_received BETWEEN '2019-09-01' and '2019-09-30'",
+      "gold_sql": "SELECT source FROM income WHERE date_received BETWEEN '2019-09-01' and '2019-09-30' ORDER BY source DESC LIMIT 1",
+      "pred_sql": "SELECT MAX(source) FROM income WHERE date_received BETWEEN '2019-09-01' AND '2019-09-30'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1115,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "source",
+        "tables": [
+          "income"
+        ],
+        "join_path": [],
+        "filters": [
+          "date_received BETWEEN '2019-09-01' AND '2019-09-30'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "MAX(source)",
+        "aggregation": "null",
+        "group_by": null,
+        "having": null,
+        "order_by": "amount DESC",
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8108,
+        "output_tokens": 170,
+        "est_cost_usd": 0.001318,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2048,
+            "output_tokens": 102,
+            "est_cost_usd": 0.000368
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6060,
+            "output_tokens": 68,
+            "est_cost_usd": 0.00095
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1394,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "How many members of the Student_Club have major in 'Physics Teaching'?",
+      "evidence": "'Physics Teaching' is the major_name;",
+      "gold_sql": "SELECT COUNT(T2.member_id) FROM major AS T1 INNER JOIN member AS T2 ON T1.major_id = T2.link_to_major WHERE T1.major_name = 'Physics Teaching'",
+      "pred_sql": "SELECT COUNT(*) FROM member JOIN major ON member.link_to_major = major.major_id WHERE major.major_name = 'Physics Teaching'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1703,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "member"
+        ],
+        "join_path": [],
+        "filters": [
+          "major_name = 'Physics Teaching'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 14213,
+        "output_tokens": 290,
+        "est_cost_usd": 0.002306,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2021,
+            "output_tokens": 86,
+            "est_cost_usd": 0.000355
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6007,
+            "output_tokens": 39,
+            "est_cost_usd": 0.000924
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2148,
+            "output_tokens": 1,
+            "est_cost_usd": 0.000323
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4037,
+            "output_tokens": 164,
+            "est_cost_usd": 0.000704
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1409,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "Mention the total expense used on 8/20/2019.",
+      "evidence": "total expense refers SUM(cost) where expense_date = '2019-08-20'",
+      "gold_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "pred_sql": "SELECT SUM(cost) FROM expense WHERE expense_date = '2019-08-20'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 983,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUM(cost)",
+        "tables": [
+          "expense"
+        ],
+        "join_path": [],
+        "filters": [
+          "expense_date = '2019-08-20'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8048,
+        "output_tokens": 137,
+        "est_cost_usd": 0.001289,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2029,
+            "output_tokens": 90,
+            "est_cost_usd": 0.000358
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6019,
+            "output_tokens": 47,
+            "est_cost_usd": 0.000931
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1410,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "List out the full name and total cost that member id \"rec4BLdZHS2Blfp4v\" incurred?",
+      "evidence": "full name refers to first_name, last name",
+      "gold_sql": "SELECT T1.first_name, T1.last_name, SUM(T2.cost) FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.member_id = 'rec4BLdZHS2Blfp4v'",
+      "pred_sql": "SELECT t2.first_name, t2.last_name, SUM(t1.cost) FROM expense AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.member_id = 'rec4BLdZHS2Blfp4v'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1457,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "full_name, SUM(cost)",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.member_id = 'rec4BLdZHS2Blfp4v'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "SUM",
+        "group_by": "full_name",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8089,
+        "output_tokens": 240,
+        "est_cost_usd": 0.001357,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2033,
+            "output_tokens": 113,
+            "est_cost_usd": 0.000373
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6056,
+            "output_tokens": 127,
+            "est_cost_usd": 0.000985
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1411,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State what kind of expenses that Sacha Harrison incurred?",
+      "evidence": "kind of expenses refers to expense_description; Sacha Harrison is the full name; full name refers to first_name, last_name;",
+      "gold_sql": "SELECT T2.expense_description FROM member AS T1 INNER JOIN expense AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Sacha' AND T1.last_name = 'Harrison'",
+      "pred_sql": "SELECT t1.expense_description FROM expense AS t1 INNER JOIN member AS t2 ON t1.link_to_member = t2.member_id WHERE t2.first_name = 'Sacha' AND t2.last_name = 'Harrison'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 12,
+      "pred_row_count": 12,
+      "gen_ms": 1306,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "expense_description",
+        "tables": [
+          "expense",
+          "member"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "member.first_name = 'Sacha'",
+          "member.last_name = 'Harrison'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8079,
+        "output_tokens": 219,
+        "est_cost_usd": 0.001343,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2034,
+            "output_tokens": 107,
+            "est_cost_usd": 0.000369
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6045,
+            "output_tokens": 112,
+            "est_cost_usd": 0.000974
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1422,
+      "db_id": "student_club",
+      "difficulty": "simple",
+      "question": "State the category of events were held at MU 215.",
+      "evidence": "'MU 215' is the location of event; ",
+      "gold_sql": "SELECT DISTINCT T2.category FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.location = 'MU 215'",
+      "pred_sql": "SELECT DISTINCT t1.type FROM event AS t1 WHERE t1.location = 'MU 215'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 3,
+      "gen_ms": 1410,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "event.type",
+        "tables": [
+          "event"
+        ],
+        "join_path": [],
+        "filters": [
+          "location = 'MU 215'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8020,
+        "output_tokens": 131,
+        "est_cost_usd": 0.001282,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2019,
+            "output_tokens": 85,
+            "est_cost_usd": 0.000354
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6001,
+            "output_tokens": 46,
+            "est_cost_usd": 0.000928
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1153,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "What is the disease patient '30609' diagnosed with. List all the date of laboratory tests done for this patient.",
+      "evidence": "'30609' is the Patient ID; disease means Diagnosis",
+      "gold_sql": "SELECT T1.Diagnosis, T2.Date FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID = 30609",
+      "pred_sql": "SELECT DISTINCT p.Diagnosis, l.Date FROM Patient AS p INNER JOIN Laboratory AS l ON p.ID = l.ID WHERE p.ID = 30609",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 60,
+      "pred_row_count": 60,
+      "gen_ms": 1606,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Laboratory.Date",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Patient.ID = Laboratory.ID"
+        ],
+        "filters": [
+          "Patient.ID = '30609'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7779,
+        "output_tokens": 172,
+        "est_cost_usd": 0.00127,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1891,
+            "output_tokens": 96,
+            "est_cost_usd": 0.000341
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5888,
+            "output_tokens": 76,
+            "est_cost_usd": 0.000929
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1155,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "List the patient ID, sex and birthday of patient with LDH beyond normal range.",
+      "evidence": "LDH beyond normal range refers to LDH > '500';",
+      "gold_sql": "SELECT DISTINCT T1.ID, T1.SEX, T1.Birthday FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.LDH > 500",
+      "pred_sql": "SELECT DISTINCT t1.ID, t1.SEX, t1.Birthday FROM Patient AS t1 INNER JOIN Laboratory AS t2 ON t1.ID = t2.ID WHERE t2.LDH > 500",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 103,
+      "pred_row_count": 103,
+      "gen_ms": 1238,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID, Patient.SEX, Patient.Birthday",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.LDH > 500"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7777,
+        "output_tokens": 202,
+        "est_cost_usd": 0.001288,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1886,
+            "output_tokens": 104,
+            "est_cost_usd": 0.000345
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5891,
+            "output_tokens": 98,
+            "est_cost_usd": 0.000942
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1157,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "For patients with severe degree of thrombosis, list their ID, sex and disease the patient is diagnosed with.",
+      "evidence": "severe degree of thrombosis refers to thrombosis = 2; disease refers to diagnosis;",
+      "gold_sql": "SELECT DISTINCT T1.ID, T1.SEX, T1.Diagnosis FROM Patient AS T1 INNER JOIN Examination AS T2 ON T1.ID = T2.ID WHERE T2.Thrombosis = 2",
+      "pred_sql": "SELECT DISTINCT t1.ID, t1.SEX, t1.Diagnosis FROM Patient AS t1 INNER JOIN Examination AS t2 ON t1.ID = t2.ID WHERE t2.Thrombosis = 2",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 1334,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID, Patient.SEX, Patient.Diagnosis",
+        "tables": [
+          "Patient",
+          "Examination"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Examination.Thrombosis = 2"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7799,
+        "output_tokens": 208,
+        "est_cost_usd": 0.001295,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1896,
+            "output_tokens": 106,
+            "est_cost_usd": 0.000348
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5903,
+            "output_tokens": 102,
+            "est_cost_usd": 0.000947
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1166,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "What are the symptoms observed by the youngest patient to ever did a medical examination? Identify their diagnosis.",
+      "evidence": "The larger the birthday value, the younger the person is, and vice versa; symptoms observed refers to the symptoms is not NULL",
+      "gold_sql": "SELECT T2.Symptoms, T1.Diagnosis FROM Patient AS T1 INNER JOIN Examination AS T2 ON T1.ID = T2.ID WHERE T2.Symptoms IS NOT NULL ORDER BY T1.Birthday DESC LIMIT 1",
+      "pred_sql": "SELECT t1.\"Symptoms\", t2.\"Diagnosis\" FROM Examination AS t1 INNER JOIN Patient AS t2 ON t1.ID = t2.ID WHERE t2.Birthday = (SELECT MAX(Birthday) FROM Patient) AND NOT t1.\"Symptoms\" IS NULL",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 1538,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Symptoms, Diagnosis",
+        "tables": [
+          "Examination",
+          "Patient"
+        ],
+        "join_path": [
+          "Examination.ID = Patient.ID"
+        ],
+        "filters": [
+          "Birthday IS NOT NULL"
+        ],
+        "evidence_predicates": [
+          "Birthday = (SELECT MAX(Birthday) FROM Patient)"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 11801,
+        "output_tokens": 581,
+        "est_cost_usd": 0.002119,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1900,
+            "output_tokens": 106,
+            "est_cost_usd": 0.000349
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5914,
+            "output_tokens": 123,
+            "est_cost_usd": 0.000961
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 3987,
+            "output_tokens": 352,
+            "est_cost_usd": 0.000809
+          }
+        }
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 1198,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "How many female patients were given an APS diagnosis?",
+      "evidence": "female refers to SEX = 'F'; APS diagnosis refers to Diagnosis='APS'",
+      "gold_sql": "SELECT COUNT(ID) FROM Patient WHERE SEX = 'F' AND Diagnosis = 'APS'",
+      "pred_sql": "SELECT COUNT(*) FROM Patient WHERE SEX = 'F' AND Diagnosis = 'APS'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 990,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(*)",
+        "tables": [
+          "Patient"
+        ],
+        "join_path": [],
+        "filters": [
+          "SEX = 'F'",
+          "Diagnosis = 'APS'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7753,
+        "output_tokens": 137,
+        "est_cost_usd": 0.001245,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1881,
+            "output_tokens": 90,
+            "est_cost_usd": 0.000336
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5872,
+            "output_tokens": 47,
+            "est_cost_usd": 0.000909
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1220,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "Provide all ID, sex and birthday of patients whose urea nitrogen (UN) just within the borderline of passing?",
+      "evidence": "urea nitrogen (UN) just within the borderline of passing refers to UN = 29; ",
+      "gold_sql": "SELECT DISTINCT T1.ID, T1.SEX, T1.Birthday FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.UN = 29",
+      "pred_sql": "SELECT t1.ID, t1.SEX, t1.Birthday FROM Patient AS t1 INNER JOIN Laboratory AS t2 ON t1.ID = t2.ID WHERE t2.UN = 29",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 20,
+      "pred_row_count": 44,
+      "gen_ms": 1247,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID, Patient.SEX, Patient.Birthday",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.UN = 29"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7798,
+        "output_tokens": 199,
+        "est_cost_usd": 0.001289,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1897,
+            "output_tokens": 103,
+            "est_cost_usd": 0.000346
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5901,
+            "output_tokens": 96,
+            "est_cost_usd": 0.000943
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1251,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "simple",
+      "question": "How many patients with an Ig G higher than normal?",
+      "evidence": "Ig G higher than normal refers to IGG >= 2000; Should consider DISTINCT in the final result;",
+      "gold_sql": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T3.ID = T2.ID WHERE T2.IGG >= 2000",
+      "pred_sql": "SELECT COUNT(DISTINCT Patient.ID) FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE Laboratory.IGG >= 2000",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1067,
+      "gold_elapsed_ms": 19,
+      "pred_elapsed_ms": 8,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Laboratory.IGG >= 2000"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7783,
+        "output_tokens": 173,
+        "est_cost_usd": 0.001271,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1888,
+            "output_tokens": 103,
+            "est_cost_usd": 0.000345
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5895,
+            "output_tokens": 70,
+            "est_cost_usd": 0.000926
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1035,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Give the team_fifa_api_id of teams with more than 50 but less than 60 build-up play speed.",
+      "evidence": "teams with more than 50 but less than 60 build-up play speed refers to buildUpPlaySpeed >50 AND buildUpPlaySpeed <60; ",
+      "gold_sql": "SELECT DISTINCT team_fifa_api_id FROM Team_Attributes WHERE buildUpPlaySpeed > 50 AND buildUpPlaySpeed < 60",
+      "pred_sql": "SELECT t1.team_fifa_api_id FROM Team_Attributes AS t1 WHERE t1.buildUpPlaySpeed > 50 AND t1.buildUpPlaySpeed < 60",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 161,
+      "pred_row_count": 356,
+      "gen_ms": 1411,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "team_fifa_api_id",
+        "tables": [
+          "Team_Attributes"
+        ],
+        "join_path": [],
+        "filters": [
+          "buildUpPlaySpeed > 50",
+          "buildUpPlaySpeed < 60"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11238,
+        "output_tokens": 184,
+        "est_cost_usd": 0.001796,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3620,
+            "output_tokens": 99,
+            "est_cost_usd": 0.000602
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7618,
+            "output_tokens": 85,
+            "est_cost_usd": 0.001194
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1039,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Find the average number of long-shot done by Ahmed Samir Farag.",
+      "evidence": "average number of long shot = DIVIDE(SUM(long_shots), COUNT(player_fifa_api_id));",
+      "gold_sql": "SELECT CAST(SUM(t2.long_shots) AS REAL) / COUNT(t2.`date`) FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE t1.player_name = 'Ahmed Samir Farag'",
+      "pred_sql": "SELECT (CAST(SUM(pa.long_shots) AS REAL) / COUNT(pa.player_fifa_api_id)) FROM Player AS p INNER JOIN Player_Attributes AS pa ON p.id = pa.player_api_id WHERE p.player_name = 'Ahmed Samir Farag'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1660,
+      "gold_elapsed_ms": 126,
+      "pred_elapsed_ms": 85,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "average number of long shot",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "Player.player_name = 'Ahmed Samir Farag'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUM(long_shots), COUNT(player_fifa_api_id))",
+        "aggregation": "null",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11238,
+        "output_tokens": 237,
+        "est_cost_usd": 0.001828,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3602,
+            "output_tokens": 123,
+            "est_cost_usd": 0.000614
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7636,
+            "output_tokens": 114,
+            "est_cost_usd": 0.001214
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1044,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "List the football players with a birthyear of 1970 and a birthmonth of October.",
+      "evidence": "players with a birthyear of 1970 and a birthmonth of October refers to substr(birthday,1,7) AS 'year-month',WHERE year = '1970' AND month = '10';",
+      "gold_sql": "SELECT player_name FROM Player WHERE SUBSTR(birthday, 1, 7) = '1970-10'",
+      "pred_sql": "SELECT player_name FROM Player WHERE SUBSTRING(birthday, 1, 7) = '1970-10'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 4,
+      "pred_row_count": 4,
+      "gen_ms": 1015,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "player_name",
+        "tables": [
+          "Player"
+        ],
+        "join_path": [],
+        "filters": [
+          "substr(birthday,1,7) = '1970-10'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11246,
+        "output_tokens": 152,
+        "est_cost_usd": 0.001778,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3628,
+            "output_tokens": 93,
+            "est_cost_usd": 0.0006
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7618,
+            "output_tokens": 59,
+            "est_cost_usd": 0.001178
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1048,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "What is the overall rating of the football player Gabriel Tamas in year 2011?",
+      "evidence": "in year 2011 refers to strftime('%Y', date) = '2011';",
+      "gold_sql": "SELECT t2.overall_rating FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE t1.player_name = 'Gabriel Tamas' AND strftime('%Y', t2.date) = '2011'",
+      "pred_sql": "SELECT t2.overall_rating FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE t1.player_name = 'Gabriel Tamas' AND STRFTIME('%Y', t2.date) = '2011'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1757,
+      "gold_elapsed_ms": 296,
+      "pred_elapsed_ms": 168,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 2,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Player_Attributes.overall_rating",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "Player.player_name = 'Gabriel Tamas'",
+          "Player_Attributes.date = '2011'"
+        ],
+        "evidence_predicates": [
+          "strftime('%Y', date) = '2011'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11246,
+        "output_tokens": 254,
+        "est_cost_usd": 0.001839,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3603,
+            "output_tokens": 129,
+            "est_cost_usd": 0.000618
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7643,
+            "output_tokens": 125,
+            "est_cost_usd": 0.001221
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1078,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Which player is older, Aaron Lennon or Abdelaziz Barrada?",
+      "evidence": "The larger the birthday value, the younger the person is, and vice versa;",
+      "gold_sql": "SELECT player_name FROM Player WHERE player_name IN ('Aaron Lennon', 'Abdelaziz Barrada') ORDER BY birthday ASC LIMIT 1",
+      "pred_sql": "SELECT CASE WHEN t1.birthday < t2.birthday THEN 'Aaron Lennon' ELSE 'Abdelaziz Barrada' END AS older_player FROM Player AS t1 JOIN Player AS t2 ON t1.player_name = 'Aaron Lennon' AND t2.player_name = 'Abdelaziz Barrada'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1668,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "player_name",
+        "tables": [
+          "Player"
+        ],
+        "join_path": [],
+        "filters": [
+          "player_name = 'Aaron Lennon'",
+          "player_name = 'Abdelaziz Barrada'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11183,
+        "output_tokens": 250,
+        "est_cost_usd": 0.001827,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3594,
+            "output_tokens": 97,
+            "est_cost_usd": 0.000597
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7589,
+            "output_tokens": 153,
+            "est_cost_usd": 0.00123
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1079,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Which player is the tallest?",
+      "evidence": "tallest player refers to MAX(height);",
+      "gold_sql": "SELECT player_name FROM Player ORDER BY height DESC LIMIT 1",
+      "pred_sql": "SELECT player_name FROM Player WHERE height = (SELECT MAX(height) FROM Player)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1093,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "player_name",
+        "tables": [
+          "Player"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "MAX(height)",
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": "height DESC",
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11155,
+        "output_tokens": 125,
+        "est_cost_usd": 0.001748,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3581,
+            "output_tokens": 82,
+            "est_cost_usd": 0.000586
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7574,
+            "output_tokens": 43,
+            "est_cost_usd": 0.001162
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1092,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Give the name of the league had the most matches in the 2008/2009 season?",
+      "evidence": "league that had the most matches in the 2008/2009 season refers to MAX(league_name WHERE season = '2008/2009');",
+      "gold_sql": "SELECT t1.name FROM League AS t1 JOIN Match AS t2 ON t1.id = t2.league_id WHERE t2.season = '2008/2009' GROUP BY t1.name HAVING COUNT(t2.id) = (SELECT MAX(match_count) FROM (SELECT COUNT(t2.id) AS match_count FROM Match AS t2 WHERE t2.season = '2008/2009' GROUP BY t2.league_id))",
+      "pred_sql": "SELECT League.name FROM League INNER JOIN Match ON League.id = Match.league_id WHERE Match.season = '2008/2009' GROUP BY League.id ORDER BY COUNT(Match.id) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.4,
+      "ves_reward": 0.0,
+      "gold_row_count": 4,
+      "pred_row_count": 1,
+      "gen_ms": 1389,
+      "gold_elapsed_ms": 148,
+      "pred_elapsed_ms": 105,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "name",
+        "tables": [
+          "League",
+          "Match"
+        ],
+        "join_path": [
+          "Match.league_id = League.id"
+        ],
+        "filters": [
+          "Match.season = '2008/2009'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "MAX(league_name WHERE season = '2008/2009')",
+        "aggregation": "COUNT",
+        "group_by": "League.id",
+        "having": null,
+        "order_by": "COUNT(Match.id) DESC",
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11279,
+        "output_tokens": 212,
+        "est_cost_usd": 0.001819,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3617,
+            "output_tokens": 122,
+            "est_cost_usd": 0.000616
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7662,
+            "output_tokens": 90,
+            "est_cost_usd": 0.001203
+          }
+        }
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 1116,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "List down most tallest players' name.",
+      "evidence": "tallest refers to rank based on the height in descending order; Most tallest players refers to rank = 1 ",
+      "gold_sql": "SELECT player_name FROM (SELECT player_name, height, DENSE_RANK() OVER (ORDER BY height DESC) as rank FROM Player) WHERE rank = 1",
+      "pred_sql": "SELECT t1.player_name FROM Player AS t1 ORDER BY t1.height DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 1118,
+      "gold_elapsed_ms": 12,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "player_name",
+        "tables": [
+          "Player"
+        ],
+        "join_path": [],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "height DESC",
+        "set_op": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11171,
+        "output_tokens": 136,
+        "est_cost_usd": 0.001757,
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3597,
+            "output_tokens": 79,
+            "est_cost_usd": 0.000587
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7574,
+            "output_tokens": 57,
+            "est_cost_usd": 0.00117
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}
