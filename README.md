@@ -946,16 +946,16 @@ python -m backend.eval.bird --dev-json … --db-dir … \
     --question-timeout 0          # disabled — pre-GH#119 behaviour
 ```
 
-Three separate guards exist and they are easy to confuse:
+Two guards exist and they are easy to confuse:
 
-| Knob | Bounds | Where |
-|---|---|---|
-| `llm.request_timeout_s` | one HTTP request | `config.yaml` (GH#118) |
-| `--question-timeout` | one question, all its calls | this flag (GH#119) |
-| `--timeout` | one SQLite execution | this flag |
+| Knob | Bounds |
+|---|---|
+| `--question-timeout` | one question, all its LLM calls |
+| `--timeout` | one SQLite execution |
 
-The middle one is not implied by the first: a moderate question makes roughly
-ten LLM calls, so a run can crawl without any single request timing out.
+A per-request HTTP timeout would not replace this one: a moderate question
+makes roughly ten LLM calls, so a run can crawl for many minutes without any
+single request being slow enough to trip one.
 
 **An abandoned question is scored 0 and stays in the denominator.** It is
 *not* treated like a question whose gold SQL fails on SQLite — those are
@@ -966,10 +966,10 @@ records it, and `run_config.question_timeout` stores the budget, because two
 runs at different budgets are not comparable if either abandoned work.
 
 Caveat worth knowing: Python cannot interrupt a thread blocked on a socket
-read, so the abandoned call is **abandoned, not cancelled** — it keeps running
-until its own HTTP timeout fires, and it keeps billing. `--question-timeout`
-buys you the loop moving on; `llm.request_timeout_s` is what reclaims the
-socket.
+read, so the call is **abandoned, not cancelled** — it keeps running until the
+HTTP client gives up on its own (by default the OpenAI SDK waits 600s per
+attempt, retries included), and it keeps billing until then. What
+`--question-timeout` buys you is the loop moving on.
 
 **`--trust-eval` is not needed for accuracy.** EX / F1 / VES are computed from
 the gold SQL on every run regardless. The flag adds the back-translation judge
@@ -1056,40 +1056,8 @@ llm:
 ```
 
 An **untagged** entry behaves exactly as before: the process-wide `base_url`
-and the query-stage key. The client built for `gpt-4o-mini` adds nothing to the
-pre-GH#108 construction except the call limits below, and a test asserts the
-exact kwarg set.
-
-#### When a call appears to hang (GH#118)
-
-A non-streaming request to a gateway returns its `200 OK` as soon as the
-**headers** are written, then holds the body open for the whole generation. So
-this line in the log means the request was accepted, not that an answer came
-back:
-
-```
-INFO HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-```
-
-A reasoning model that emits a long chain of thought before the SQL can sit
-there for minutes, and it is indistinguishable from a dead connection. Left
-uncapped the OpenAI SDK default applies — 600 s per attempt with 2 retries, so
-one stuck call occupies a benchmark run for half an hour. Both limits are
-configurable, per process and per model:
-
-```yaml
-llm:
-  request_timeout_s: 120        # null restores the SDK default (no cap)
-  max_retries: 2
-  selectable_models:
-    - id: deepseek/deepseek-v4-flash-0731
-      provider: openrouter
-      request_timeout_s: 300    # a reasoner needs the head-room
-```
-
-The ceiling belongs on the model rather than the process: three minutes from a
-reasoning model is it working, while three minutes from a small instruct model
-means the connection is gone.
+and the query-stage key. The client built for `gpt-4o-mini` is byte-identical
+to the pre-GH#108 construction, and a test asserts it.
 
 **Verify slugs before spending.** Providers retire ids, and a wrong one fails
 at the first call — mid-run, after everything before it has been paid for:

@@ -320,18 +320,20 @@ class _Budget:
     A wall-clock ceiling for one question, so a stalled call cannot hold the
     whole run (GH#119).
 
-    GH#118 capped a single HTTP request, which is not the same guarantee: a
-    moderate question makes roughly ten LLM calls, so a run can crawl without
-    any one request ever timing out. This bounds the question instead.
+    A per-REQUEST timeout would not give the same guarantee: a moderate
+    question makes roughly ten LLM calls, so a run can crawl for many minutes
+    without any single request ever being slow enough to trip one. This bounds
+    the question instead.
 
     The work runs on a DAEMON thread and is ABANDONED on expiry rather than
     cancelled — Python cannot interrupt a thread blocked in a socket read, and
-    there is no honest way to pretend otherwise. Two consequences worth knowing:
-    the abandoned call keeps running until its own HTTP timeout fires (hence
-    GH#118 is what actually reclaims the socket), and it keeps billing. What
-    this buys is that the LOOP moves on. Daemon, specifically, so an abandoned
-    thread cannot hold the interpreter open at exit — which is exactly what a
-    ThreadPoolExecutor would do, since its atexit hook joins every worker.
+    there is no honest way to pretend otherwise. Two consequences worth
+    knowing: the abandoned call keeps running until the HTTP client gives up
+    on its own (by default that is the OpenAI SDK's 600s per attempt, retries
+    included), and it keeps billing until then. What this buys is that the
+    LOOP moves on. Daemon, specifically, so an abandoned thread cannot hold
+    the interpreter open at exit — which is exactly what a ThreadPoolExecutor
+    would do, since its atexit hook joins every worker.
     """
 
     def __init__(self, seconds: Optional[float]) -> None:
@@ -804,10 +806,10 @@ def run_bird_eval(
     question_timeout : GH#119 — wall-clock ceiling in seconds for ONE question's
                        LLM work. On expiry the question is abandoned and scored
                        0, and the loop moves to the next one. 0 or None disables
-                       it. This is NOT the same guard as `timeout` (SQLite) or
-                       as the GH#118 per-request HTTP cap: a question makes
-                       roughly ten LLM calls, so a run can stall without any
-                       single request timing out.
+                       it. This is NOT the same guard as `timeout`, which
+                       bounds one SQLite execution: a question makes roughly
+                       ten LLM calls, so a run can stall without any single
+                       request being slow on its own.
     sample           : GH#120 — how `subset` picks its questions: "head" (the
                        file's order, the default and the old behaviour),
                        "random", or "stratified" (proportional across db_id).
@@ -1286,8 +1288,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                              "question's LLM work; on expiry the question is "
                              "abandoned, SCORED 0 (it stays in the denominator) "
                              "and the run moves on. 0 disables. Distinct from "
-                             "--timeout, which bounds SQLite, and from the "
-                             "per-request HTTP cap in config.yaml. Default: 60")
+                             "--timeout, which bounds ONE SQLite execution: "
+                             "this bounds a whole question's LLM work. "
+                             "Default: 60")
     parser.add_argument("--no-schema-linking", action="store_true",
                         help="Disable the schema-linking stage (#17) for A/B comparison")
     parser.add_argument("--no-exec-voting", action="store_true",

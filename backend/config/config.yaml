@@ -30,16 +30,6 @@ llm:
   # UNTAGGED model keeps the old behaviour exactly — the process-wide base_url
   # (llm.base_url / $LLM_BASE_URL) and the query-stage key — which is what
   # leaves an OpenAI-only install unaffected.
-  # GH#118: ceiling on ONE chat call, and how many times the SDK retries it.
-  # Without these the OpenAI SDK default applies — 600s per attempt, 2 retries,
-  # so one stuck call can hold a run for 30 minutes with nothing in the log but
-  # a "200 OK". A gateway makes that reachable in normal use: OpenRouter writes
-  # the 200 as soon as the headers go out and keeps the body open for the whole
-  # generation, so a slow reasoning model is indistinguishable from a hang.
-  # Per-model overrides live on the selectable_models entry below. Set
-  # request_timeout_s to null to restore the SDK default (no cap).
-  request_timeout_s: 120
-  max_retries: 2
   providers:
     openrouter:
       base_url: https://openrouter.ai/api/v1
@@ -80,10 +70,6 @@ llm:
       provider: openrouter
     - id: deepseek/deepseek-v4-flash
       provider: openrouter
-      # A reasoning model: it emits its chain of thought before the SQL, so
-      # a call that looks stuck at 120s is often still working. Given the
-      # extra head-room rather than the shared default.
-      request_timeout_s: 300
     - id: z-ai/glm-5.3-flash
       provider: openrouter
     - id: qwen/qwen3.8-flash

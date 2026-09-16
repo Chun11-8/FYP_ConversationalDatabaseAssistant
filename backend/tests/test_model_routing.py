@@ -64,20 +64,13 @@ class TestOpenAIPathUnchanged:
         assert t.api_key == "sk-openai"
         assert t.provider == "openai"
 
-    def test_the_client_adds_nothing_to_the_old_construction_but_limits(self):
+    def test_the_client_is_byte_identical_to_the_old_construction(self):
         """No base_url kwarg at all — not base_url=None, which some clients
-        treat differently from an omitted parameter.
-
-        The GH#118 call limits are the ONE documented addition; asserting on
-        the exact kwarg set (rather than a subset) is what makes any further
-        drift onto the OpenAI path fail here instead of in production."""
+        treat differently from an omitted parameter."""
         with patch.object(lf, "ChatOpenAI") as mc:
             build_for_target(resolve_model_target("gpt-4o-mini", CONFIG))
-        assert mc.call_args.kwargs == {
-            "model": "gpt-4o-mini", "temperature": 0, "api_key": "sk-openai",
-            "timeout": lf._DEFAULT_REQUEST_TIMEOUT_S,
-            "max_retries": lf._DEFAULT_MAX_RETRIES,
-        }
+        assert mc.call_args.kwargs == {"model": "gpt-4o-mini",
+                                       "temperature": 0, "api_key": "sk-openai"}
 
     def test_an_unconfigured_model_is_not_routed_anywhere(self):
         """A custom id typed into the picker must not inherit a provider."""
@@ -509,74 +502,3 @@ class TestPriceSync:
         from backend.config import check_models as C
         with _patch.object(C, "_catalogue_raw", return_value=None):
             assert C._prices("https://x/v1", "k") == {}
-
-
-# ── GH#118: a stuck call must fail, not hold the run ──────────────────────────
-
-class TestCallLimits:
-    """
-    A chat call with no ceiling inherits the OpenAI SDK default: 600s per
-    attempt with 2 retries, so one unresponsive request occupies a BIRD run
-    for half an hour and logs nothing but the initial "200 OK". These tests
-    hold the cap in place at every construction site.
-    """
-
-    def test_every_target_carries_a_timeout_and_a_retry_cap(self):
-        for model in ("gpt-4o-mini", "google/gemini-3.7-flash"):
-            extra = resolve_model_target(model, CONFIG).extra
-            assert extra["timeout"] == lf._DEFAULT_REQUEST_TIMEOUT_S
-            assert extra["max_retries"] == lf._DEFAULT_MAX_RETRIES
-
-    def test_the_built_client_actually_receives_them(self):
-        client = build_for_target(resolve_model_target("gpt-4o-mini", CONFIG))
-        assert client.request_timeout == lf._DEFAULT_REQUEST_TIMEOUT_S
-        assert client.max_retries == lf._DEFAULT_MAX_RETRIES
-
-    def test_config_defaults_override_the_constants(self):
-        cfg = {"llm": {**CONFIG["llm"], "request_timeout_s": 45,
-                       "max_retries": 0}}
-        extra = resolve_model_target("gpt-4o-mini", cfg).extra
-        assert extra == {"timeout": 45.0, "max_retries": 0}
-
-    def test_a_model_entry_overrides_the_config_default(self):
-        """A reasoning model thinking for three minutes is working, not stuck —
-        so the ceiling has to be settable per model, not just per process."""
-        cfg = {"llm": {**CONFIG["llm"], "request_timeout_s": 30,
-                       "selectable_models": [
-                           {"id": "deep/reasoner", "provider": "openrouter",
-                            "request_timeout_s": 300, "max_retries": 1}]}}
-        extra = resolve_model_target("deep/reasoner", cfg).extra
-        assert extra == {"timeout": 300.0, "max_retries": 1}
-
-    def test_null_timeout_omits_the_kwarg_rather_than_sending_none(self):
-        """`timeout: None` reaching the SDK means 'no timeout' in some client
-        versions and a type error in others; omitting it is unambiguous."""
-        cfg = {"llm": {**CONFIG["llm"], "request_timeout_s": None}}
-        extra = resolve_model_target("gpt-4o-mini", cfg).extra
-        assert "timeout" not in extra
-        assert extra["max_retries"] == lf._DEFAULT_MAX_RETRIES
-
-    def test_an_explicit_caller_kwarg_still_wins(self):
-        """check_models probes with max_retries=0 on purpose — a verification
-        pass must not silently retry a model that is actually unreachable."""
-        client = build_for_target(resolve_model_target("gpt-4o-mini", CONFIG),
-                                  max_retries=0, timeout=5)
-        assert client.max_retries == 0
-        assert client.request_timeout == 5
-
-    def test_temperature_omission_survives_alongside_the_limits(self):
-        """The `temperature: null` contract and the new limits share `extra`;
-        this catches one clobbering the other."""
-        client = build_for_target(resolve_model_target("x/reasoner", CONFIG))
-        assert client.temperature is None
-        assert client.request_timeout == lf._DEFAULT_REQUEST_TIMEOUT_S
-
-    def test_build_chat_llm_applies_the_limits_too(self):
-        """The two eval CLIs construct through this helper, not through a
-        ModelTarget; an uncapped call there hangs a benchmark just as well."""
-        client = lf.build_chat_llm("gpt-4o-mini", "k", None, config=CONFIG)
-        assert client.request_timeout == lf._DEFAULT_REQUEST_TIMEOUT_S
-
-    def test_build_chat_llm_without_config_is_still_capped(self):
-        client = lf.build_chat_llm("gpt-4o-mini", "k")
-        assert client.request_timeout == lf._DEFAULT_REQUEST_TIMEOUT_S
