@@ -88,6 +88,41 @@ llm:
       provider: openrouter
     - id: qwen/qwen3.8-flash
       provider: openrouter
+  # GH#121: this block MUST stay indented under `llm:` — every loader reads
+  # config["llm"]["pricing"] (db_agent.py:489, bird.py). At the top level it
+  # parses fine, is silently ignored, and every reported cost reads $0.00.
+  pricing:
+      "deepseek/deepseek-v4-flash":
+        input: 0.06
+        output: 0.12
+      "google/gemini-3.7-flash":
+        input: 0.75
+        output: 3.75
+      "meta-llama/llama-4-maverick":
+        input: 0.1875
+        output: 0.6525
+      "minimax/minimax-m2.5":
+        input: 0.27
+        output: 1.08
+      "minimax/minimax-m3":
+        input: 0.3
+        output: 1.2
+      "openai/gpt-5.4-mini":
+        input: 0.75
+        output: 4.5
+      "openai/gpt-5.6-luna":
+        input: 0.2
+        output: 1.2
+      "qwen/qwen3.5-122b-a10b":
+        input: 0.26
+        output: 2.08
+      "qwen/qwen3.8-flash":
+        input: 0.15
+        output: 0.47
+      "z-ai/glm-5.3-flash":
+        input: 0.15
+        output: 0.5
+
   # GH#57 cost accounting: USD per 1M tokens, merged over the built-in table in
   # backend/agents/usage.py. A model absent here still has its tokens counted,
   # it just contributes no dollar figure. Update when OpenAI changes prices.
@@ -307,35 +342,3 @@ logging:
   # GH#42: rich console pipeline banners (the tuning workflow). Set false for
   # structured logs only — request IDs + per-stage timings remain either way.
   pipeline_trace: true
-
-pricing:
-    "deepseek/deepseek-v4-flash":
-      input: 0.06
-      output: 0.12
-    "google/gemini-3.7-flash":
-      input: 0.75
-      output: 3.75
-    "meta-llama/llama-4-maverick":
-      input: 0.1875
-      output: 0.6525
-    "minimax/minimax-m2.5":
-      input: 0.27
-      output: 1.08
-    "minimax/minimax-m3":
-      input: 0.3
-      output: 1.2
-    "openai/gpt-5.4-mini":
-      input: 0.75
-      output: 4.5
-    "openai/gpt-5.6-luna":
-      input: 0.2
-      output: 1.2
-    "qwen/qwen3.5-122b-a10b":
-      input: 0.26
-      output: 2.08
-    "qwen/qwen3.8-flash":
-      input: 0.15
-      output: 0.47
-    "z-ai/glm-5.3-flash":
-      input: 0.15
-      output: 0.5
