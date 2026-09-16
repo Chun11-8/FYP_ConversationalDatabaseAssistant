@@ -893,45 +893,6 @@ python -m backend.eval.bird --dev-json … --db-dir … \
 `--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
 set and `--subset` then slices what is left.
 
-#### Comparing several models in one command (GH#121)
-
-`compare_models.py` runs the whole model list through `bird.py` back to back,
-so a seven-model comparison is one command instead of seven:
-
-```bash
-python -m backend.eval.compare_models \
-    --dev-json dataset/mini_dev_sqlite.json \
-    --db-dir   dataset/dev_databases \
-    --difficulty moderate --db-id student_club \
-    --subset 20 --sample stratified
-
-python -m backend.eval.compare_models --subset 20 --dry-run   # costs nothing
-python -m backend.eval.compare_models --subset 20 -- --trust-eval --no-refine
-```
-
-Everything after `--` is passed to every run unchanged. Useful flags:
-
-| Flag | Why |
-|---|---|
-| `--models a b c` | override the default seven |
-| `--subset` / `--sample` / `--seed` | the settings every model shares |
-| `--skip-existing` | resume a sweep without paying for finished models again |
-| `--dry-run` | print the seven commands and stop |
-
-Each model runs as its own subprocess. A model that aborts — a bad id exits
-before the loop (GH#117) — is reported and the sweep carries on, because by
-then the earlier runs have already been paid for. The exit code is non-zero if
-any model failed.
-
-Results land in `outputs/<difficulty>/<difficulty>_<model>.json`, alongside
-`comparison.json` and a `comparison.md` table ranked by EX with LLM calls per
-question, tokens, cost and wall-clock minutes.
-
-**The sweep checks that the models answered the same questions.** An EX column
-means nothing if one run used a different `--seed`, `--sample` or `--subset`,
-and the table would look comparable anyway. Mismatched question ids or
-run_config values are printed as warnings and written into `comparison.json`.
-
 #### `--sample` — a subset that is actually cross-domain (GH#120)
 
 `mini_dev_sqlite.json` stores each database as one **contiguous block**:

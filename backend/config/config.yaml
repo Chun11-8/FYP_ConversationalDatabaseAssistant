@@ -88,7 +88,7 @@ llm:
       provider: openrouter
     - id: qwen/qwen3.8-flash
       provider: openrouter
-  # GH#121: this block MUST stay indented under `llm:` — every loader reads
+  # This block MUST stay indented under `llm:` — every loader reads
   # config["llm"]["pricing"] (db_agent.py:489, bird.py). At the top level it
   # parses fine, is silently ignored, and every reported cost reads $0.00.
   pricing:
