@@ -7,6 +7,7 @@ SQLValidatorAgent: syntax → safety → semantic checks
 from __future__ import annotations
 
 import logging
+import re as _re
 from typing import Any, Dict, List, Optional
 
 import sqlglot
@@ -14,6 +15,37 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.safety import BLOCKED as _BLOCKED, SQL_INJECTION as _SQL_INJECTION
+
+
+def _boundary_pattern(name: str) -> str:
+    r"""
+    A regex that finds `name` in a schema string without matching it as part of
+    a longer identifier (GH#122).
+
+    ``\b`` cannot do this job here. It asserts a word/non-word transition, so
+    it only means anything next to a word character — and a quoted SQL
+    identifier often ends in one that is not. ``"Enrollment (K-12)"`` ends in
+    ``)``, and the character after it in a CREATE TABLE is ``"``; both are
+    non-word, so ``\b`` finds no transition and the pattern NEVER matches. The
+    column is then reported as missing from a schema that plainly defines it.
+
+    That is not a corner case. Every prediction against BIRD's
+    california_schools database was rejected this way and scored 0 while the
+    SQL was correct, because that is the one database whose columns are
+    parenthesised. A leading space is harmless (``"Low Grade"`` ends in ``e``),
+    which is why the bug looked like it was about spaces and was not.
+
+    So the guard is applied only on the side where it can mean something: a
+    lookaround when the adjacent character of `name` is a word character, and
+    nothing when it is already punctuation and cannot run into a neighbour.
+    """
+    pattern = _re.escape(name)
+    if name[:1].isalnum() or name[:1] == "_":
+        pattern = r"(?<!\w)" + pattern
+    if name[-1:].isalnum() or name[-1:] == "_":
+        pattern = pattern + r"(?!\w)"
+    return pattern
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,10 +154,10 @@ class SQLValidatorAgent:
     def _check_semantic(self, sql: str, schema_context: str):
         """
         Lightweight semantic check: verify table and column names from the SQL
-        appear in schema_context using word-boundary matching.
+        appear in schema_context, guarded against partial-identifier
+        matches by _boundary_pattern.
         Note: advisory only — SchemaRetriever is the authoritative source.
         """
-        import re as _re
         try:
             ast = sqlglot.parse_one(sql, dialect=self.dialect)
             schema_lower = schema_context.lower()
@@ -162,7 +194,7 @@ class SQLValidatorAgent:
             } - cte_names
             missing_tables = [
                 t for t in tables_in_sql
-                if not _re.search(rf"\b{_re.escape(t)}\b", schema_lower)
+                if not _re.search(_boundary_pattern(t), schema_lower)
             ]
             if missing_tables:
                 return False, f"Tables not found in schema: {missing_tables}"
@@ -175,7 +207,7 @@ class SQLValidatorAgent:
             } - defined_aliases - table_aliases - cte_names
             missing_cols = [
                 c for c in columns_in_sql
-                if not _re.search(rf"\b{_re.escape(c)}\b", schema_lower)
+                if not _re.search(_boundary_pattern(c), schema_lower)
             ]
             if missing_cols:
                 return False, f"Columns not found in schema: {missing_cols}"
