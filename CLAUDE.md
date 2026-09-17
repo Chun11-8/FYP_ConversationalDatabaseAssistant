@@ -1,9 +1,9 @@
 # CLAUDE.md — Agent guide for the Conversational Database Assistant
 
 This file orients any AI agent working in this repo. Read it fully before editing.
-Companion docs: `README.md` (full reference), `DEGRADED_MODE.md` (what breaks when a
-component is missing), `FYPWorkPlan(System Design).pdf` (the spec). Work items live in
-GitHub Issues, not in a file.
+Companion docs: `README.md` (full reference), `DEGRADED_MODE.md` (what still works when a
+component is down), `FYPWorkPlan(System Design).pdf` (the spec). Work items live in GitHub
+Issues, not in a file.
 
 ---
 
@@ -14,9 +14,13 @@ user asks a question in natural language; the system classifies intent, retrieve
 relevant DB schema via RAG, generates + validates + executes a **SELECT-only** SQL query,
 and returns a natural-language answer. It also answers general DB how-to questions.
 
-**Framework intent (per spec):** LangGraph + LlamaIndex. **Reality:** the code is
-currently LangGraph/LangChain + pgvector only. LlamaIndex / Knowledge Graph is NOT yet
-present and is deferred (see Issue #12). Do not assume it exists.
+**Framework intent (per spec):** LangGraph + LlamaIndex. **Reality:** LangGraph/LangChain
++ pgvector only — there is no `llama_index` import anywhere in the repo. LlamaIndex and the
+Knowledge Graph are deferred; do not assume they exist.
+
+The project has **two halves**: generating SQL, and deciding whether that SQL can be
+trusted (§6.8). Both are evaluated — `eval/bird.py` for generation, `eval/trust_eval.py`
+for the detector.
 
 ---
 
@@ -39,12 +43,16 @@ Spec layers and where they live:
 | SQL generation + rerank | `backend/agents/sql_code_agent.py` (`SQLCodeAgent`) |
 | Validation (syntax/safety/semantic) | `backend/agents/sql_validator_agent.py` (`SQLValidatorAgent`) |
 | Agentic RAG (schema vectors) | `backend/retrieval/` (`indexing.py`, `pgvector_store.py`, `pinecone_store.py`, `embedding.py`, `data_processing.py`) |
-| Memory | `backend/memory/session_memory.py` (in-RAM only today) |
+| Memory | `backend/memory/session_memory.py` (`_PgBackend` when Postgres is up, `_RamBackend` otherwise — check `is_persistent`) |
+| Semantic cache / few-shots | `backend/memory/semantic_cache.py`, `skeleton.py` |
 | Response Optimizer | `backend/pipelines/postprocessing.py` (`ResponseOptimizer`) |
-| Schema Versioning | `backend/agents/schema_versioning_agent.py` (**stub — calls non-existent methods**) |
-| Tools / Connectivity | `backend/tools/*` (**empty stubs**) |
-| Frontend (UI layer) | `frontend/` (React + Vite + TS — **currently fully mocked**) |
-| Business Layer (HTTP API) | **does not exist yet** — top priority |
+| Schema Versioning | `backend/agents/schema_versioning_agent.py` (`hash_schema`, `diff_schemas`, `snapshot_from_tables`) |
+| Trust / abstention | `backend/agents/risk.py`, `back_translation.py`, `trust.py` (see §6.8) |
+| Per-model provider routing | `backend/agents/llm_factory.py` (`resolve_model_target`, `build_for_target`) |
+| Tools / Connectivity | `backend/tools/` (`base.py`, `registry.py`, `web_search.py`) |
+| Frontend (UI layer) | `frontend/` (React + Vite + TS; talks to the API via `src/api/client.ts`) |
+| Business Layer (HTTP API) | `backend/api/main.py` (FastAPI) |
+| Evaluation | `backend/eval/` (`bird.py` benchmark, `trust_eval.py` detector metrics) |
 
 ---
 
@@ -52,19 +60,29 @@ Spec layers and where they live:
 
 ```
 backend/
+  api/           main.py (FastAPI: /chat, /models, /databases, /health, /feedback)
   agents/        db_agent.py (orchestrator), sql_code_agent.py, sql_validator_agent.py,
-                 schema_versioning_agent.py (stub), prompt.md (intent prompt)
+                 schema_linking_agent.py, schema_versioning_agent.py, llm_factory.py
+                 (per-model provider routing), risk.py / back_translation.py / trust.py
+                 (the trust half — see §6.8), usage.py (tokens + cost), safety.py,
+                 trace.py, prompt.md (intent prompt)
   retrieval/     indexing.py (CLI + retrieve/execute), pgvector_store.py (canonical store),
-                 pinecone_store.py (alt), embedding.py, data_processing.py
-  memory/        session_memory.py, user_profiles.json (empty)
+                 pinecone_store.py (alt), embedding.py, data_processing.py,
+                 db_catalog.py (table → db_id), internal_tables.py (self-exclusion),
+                 value_index.py (distinct-value hints)
+  memory/        session_memory.py (_PgBackend / _RamBackend), semantic_cache.py, skeleton.py
   pipelines/     postprocessing.py (ResponseOptimizer), prompt_response.md
-  tools/         flight/hotel/weather_api.py (EMPTY scaffold — likely leftover)
-  config/        config.yaml (EMPTY), secrets.env, compose.yml, postgres/schema.sql
-  context/       CLAUDE.md/system_prompt.md/skills.md (all EMPTY)
-  tests/         test_agent.py, test_pipeline.py, test_tools.py (all EMPTY)
-frontend/        Vite + React 19 + TS. src/App.tsx (mocked), components/, types.ts
-dataset/         minidev sample data
-outputs/         CSV exports from large query results
+  eval/          bird.py (BIRD mini-dev harness), trust_eval.py (detector AUROC),
+                 bird_predict.py, smoke_examples.py, error_analysis.py, download_bird.py
+  tools/         base.py, registry.py, web_search.py
+  config/        config.yaml (models, providers, pricing, retrieval, sql),
+                 config_loader.py, check_models.py, secrets.env, compose.yml,
+                 postgres/schema.sql
+  context/       CLAUDE.md/system_prompt.md/skills.md/Gemini.md (all still EMPTY)
+  tests/         55 files, ~13.5k lines — run `pytest backend/tests` from the repo root
+frontend/        Vite + React 19 + TS. src/App.tsx, src/api/client.ts, components/, types.ts
+archive/         multiturn-eval (retired harness; README has restore steps)
+outputs/         BIRD results by tier, CSV exports from large query results
 ```
 
 ---
@@ -100,36 +118,51 @@ docker compose -f backend/config/compose.yml up -d
 #    domain with retrieval.active_db in config.yaml; unset = search all.
 python -m backend.retrieval.indexing build --db FYP
 
-# 3. Run the orchestrator (until the API exists)
-python -m backend.agents.db_agent
+# 3. Start the API
+uvicorn backend.api.main:app --reload --port 8000
 
-# Frontend
+# 4. Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173
+
+# Tests (from the repo root)
+pytest backend/tests
+
+# BIRD benchmark. dev.json is GROUPED BY DATABASE, so --sample head with no
+# --db-id returns one database's questions; use stratified for a cross-domain
+# subset. --question-timeout abandons a stalled question (scored 0, still counted).
+python -m backend.eval.bird --dev-json <dev.json> --db-dir <dbs> \
+    --subset 20 --sample stratified --difficulty moderate
 ```
-Env: copy real values into `backend/config/secrets.env` (`OPENAI_API_KEY`, `PG_*`).
-Once the API exists: `uvicorn backend.api.main:app --reload --port 8000`.
+Env: copy real values into `backend/config/secrets.env` (`OPENAI_API_KEY`, `PG_*`,
+and `OPENROUTER_API_KEY` for the gateway models).
 
 ---
 
 ## 6. ⚠️ Known issues & gotchas (read before coding)
 
-1. **Secrets are committed.** A live OpenAI key is in `retrieval/indexing.py`, and the
-   Postgres password `Toyo20001108!` is hardcoded in `pgvector_store.py` (line 31) AND
-   `config/compose.yml`. Treat these as compromised. **Never** add new hardcoded secrets —
-   read from `secrets.env`. Fixing this is Issue #0; do it first.
-2. **History injection bug.** In `db_agent.py::classify_intent` the prompt embeds the
-   literal string `"history_str"` (the real `_format_history` call is commented out).
-   Multi-turn context is broken until Issue #3 fixes it.
-3. **Memory is in-RAM.** `SessionMemory` is a dict — lost on restart. Don't build features
-   assuming durable history until #3.
-4. **Schema versioning is a stub.** `schema_versioning_agent.py` calls
-   `retriever.db.get_schema_diff()`, `embed_table()`, etc. that **don't exist**. It will
-   crash if invoked. See Issue #7.
-5. **`few_shot_examples` is always `[]`.** The semantic cache is not wired (Issue #4). The
-   pgvector store has a fully-written but commented-out `kb_embeddings` table/upsert/
-   retrieve block — adapt that rather than writing from scratch.
-6. **`agent.run()` returns a bare string.** For the API/feedback features you'll want it to
-   return a dict (`response`, `sql`, `intent`, row count, csv path). Refactor early (#1).
+1. **Secrets come from the environment.** `pgvector_store.py` reads `PG_PASSWORD`,
+   `compose.yml` interpolates `${PG_PASSWORD}`, and API keys come from
+   `secrets.env` / the process env. The earlier committed key and the hardcoded
+   `Toyo20001108!` are gone — treat both as compromised regardless, and **never**
+   add a new hardcoded secret. Verify with `grep -ri "sk-" backend/`.
+2. **`llm.pricing` must stay indented under `llm:`.** Every loader reads
+   `config["llm"]["pricing"]` (`db_agent.py`, `eval/bird.py`). At the top level of
+   `config.yaml` it parses fine, is silently ignored, and every reported cost reads
+   `$0.00` — which is exactly what happened to a whole set of benchmark runs.
+3. **A model id must match `llm.selectable_models` EXACTLY** or it carries no
+   `provider:` tag, falls back to OpenAI, and 400s with "invalid model ID" —
+   display names, wrong case and near-misses all fail this way. `bird.py` aborts
+   before the loop rather than billing every question; check a list with
+   `python -m backend.config.check_models`.
+4. **Read config and prompt files with `encoding="utf-8"`.** Windows defaults to
+   cp1252, where five bytes are undefined and crash outright while everything
+   else mojibakes silently. Non-ASCII in a `.md`/`.yaml` the runtime reads has
+   broken this before.
+5. **`backend/context/*.md` are all still empty** (`CLAUDE.md`, `system_prompt.md`,
+   `skills.md`, `Gemini.md`). Don't assume they carry context — this file does.
+6. **`OrchestrationAgent.run()` returns a dict**, not a string: `response`, `sql`,
+   `intent`, row count, csv path, usage and the trust block. The API and the UI
+   both depend on those keys.
 7. **Windows/pgvector quirk:** `localhost` may resolve to IPv6 and hit the wrong Postgres
    instance. The store defaults to `127.0.0.1` on purpose — keep it.
 8. **The project has two halves.** Generating SQL, and deciding whether the
@@ -168,9 +201,10 @@ Once the API exists: `uvicorn backend.api.main:app --reload --port 8000`.
    Respect the dependency order it states.
 2. Keep changes scoped to one issue. Don't refactor unrelated layers in the same PR.
 3. Match existing patterns (prompt-in-file, `backend.` imports, logger usage).
-4. Add/adjust tests in `backend/tests/` (see Issue #11). Run `pytest` from repo root.
-5. If you touch the pipeline, do a manual smoke run (`python -m backend.agents.db_agent`)
-   before declaring done.
+4. Add/adjust tests in `backend/tests/`. Run `pytest backend/tests` from the repo root.
+5. If you touch the pipeline, smoke-run it through the API (`uvicorn
+   backend.api.main:app --reload --port 8000`) before declaring done. If you touch
+   retrieval or generation inputs, check the BIRD path too (§6.9).
 6. Update this file / the docs if you change architecture, run steps, or conventions.
 7. Never commit secrets. Verify with `grep -ri "sk-" backend/` and the password string.
 
