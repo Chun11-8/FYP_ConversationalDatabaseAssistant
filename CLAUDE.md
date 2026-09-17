@@ -1,8 +1,9 @@
 # CLAUDE.md — Agent guide for the Conversational Database Assistant
 
 This file orients any AI agent working in this repo. Read it fully before editing.
-Companion docs: `REQUIREMENTS_TODO.md` (gap analysis), `GITHUB_ISSUES.md` (work items),
-`BUILD_PROMPTS.md` (sequenced prompts), `FYPWorkPlan(System Design).pdf` (the spec).
+Companion docs: `README.md` (full reference), `DEGRADED_MODE.md` (what breaks when a
+component is missing), `FYPWorkPlan(System Design).pdf` (the spec). Work items live in
+GitHub Issues, not in a file.
 
 ---
 
@@ -163,8 +164,8 @@ Once the API exists: `uvicorn backend.api.main:app --reload --port 8000`.
 
 ## 8. Workflow for picking up an issue
 
-1. Read the matching section in `GITHUB_ISSUES.md` (Why / Sub-tasks / Acceptance criteria
-   / Depends-on). Respect the dependency order.
+1. Read the GitHub issue (Why / Sub-tasks / Acceptance criteria / Depends-on).
+   Respect the dependency order it states.
 2. Keep changes scoped to one issue. Don't refactor unrelated layers in the same PR.
 3. Match existing patterns (prompt-in-file, `backend.` imports, logger usage).
 4. Add/adjust tests in `backend/tests/` (see Issue #11). Run `pytest` from repo root.

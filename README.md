@@ -285,9 +285,7 @@ FYP_ConversationalDatabaseAssistant/
 ├── outputs/                            # CSV exports + BIRD result JSON — git-ignored
 ├── requirements.txt
 ├── CLAUDE.md                           # Agent/developer guide
-├── GITHUB_ISSUES.md                    # Detailed issue backlog
-├── REQUIREMENTS_TODO.md                # Gap analysis vs. system design spec
-└── BUILD_PROMPTS.md                    # Sequenced implementation prompts
+└── DEGRADED_MODE.md                    # What still works when a component is down
 ```
 
 ---
@@ -1416,7 +1414,7 @@ show.
 
 ## Contributing
 
-1. Pick an issue from [GITHUB_ISSUES.md](./GITHUB_ISSUES.md). Respect the dependency order listed there.
+1. Pick a GitHub issue. Respect the dependency order it states.
 2. Work on the designated feature branch (see `CLAUDE.md` for the current branch name).
 3. Follow the conventions in [CLAUDE.md](./CLAUDE.md):
    - Absolute imports rooted at `backend.` (e.g. `from backend.retrieval.indexing import retrieve`)
