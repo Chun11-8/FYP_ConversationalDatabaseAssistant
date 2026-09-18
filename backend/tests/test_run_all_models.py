@@ -14,13 +14,14 @@ Run from repo root:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from backend.eval.run_all_models import (
-    MODELS, build_command, choose_mode, main,
+    MODELS, build_command, choose_mode, is_complete, main, resume_command,
 )
 
 
@@ -293,3 +294,173 @@ class TestModeSelection:
             stdin.isatty.return_value = False
             assert main(["--difficulty", "simple"]) == 1
         sp.assert_not_called()
+
+
+class TestResume:
+    """
+    A sweep is seven long, paid runs. When one dies partway -- a crash, a
+    dropped connection, Ctrl-C -- the next thing needed is to continue without
+    re-paying for the models that finished.
+    """
+
+    @staticmethod
+    def _complete(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"metrics": {"EX": 80.0}, "questions": []}),
+                        encoding="utf-8")
+
+    @staticmethod
+    def _run_ok(cmd, *a, **k):
+        out = Path(cmd[cmd.index("--output") + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({"metrics": {"EX": 70.0}}), encoding="utf-8")
+        return type("R", (), {"returncode": 0})()
+
+    def test_a_finished_run_is_recognised(self, tmp_path):
+        f = tmp_path / "done.json"
+        self._complete(f)
+        assert is_complete(f) is True
+
+    def test_a_truncated_file_is_NOT_treated_as_done(self, tmp_path):
+        """The whole point. A run killed partway leaves a half-written file;
+        counting it as complete would silently drop that model from the
+        comparison with nothing to show it happened."""
+        f = tmp_path / "crash.json"
+        f.write_text('{"metrics": {"EX"', encoding="utf-8")
+        assert is_complete(f) is False
+
+    def test_an_empty_or_missing_file_is_not_done(self, tmp_path):
+        missing = tmp_path / "nope.json"
+        assert is_complete(missing) is False
+        empty = tmp_path / "empty.json"
+        empty.write_text("", encoding="utf-8")
+        assert is_complete(empty) is False
+
+    def test_valid_json_without_metrics_is_not_done(self, tmp_path):
+        f = tmp_path / "partial.json"
+        f.write_text(json.dumps({"run_config": {"model": "x"}}), encoding="utf-8")
+        assert is_complete(f) is False
+
+    def test_resume_skips_complete_and_reruns_the_crashed_one(
+            self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        d = tmp_path / "outputs" / "simple"
+        for m in ("gpt4oMini", "gpt4.1Mini"):
+            self._complete(d / f"simplev2_{m}.json")
+        (d / "simplev2_gemini3.7Flash.json").write_text('{"metri', encoding="utf-8")
+
+        ran = []
+
+        def record(cmd, *a, **k):
+            ran.append(cmd[cmd.index("--model") + 1])
+            return self._run_ok(cmd)
+
+        with patch("backend.eval.run_all_models.subprocess.run", side_effect=record), \
+             patch("builtins.input", return_value=""):
+            main(["--difficulty", "simple", "--mode", "auto", "--resume"])
+
+        assert MODELS["gpt4oMini"] not in ran
+        assert MODELS["gpt4.1Mini"] not in ran
+        assert MODELS["gemini3.7Flash"] in ran, "a truncated run was not redone"
+        assert len(ran) == len(MODELS) - 2
+
+    def test_without_resume_everything_runs_again(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._complete(tmp_path / "outputs" / "simple" / "simplev2_gpt4oMini.json")
+        ran = []
+
+        def record(cmd, *a, **k):
+            ran.append(cmd[cmd.index("--model") + 1])
+            return self._run_ok(cmd)
+
+        with patch("backend.eval.run_all_models.subprocess.run", side_effect=record), \
+             patch("builtins.input", return_value=""):
+            main(["--difficulty", "simple", "--mode", "auto"])
+        assert len(ran) == len(MODELS)
+
+    def test_resume_with_nothing_left_exits_cleanly(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        for m in MODELS:
+            self._complete(tmp_path / "outputs" / "simple" / f"simplev2_{m}.json")
+        with patch("backend.eval.run_all_models.subprocess.run") as sp, \
+             patch("builtins.input", side_effect=AssertionError("must not prompt")):
+            rc = main(["--difficulty", "simple", "--mode", "auto", "--resume"])
+        assert rc == 0
+        sp.assert_not_called()
+        assert "Nothing left to run" in capsys.readouterr().out
+
+    def test_the_summary_prints_a_resume_command_when_work_remains(
+            self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("backend.eval.run_all_models.subprocess.run", side_effect=self._run_ok), \
+             patch("builtins.input", side_effect=["", "q"]):
+            main(["--difficulty", "moderate", "--mode", "pause"])
+        out = capsys.readouterr().out
+        assert "Still to run" in out
+        assert "--resume" in out
+        assert "run_all_models" in out
+
+    def test_a_finished_sweep_prints_no_resume_command(
+            self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("backend.eval.run_all_models.subprocess.run", side_effect=self._run_ok), \
+             patch("builtins.input", return_value=""):
+            main(["--difficulty", "simple", "--mode", "auto"])
+        assert "Still to run" not in capsys.readouterr().out
+
+    def test_a_failed_model_stays_in_the_outstanding_list(
+            self, tmp_path, monkeypatch, capsys):
+        """Exit code 0 is not proof of a result, and a model that errored must
+        not be skipped by the next --resume."""
+        monkeypatch.chdir(tmp_path)
+
+        def flaky(cmd, *a, **k):
+            if "llama" in cmd[cmd.index("--model") + 1]:
+                return type("R", (), {"returncode": 1})()
+            return self._run_ok(cmd)
+
+        with patch("backend.eval.run_all_models.subprocess.run", side_effect=flaky), \
+             patch("builtins.input", return_value=""):
+            main(["--difficulty", "simple", "--mode", "auto"])
+        out = capsys.readouterr().out
+        assert "Failed: llama4" in out
+        assert "llama4" in out.split("Still to run")[1]
+
+
+class TestResumeCommand:
+
+    def test_it_carries_the_run_settings_forward(self):
+        args = _args(difficulty="simple", subset=40, sample="stratified",
+                     seed=7, question_timeout=300.0)
+        args.mode, args.only, args.resume = "pause", None, False
+        cmd = resume_command(args, [])
+        assert "--resume" in cmd
+        for flag, value in (("--difficulty", "simple"), ("--subset", "40"),
+                            ("--sample", "stratified"), ("--seed", "7"),
+                            ("--question-timeout", "300.0"),
+                            ("--mode", "pause")):
+            assert cmd[cmd.index(flag) + 1] == value
+
+    def test_it_preserves_only_and_passthrough(self):
+        args = _args()
+        args.mode, args.only, args.resume = None, ["qwen3.8Flash"], False
+        cmd = resume_command(args, ["--no-refine"])
+        assert cmd[cmd.index("--only") + 1] == "qwen3.8Flash"
+        assert cmd[-2:] == ["--", "--no-refine"]
+
+    def test_it_omits_unchanged_dataset_paths(self):
+        """A resume line cluttered with defaults is one people stop reading."""
+        from backend.eval.run_all_models import DB_DIR, DEV_JSON
+        args = _args(dev_json=DEV_JSON, db_dir=DB_DIR)
+        args.mode, args.only, args.resume = None, None, False
+        cmd = resume_command(args, [])
+        assert "--dev-json" not in cmd and "--db-dir" not in cmd
+
+    def test_it_KEEPS_custom_dataset_paths(self):
+        """Dropping a non-default path would make the resume line point at a
+        dataset the original run never used."""
+        args = _args(dev_json="my/dev.json", db_dir="my/dbs")
+        args.mode, args.only, args.resume = None, None, False
+        cmd = resume_command(args, [])
+        assert cmd[cmd.index("--dev-json") + 1] == "my/dev.json"
+        assert cmd[cmd.index("--db-dir") + 1] == "my/dbs"
