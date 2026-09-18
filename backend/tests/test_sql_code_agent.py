@@ -129,8 +129,8 @@ class TestDefaultFewShots:
 
         # The prompt sent to the LLM should embed the default examples.
         sent_prompt = agent.llm.invoke.call_args[0][0][1].content
-        assert "AVG(t2.consumption) / 12" in sent_prompt   # grain/formula example
-        assert "ORDER BY SUM(t2.consumption) ASC" in sent_prompt
+        assert "AVG(t2.usage_units) / 12" in sent_prompt   # grain/formula example
+        assert "ORDER BY SUM(t2.usage_units) ASC" in sent_prompt
 
     def test_cache_fewshots_take_precedence(self):
         agent = _agent("sqlite")
@@ -139,7 +139,7 @@ class TestDefaultFewShots:
                        few_shots=["CACHED_EXAMPLE_X"], history=[])
         sent_prompt = agent.llm.invoke.call_args[0][0][1].content
         assert "CACHED_EXAMPLE_X" in sent_prompt
-        assert "AVG(t2.consumption) / 12" not in sent_prompt
+        assert "AVG(t2.usage_units) / 12" not in sent_prompt
 
 
 # ── ReAct regenerate (refine on execution observation) ────────────────────────
@@ -214,7 +214,7 @@ class TestEvidenceHandling:
     def test_default_fewshot_has_exact_date_match_and_nullif(self):
         from backend.agents.sql_code_agent import DEFAULT_FEWSHOTS
         joined = "\n".join(DEFAULT_FEWSHOTS).lower()
-        assert "date = '201208'" in joined          # exact-value date match
+        assert "period = '201208'" in joined        # exact-value date match
         assert "nullif(" in joined                  # computed filter guarded
         assert "price / nullif" in joined
 
@@ -278,7 +278,7 @@ class TestCompositionalCoverage:
         joined = "\n".join(DEFAULT_FEWSHOTS)
         assert "HAVING COUNT(" in joined
         assert "EXCEPT" in joined
-        assert "t2.link_to_member = t3.member_id" in joined   # bridge join through junction
+        assert "t2.link_to_attendee = t3.attendee_id" in joined  # bridge join through junction
         assert "'Women''s Soccer'" in joined                  # escaped value
 
     def test_reranker_prompt_mentions_having_and_bridge(self):
