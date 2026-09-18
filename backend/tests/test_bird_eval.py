@@ -949,3 +949,115 @@ class TestSelectQuestions:
             subset=1, sample="stratified", seed=3, refine=False,
         )
         assert len(results) == 1
+
+
+# ── GH#126: schema caching and progress visibility ──────────────────────────────
+
+class TestSchemaCacheAndProgress:
+    """
+    A run that prints nothing between result lines cannot be told apart from a
+    hung one. These pin the per-question announcements and the schema cache.
+    """
+
+    def _agents(self):
+        sql_agent = MagicMock()
+        sql_agent.generate.return_value = ["SELECT COUNT(*) FROM players"]
+        sql_agent.rerank.return_value = "SELECT COUNT(*) FROM players"
+        sql_agent.top_k = 7
+        validator = MagicMock()
+        validator.validate.return_value = {"valid": True, "error": None}
+        return sql_agent, validator
+
+    def test_the_schema_is_extracted_once_per_database(
+            self, dev_json: str, db_dir_with_test_db: str):
+        """Both questions in the fixture share a database; the second must hit
+        the cache rather than re-scanning every text column."""
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        sql_agent, validator = self._agents()
+        with patch.object(B, "extract_sqlite_schema",
+                          wraps=B.extract_sqlite_schema) as spy:
+            results = run_bird_eval(
+                dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+                sql_agent=sql_agent, validator=validator, refine=False)
+        assert len(results) == 2
+        assert spy.call_count == 1, "the schema was re-extracted per question"
+
+    def test_the_cache_is_keyed_on_the_path_not_the_db_name(self, tmp_path: Path):
+        """Two copies of a database under different paths are different
+        schemas as far as a run is concerned."""
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        made = []
+        for name in ("a", "b"):
+            p = tmp_path / f"{name}.sqlite"
+            conn = sqlite3.connect(p)
+            conn.execute(f"CREATE TABLE t_{name} (id INTEGER PRIMARY KEY)")
+            conn.commit()
+            conn.close()
+            made.append(str(p))
+        first = B.cached_sqlite_schema(made[0])
+        second = B.cached_sqlite_schema(made[1])
+        assert first != second
+        assert len(B._SCHEMA_CACHE) == 2
+
+    def test_a_cache_hit_returns_the_identical_string(self, tmp_path: Path):
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        p = tmp_path / "one.sqlite"
+        conn = sqlite3.connect(p)
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.commit()
+        conn.close()
+        assert B.cached_sqlite_schema(str(p)) == B.cached_sqlite_schema(str(p))
+
+    def test_extraction_failure_is_not_cached_as_success(self, tmp_path: Path):
+        """A missing database must keep raising, not poison the cache with an
+        empty schema that every later question would silently accept."""
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        missing = str(tmp_path / "nope.sqlite")
+        with pytest.raises(FileNotFoundError):
+            B.cached_sqlite_schema(missing)
+        assert missing not in B._SCHEMA_CACHE
+
+    def test_each_question_announces_itself_before_the_work(
+            self, dev_json: str, db_dir_with_test_db: str, caplog):
+        """The line that tells a slow question from a hung one."""
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        sql_agent, validator = self._agents()
+        with caplog.at_level("INFO", logger="backend.eval.bird"):
+            run_bird_eval(
+                dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+                sql_agent=sql_agent, validator=validator, subset=1, refine=False)
+        text = caplog.text
+        assert "START qid=" in text
+        assert "tier=simple" in text
+        assert "generating" in text
+
+    def test_the_start_line_names_the_tier(
+            self, dev_json: str, db_dir_with_test_db: str, caplog):
+        """Tier drives the candidate count (challenging is 7 against simple's
+        2), which is the main reason a challenging run feels stalled."""
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        sql_agent, validator = self._agents()
+        with caplog.at_level("INFO", logger="backend.eval.bird"):
+            run_bird_eval(
+                dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+                sql_agent=sql_agent, validator=validator,
+                difficulty_filter="moderate", refine=False)
+        assert "tier=moderate" in caplog.text
+
+    def test_the_budget_is_shown_when_one_is_set(
+            self, dev_json: str, db_dir_with_test_db: str, caplog):
+        import backend.eval.bird as B
+        B._SCHEMA_CACHE.clear()
+        sql_agent, validator = self._agents()
+        with caplog.at_level("INFO", logger="backend.eval.bird"):
+            run_bird_eval(
+                dev_json_path=dev_json, db_dir=db_dir_with_test_db,
+                sql_agent=sql_agent, validator=validator, subset=1,
+                question_timeout=90.0, refine=False)
+        assert "budget=90s" in caplog.text
