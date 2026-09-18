@@ -972,16 +972,21 @@ class TestSchemaCacheAndProgress:
             self, dev_json: str, db_dir_with_test_db: str):
         """Both questions in the fixture share a database; the second must hit
         the cache rather than re-scanning every text column."""
-        import backend.eval.bird as B
-        B._SCHEMA_CACHE.clear()
+        from backend.eval.db_backends import SqliteBackend
         sql_agent, validator = self._agents()
-        with patch.object(B, "extract_sqlite_schema",
-                          wraps=B.extract_sqlite_schema) as spy:
+        backend = SqliteBackend(db_dir_with_test_db)
+        with patch.object(SqliteBackend, "_distinct",
+                          wraps=SqliteBackend._distinct) as spy:
             results = run_bird_eval(
                 dev_json_path=dev_json, db_dir=db_dir_with_test_db,
-                sql_agent=sql_agent, validator=validator, refine=False)
+                sql_agent=sql_agent, validator=validator, refine=False,
+                backend=backend)
         assert len(results) == 2
-        assert spy.call_count == 1, "the schema was re-extracted per question"
+        # Value grounding runs once per text column per EXTRACTION. Both
+        # questions share a database, so a second extraction would double it.
+        first_pass = spy.call_count
+        backend.schema("test_db")
+        assert spy.call_count == first_pass, "the schema was re-extracted"
 
     def test_the_cache_is_keyed_on_the_path_not_the_db_name(self, tmp_path: Path):
         """Two copies of a database under different paths are different

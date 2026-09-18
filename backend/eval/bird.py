@@ -66,6 +66,9 @@ import sqlglot
 
 from backend.agents import usage as usage_tracking
 from backend.agents.utils import estimate_tokens
+from backend.eval.db_backends import (
+    ENGINES, Backend, as_backend, execute_sqlite_path, make_backend,
+)
 from backend.eval.error_analysis import categorize, summarize
 
 logger = logging.getLogger(__name__)
@@ -433,65 +436,19 @@ class _Budget:
 
 # ── SQLite execution with timeout ─────────────────────────────────────────────
 
-def execute_sqlite(
-    sql: str,
-    db_path: str,
-    timeout: float = 30.0,
-) -> Tuple[List[tuple], Optional[str], float]:
+def execute_sqlite(sql: str, db_path: str, timeout: float = 30.0,
+                   ) -> Tuple[List[tuple], Optional[str], float]:
     """
     Execute SQL against a SQLite database file.
+
+    Kept as the path-based entry point; :mod:`backend.eval.db_backends` holds
+    the single implementation so the engine-agnostic loop and this cannot drift.
 
     Returns
     -------
     (rows, error, elapsed_seconds)
-        rows    — list of result tuples (empty on error or no results)
-        error   — error message string, or None on success
-        elapsed — wall-clock execution time in seconds
     """
-
-    conn = sqlite3.connect(db_path)
-    t0 = time.perf_counter()
-    deadline = t0 + max(timeout, 0.0)
-
-    # GH#128: abort through SQLite itself rather than around it.
-    #
-    # This used to submit the query to a ThreadPoolExecutor and give up on the
-    # future after `timeout`. That reported a timeout without causing one: the
-    # `with` block's __exit__ calls shutdown(wait=True), which JOINS the worker
-    # — and sqlite3.execute() cannot be interrupted from Python, so the call
-    # returned "Query timed out after 3.0s" and then sat there for as long as
-    # the query actually took. Measured: a 3s timeout blocking 15.6s.
-    #
-    # It compounds: execution voting runs up to five candidates, and a
-    # generated query over a large table (a CTE plus a correlated subquery on
-    # codebase_community's posts, say) can take minutes EACH, with nothing
-    # printed. That is the "console frozen on challenging questions" symptom.
-    #
-    # A progress handler runs inside SQLite's virtual machine every N
-    # instructions; returning non-zero aborts the statement and raises
-    # OperationalError("interrupted"). Real cancellation, no thread, and the
-    # connection is closed promptly instead of being held by a live worker.
-    def _past_deadline() -> int:
-        return 1 if time.perf_counter() > deadline else 0
-
-    try:
-        if timeout and timeout > 0:
-            # ~10k VM instructions between checks: fine-grained enough that the
-            # overshoot is milliseconds, coarse enough not to slow the query.
-            conn.set_progress_handler(_past_deadline, 10_000)
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        rows = cursor.fetchall()
-        return rows, None, time.perf_counter() - t0
-    except sqlite3.OperationalError as exc:
-        if "interrupted" in str(exc).lower():
-            return [], f"Query timed out after {timeout}s", timeout
-        return [], str(exc), 0.0
-    except Exception as exc:
-        return [], str(exc), 0.0
-    finally:
-        conn.set_progress_handler(None, 0)
-        conn.close()
+    return execute_sqlite_path(sql, db_path, timeout)
 
 
 # ── Metric helpers ─────────────────────────────────────────────────────────────
@@ -663,10 +620,11 @@ def gold_to_sqlite(gold_sql: str) -> Optional[str]:
 
 def select_by_execution(
     candidates: List[str],
-    db_path: str,
+    backend: Any,
     validator: Any,
     schema_context: str,
     timeout: float = 30.0,
+    db_id: str = "",
 ) -> Tuple[Optional[str], Dict[str, Any]]:
     """
     Pick the best SQL candidate by EXECUTING them and voting on the results.
@@ -680,6 +638,7 @@ def select_by_execution(
 
     Returns (winning_sql | None, info) — info is a small diagnostics dict.
     """
+    backend, db_id = as_backend(backend, db_id)
     info: Dict[str, Any] = {
         "candidates": len(candidates), "executed": 0,
         "groups": 0, "winner_votes": 0, "fallback_reason": None,
@@ -697,7 +656,7 @@ def select_by_execution(
             continue
         if not verdict.get("valid"):
             continue  # never execute non-SELECT / unparseable candidates
-        rows, err, _ = execute_sqlite(sql, db_path, timeout)
+        rows, err, _ = backend.execute(sql, db_id, timeout)
         if err:
             continue
         info["executed"] += 1
@@ -763,6 +722,7 @@ def _verification_for(
     sql: str, rows: Any, question: str, evidence: str, schema_context: str,
     query_plan: Optional[dict], validation: Dict[str, Any],
     vote_info: Optional[Dict[str, Any]], refined: bool, judge_llm: Any,
+    dialect: str = "sqlite",
 ) -> Dict[str, Any]:
     """
     GH#103: the live pipeline's verification block, assembled for one BIRD
@@ -801,8 +761,8 @@ def _verification_for(
         out = risk_mod.assess(
             sql=sql, rows=rows, question=question,
             schema_context=schema_context, query_plan=query_plan,
-            tables=referenced_tables(sql, "sqlite"),
-            value_index=None,          # PostgreSQL-only; BIRD runs on SQLite
+            tables=referenced_tables(sql, dialect),
+            value_index=None,          # live-path feature; the harness has none
         )
         ev["risks"] = out.get("risks") or []
         ev["risk_score"] = out.get("risk_score", 0)
@@ -825,7 +785,7 @@ def _verification_for(
 
 def run_bird_eval(
     dev_json_path: str,
-    db_dir: str,
+    db_dir: Optional[str],
     sql_agent: Any,
     validator: Any,
     subset: Optional[int] = None,
@@ -840,6 +800,7 @@ def run_bird_eval(
     question_timeout: Optional[float] = 60.0,
     sample: str = "head",
     seed: int = 42,
+    backend: Optional[Backend] = None,
 ) -> List[Dict]:
     """
     Run BIRD evaluation and return a list of per-question result dicts.
@@ -883,6 +844,11 @@ def run_bird_eval(
     seed             : RNG seed for "random" and "stratified", so a subset is
                        reproducible
     """
+    # GH#129: an engine is a property of the RUN. Defaulting here keeps every
+    # existing caller (and every test) on SQLite unless it asks otherwise.
+    if backend is None:
+        backend = make_backend("sqlite", db_dir=db_dir)
+
     all_questions = load_dev_json(dev_json_path)
     questions = select_questions(
         all_questions, difficulty_filter, db_filter, subset, sample, seed)
@@ -937,11 +903,6 @@ def run_bird_eval(
                     f" budget={question_timeout:g}s"
                     if question_timeout and question_timeout > 0 else "")
 
-        # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
-        db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
-        if not Path(db_path).exists():
-            db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
-
         # ── Schema ───────────────────────────────────────────────────────────
         # Deliberately NOT under the question budget. Extraction is local
         # SQLite work, not a network call, and it is the one stage whose cost
@@ -952,7 +913,7 @@ def run_bird_eval(
         # The cache below is what actually fixes the cost; the log line is what
         # makes it visible instead of looking like a hang.
         try:
-            schema_context = cached_sqlite_schema(db_path)
+            schema_context = backend.schema(db_id)
         except Exception as exc:
             logger.error(f"[BIRD] Schema extraction failed for db={db_id}: {exc}")
             results.append(
@@ -998,7 +959,8 @@ def run_bird_eval(
                 return "", None
             if exec_voting:
                 winner, v_info = select_by_execution(
-                    candidates, db_path, validator, schema_context, timeout
+                    candidates, backend, validator, schema_context, timeout,
+                    db_id=db_id
                 )
                 if winner:
                     return winner, v_info
@@ -1051,12 +1013,12 @@ def run_bird_eval(
         gen_ms = int((time.perf_counter() - t_gen) * 1000)
 
         # ── Execute gold (with dialect repair when the gold isn't SQLite) ────
-        gold_rows, gold_error, gold_elapsed = execute_sqlite(gold_sql, db_path, timeout)
+        gold_rows, gold_error, gold_elapsed = backend.execute(gold_sql, db_id, timeout)
         gold_transpiled = False
         if gold_error:
             fixed = gold_to_sqlite(gold_sql)
             if fixed and fixed != gold_sql:
-                rows_f, err_f, el_f = execute_sqlite(fixed, db_path, timeout)
+                rows_f, err_f, el_f = backend.execute(fixed, db_id, timeout)
                 if not err_f:
                     logger.warning(
                         f"[BIRD] qid={qid} gold errored on SQLite "
@@ -1076,7 +1038,7 @@ def run_bird_eval(
             err: Optional[str] = None
             elapsed: float = 0.0
             if sql and v.get("valid") and not gold_error:
-                rows, err, elapsed = execute_sqlite(sql, db_path, timeout)
+                rows, err, elapsed = backend.execute(sql, db_id, timeout)
             return v, rows, err, elapsed
 
         validation, pred_rows, pred_error, pred_elapsed = _attempt(pred_sql)
@@ -1173,6 +1135,7 @@ def run_bird_eval(
             evidence=evidence, schema_context=schema_context,
             query_plan=query_plan, validation=validation,
             vote_info=vote_info, refined=refined, judge_llm=judge_for_q,
+            dialect=backend.dialect,
         )
 
         record: Dict[str, Any] = {
@@ -1338,8 +1301,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--dev-json", required=True,
                         help="Path to BIRD dev.json")
-    parser.add_argument("--db-dir", required=True,
-                        help="Root directory containing {db_id}/{db_id}.db SQLite files")
+    parser.add_argument("--db-dir", default=None,
+                        help="Root directory containing {db_id}/{db_id}.sqlite "
+                             "files. Required for --engine sqlite; ignored by "
+                             "--engine postgres, which reads one database.")
     parser.add_argument("--output", default="outputs/bird_results.json",
                         help="Output JSON path (default: outputs/bird_results.json)")
     parser.add_argument("--subset", type=int, default=None,
@@ -1357,6 +1322,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
+    parser.add_argument("--engine", choices=ENGINES, default="postgres",
+                        help="Where the SQL runs (GH#129). 'postgres' is the "
+                             "default and expects BIRD's PostgreSQL dump loaded "
+                             "into ONE database, with mini_dev_postgresql.json "
+                             "as --dev-json. 'sqlite' is the original path and "
+                             "needs --db-dir. An engine is a property of the RUN: "
+                             "EX compares your rows with the gold rows, so both "
+                             "must come from the same engine.")
+    parser.add_argument("--pg-dbname", default=None,
+                        help="PostgreSQL database holding the BIRD tables "
+                             "(default: $BIRD_PG_DBNAME, else db.name in config)")
+    parser.add_argument("--pg-host", default=None, help="default: db.host in config")
+    parser.add_argument("--pg-port", default=None, type=int, help="default: db.port")
+    parser.add_argument("--pg-user", default=None, help="default: db.user in config")
+    parser.add_argument("--pg-schema", default="public",
+                        help="PostgreSQL schema holding the tables (default: public)")
     parser.add_argument("--sample", choices=SAMPLE_STRATEGIES, default="head",
                         help="GH#120: how --subset picks questions. dev.json is "
                              "GROUPED BY DATABASE, so 'head' (the default, and "
@@ -1422,8 +1403,35 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     config = load_config()
-    # Override dialect to sqlite so the agent and validator target SQLite syntax
-    bird_config = {**config, "db": {**config.get("db", {}), "dialect": "sqlite"}}
+
+    # ── Engine (GH#129) ──────────────────────────────────────────────────────
+    # The dialect the agents target must be the dialect the rows come from.
+    # Deriving it from the backend rather than hard-coding "sqlite" is what
+    # lets one harness serve both without a second code path.
+    db_cfg = config.get("db", {})
+    if args.engine == "postgres":
+        dsn = {
+            "host": args.pg_host or db_cfg.get("host") or "127.0.0.1",
+            "port": int(args.pg_port or db_cfg.get("port") or 5432),
+            "user": args.pg_user or db_cfg.get("user") or "postgres",
+            "dbname": (args.pg_dbname or os.getenv("BIRD_PG_DBNAME")
+                       or db_cfg.get("name") or "bird"),
+        }
+        password = db_cfg.get("password") or os.getenv("PG_PASSWORD")
+        if password:
+            dsn["password"] = password
+        backend = make_backend("postgres", dsn=dsn, schema_name=args.pg_schema)
+        logger.info("[EVAL] engine=postgres db=%s schema=%s host=%s:%s",
+                    dsn["dbname"], args.pg_schema, dsn["host"], dsn["port"])
+    else:
+        if not args.db_dir:
+            print("[BIRD] --engine sqlite requires --db-dir", file=sys.stderr)
+            return 2
+        backend = make_backend("sqlite", db_dir=args.db_dir)
+        logger.info("[EVAL] engine=sqlite db_dir=%s", args.db_dir)
+
+    bird_config = {**config,
+                   "db": {**db_cfg, "dialect": backend.dialect}}
 
     model_name = resolve_model(args.model, config)
     base_url = resolve_base_url(config, args.base_url)
@@ -1518,6 +1526,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         difficulty_filter=args.difficulty,
         db_filter=args.db_id,
         timeout=args.timeout,
+        backend=backend,
         linker=linker,
         exec_voting=use_voting,
         refine=use_refine,
@@ -1540,7 +1549,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "judge_model": (args.judge_model or model_name) if args.trust_eval else None,
         "judge_base_url": ((args.judge_base_url or base_url or "openai-default")
                            if args.trust_eval else None),
-        "dialect": "sqlite",
+        "engine": args.engine,
+        "dialect": backend.dialect,
+        "pg_dbname": (backend.dsn.get("dbname")
+                      if args.engine == "postgres" else None),
+        "pg_schema": args.pg_schema if args.engine == "postgres" else None,
         "schema_linking": bool(linker),
         "exec_voting": use_voting,
         "refine": use_refine,
