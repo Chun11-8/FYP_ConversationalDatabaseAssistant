@@ -17,6 +17,31 @@ from backend.agents.sql_code_agent import SQLCodeAgent
 from backend.agents.safety import BLOCKED as _BLOCKED, SQL_INJECTION as _SQL_INJECTION
 
 
+_TABLE_DECL = _re.compile(
+    r"(?:^|\n)\s*(?:#\s*)?Table:\s*([A-Za-z_][\w]*)|CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"[\"`\[]?([A-Za-z_][\w]*)", _re.IGNORECASE)
+
+
+def schema_table_names(schema_context: str, limit: int = 40) -> List[str]:
+    """
+    The table names a schema context declares, for error messages (GH#123).
+
+    Covers both renderings in use: the BIRD harness emits ``Table: name``
+    (`eval/bird.py::extract_sqlite_schema`), the live M-Schema path emits
+    ``# Table: name`` (`retrieval/embedding.py`), and a raw DDL context emits
+    ``CREATE TABLE name``. Best-effort by design — an empty result just means
+    the hint is omitted, never that validation changes.
+    """
+    names: List[str] = []
+    for m in _TABLE_DECL.finditer(schema_context or ""):
+        name = m.group(1) or m.group(2)
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
 def _boundary_pattern(name: str) -> str:
     r"""
     A regex that finds `name` in a schema string without matching it as part of
@@ -197,7 +222,15 @@ class SQLValidatorAgent:
                 if not _re.search(_boundary_pattern(t), schema_lower)
             ]
             if missing_tables:
-                return False, f"Tables not found in schema: {missing_tables}"
+                # Name what IS available. Without it the message is unactionable
+                # and actively misleading: the table usually exists somewhere,
+                # just not in THIS question's schema — a few-shot example or
+                # another database is the usual source. The refine round feeds
+                # this string straight back to the model as its observation
+                # (eval/bird.py), so the list is what lets it self-correct.
+                available = schema_table_names(schema_context)
+                hint = f". Schema has: {available}" if available else ""
+                return False, f"Tables not found in schema: {missing_tables}{hint}"
 
             # ── Column check (word-boundary; alias/CTE-derived names skipped) ──
             columns_in_sql = {

@@ -238,8 +238,9 @@ class TestPromptPacks:
 
     def test_new_fewshots_present_and_valid_sqlite(self):
         joined = "\n".join(DEFAULT_FEWSHOTS)
-        assert "first_name, t2.last_name" in joined or "first_name,\n" in joined \
-            or "t2.first_name, t2.last_name" in joined
+        # GH#123: the neutral schema renames these, but the LESSON is the same —
+        # two columns selected separately, never concatenated into one.
+        assert "t2.given_name, t2.family_name" in joined
         assert "CASE WHEN" in joined
         for fs in DEFAULT_FEWSHOTS:
             sql = re.search(r"```sql\n(.*?)```", fs, re.DOTALL).group(1).strip()
