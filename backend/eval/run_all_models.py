@@ -60,7 +60,7 @@ MODELS: Dict[str, str] = {
     "deepseekV4Flash": "deepseek/deepseek-v4-flash",
 }
 
-DEV_JSON = "dataset/minidev/MINIDEV/mini_dev_sqlite.json"
+DEV_JSON = "dataset/minidev/MINIDEV/mini_dev_postgresql.json"
 DB_DIR = "dataset/minidev/MINIDEV/dev_databases"
 
 
