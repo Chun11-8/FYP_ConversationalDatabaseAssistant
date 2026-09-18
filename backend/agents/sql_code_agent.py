@@ -315,6 +315,44 @@ def _double_interior_apostrophes(sql: str) -> str:
 #      not a year-only SUBSTR) and a FORMULA used in WHERE (Price / Amount > 29).
 # Kept in sync with prompt.md [SECTION: FEW_SHOT_TEMPLATE].
 
+# GH#130: what actually differs between the dialects we target.
+#
+# "Target SQL dialect: POSTGRES" was the only dialect signal in a ~4,000-token
+# prompt, and it is not enough. BIRD is overwhelmingly a SQLite benchmark in
+# training data, so a model writes SQLite by habit — `strftime('%Y', Birthday)`
+# is copied verbatim from BIRD's own thrombosis gold and is not a PostgreSQL
+# function at all. Naming the equivalent is far more effective than naming the
+# dialect.
+#
+# Kept to constructs that actually appear in this workload: date extraction,
+# the boolean-as-integer idiom, and identifier quoting. A long dialect tutorial
+# would dilute the decomposition method the rest of the prompt teaches.
+DIALECT_NOTES: Dict[str, str] = {
+    "postgres": (
+        "POSTGRES DIALECT — these differ from SQLite and are the common errors here:\n"
+        "- NO `strftime`. Year from a date is `EXTRACT(YEAR FROM col)`; a formatted\n"
+        "  string is `TO_CHAR(col, 'YYYY-MM')`. An age in years is\n"
+        "  `EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_col))`.\n"
+        "- NO `IIF(a,b,c)` — write `CASE WHEN a THEN b ELSE c END`.\n"
+        "- NO `julianday()`. A day difference between dates is `(a::date - b::date)`.\n"
+        "- A comparison is a BOOLEAN, not 0/1: `SUM(col = 'x')` is a type error.\n"
+        "  Write `SUM(CASE WHEN col = 'x' THEN 1 ELSE 0 END)` or\n"
+        "  `COUNT(*) FILTER (WHERE col = 'x')`.\n"
+        "- `SUBSTR` on a DATE/TIMESTAMP column needs a cast first:\n"
+        "  `SUBSTR(col::text, 1, 4)`, or better `EXTRACT(YEAR FROM col)`.\n"
+        "- Unquoted identifiers FOLD TO LOWERCASE. A column the schema shows as\n"
+        "  `CDSCode` or `Enrollment (K-12)` must be written double-quoted exactly\n"
+        "  as shown — `\"CDSCode\"`, `\"Enrollment (K-12)\"` — or it will not be found.\n"
+        "- Integer division truncates, so keep `CAST(... AS REAL)` on every ratio.\n"
+    ),
+    "sqlite": (
+        "SQLITE DIALECT — `strftime('%Y', col)` for a year, `IIF(a,b,c)` or\n"
+        "`CASE WHEN`, and a comparison yields 0/1 so `SUM(col = 'x')` is valid.\n"
+        "Integer division truncates, so keep `CAST(... AS REAL)` on every ratio.\n"
+    ),
+}
+
+
 # GH#123: these examples teach JOIN/grain/evidence PATTERNS, and they are shown
 # to every question in every database — the BIRD harness passes few_shots=[], so
 # generate() substitutes this list unconditionally. They were previously written
@@ -942,6 +980,10 @@ class SQLCodeAgent:
         # A reasoning-path override (GH#48) replaces the tier block entirely.
         strategy = strategy_override or TIER_STRATEGIES.get(tier or "")
         strategy_section = f"\n{strategy}\n" if strategy else ""
+        # GH#130: an unknown dialect contributes nothing rather than
+        # guessing — wrong dialect advice is worse than none.
+        notes = DIALECT_NOTES.get((self.dialect or "").lower(), "")
+        dialect_notes = f"\n{notes}" if notes else ""
         # GH#40: the session's last validated SQL — follow-ups usually REFINE it.
         prev_section = (
             f"\n<previous_sql>\n{previous_sql.strip()}\n</previous_sql>\n"
@@ -971,7 +1013,7 @@ class SQLCodeAgent:
 </user_question>
 
 Target SQL dialect: {dialect}
-{strategy_section}
+{dialect_notes}{strategy_section}
 Decompose the question silently before writing SQL:
 1. FINAL VALUE: exactly what to return. If a <domain_context>/evidence FORMULA is
    given (e.g. "= AVG(consumption)/12"), copy it VERBATIM — do not reinterpret it.

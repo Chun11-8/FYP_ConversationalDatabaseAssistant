@@ -223,3 +223,120 @@ class TestPostgresBackend:
         assert pg_backend.verify_layout(["molecule", "bond"]) == []
         problems = pg_backend.verify_layout(["absent_table"])
         assert problems and "absent_table" in problems[0]
+
+
+# ── GH#130/131: dialect correctness ───────────────────────────────────────────
+
+class TestDialectNotes:
+    """
+    "Target SQL dialect: POSTGRES" was the only dialect signal in a ~4,000-token
+    prompt, and a model writes SQLite by habit — BIRD is overwhelmingly a SQLite
+    benchmark in training data, and `strftime('%Y', Birthday)` appears verbatim
+    in its thrombosis gold. Naming the equivalents is what actually helps.
+
+    Every rule asserted here was verified against a live PostgreSQL 16 server:
+    the SQLite forms raise "function ... does not exist", the replacements run.
+    """
+
+    def test_postgres_notes_name_the_functions_that_do_not_exist(self):
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        notes = DIALECT_NOTES["postgres"]
+        for absent in ("strftime", "IIF", "julianday"):
+            assert absent in notes, f"{absent} is not flagged"
+
+    def test_postgres_notes_give_a_replacement_for_each(self):
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        notes = DIALECT_NOTES["postgres"]
+        for replacement in ("EXTRACT(YEAR FROM", "CASE WHEN", "::date"):
+            assert replacement in notes
+
+    def test_the_boolean_sum_trap_is_covered(self):
+        """`SUM(col = 'x')` is valid SQLite and a type error in PostgreSQL —
+        and it is what the generator actually produced."""
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        notes = DIALECT_NOTES["postgres"]
+        assert "SUM(col = 'x')" in notes
+        assert "SUM(CASE WHEN" in notes or "FILTER (WHERE" in notes
+
+    def test_identifier_folding_is_covered(self):
+        """Unquoted identifiers fold to lowercase, so BIRD's mixed-case columns
+        must be quoted or they are simply not found."""
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        assert "LOWERCASE" in DIALECT_NOTES["postgres"].upper()
+
+    def test_an_unknown_dialect_contributes_nothing(self):
+        """Wrong dialect advice is worse than none."""
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        assert DIALECT_NOTES.get("mysql") is None
+
+    def test_the_notes_reach_the_generation_prompt(self):
+        from unittest.mock import MagicMock
+        from backend.agents.sql_code_agent import SQLCodeAgent
+        for dialect, expect in (("postgres", "NO `strftime`"),
+                                ("sqlite", "strftime('%Y', col)")):
+            llm = MagicMock()
+            llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+            agent = SQLCodeAgent({"db": {"dialect": dialect},
+                                  "logging": {"pipeline_trace": False}}, llm)
+            agent.generate(query="q", schema_context="s", few_shots=[], history=[])
+            prompt = llm.invoke.call_args[0][0][1].content
+            assert f"Target SQL dialect: {dialect.upper()}" in prompt
+            assert expect in prompt
+
+
+class TestGoldDialectPreflight:
+    """
+    Pairing --engine postgres with mini_dev_sqlite.json fails QUIETLY: gold that
+    cannot execute is recorded as gold_error, and compute_bird_metrics drops
+    gold_error questions from the EX denominator. The run reports a plausible
+    score over whatever survived. Hence a hard stop, not a warning.
+    """
+
+    SQLITE_GOLD = [
+        {"question_id": 7, "db_id": "thrombosis_prediction", "SQL":
+         "SELECT strftime('%Y', CURRENT_TIMESTAMP) - strftime('%Y', Birthday) FROM Patient"},
+        {"question_id": 8, "db_id": "x", "SQL": "SELECT IIF(a=1,'y','n') FROM t"},
+        {"question_id": 9, "db_id": "y", "SQL": "SELECT julianday(d) FROM t"},
+    ]
+    PG_GOLD = [
+        {"question_id": 7, "db_id": "thrombosis_prediction", "SQL":
+         'SELECT EXTRACT(YEAR FROM AGE(CURRENT_DATE, "Birthday")) FROM "Patient"'},
+    ]
+
+    def test_sqlite_gold_on_postgres_is_reported(self):
+        from backend.eval.bird import gold_dialect_problems
+        problems = gold_dialect_problems(self.SQLITE_GOLD, "postgres")
+        assert len(problems) == 3
+        joined = " ".join(problems)
+        for name in ("strftime", "IIF", "julianday"):
+            assert name in joined
+
+    def test_the_message_names_a_concrete_question(self):
+        """A count alone is not actionable — the first offender lets the file
+        be identified immediately."""
+        from backend.eval.bird import gold_dialect_problems
+        problems = gold_dialect_problems(self.SQLITE_GOLD, "postgres")
+        assert "question_id=7" in problems[0]
+        assert "thrombosis_prediction" in problems[0]
+
+    def test_postgres_gold_passes(self):
+        from backend.eval.bird import gold_dialect_problems
+        assert gold_dialect_problems(self.PG_GOLD, "postgres") == []
+
+    def test_sqlite_engine_is_never_blocked_by_its_own_gold(self):
+        from backend.eval.bird import gold_dialect_problems
+        assert gold_dialect_problems(self.SQLITE_GOLD, "sqlite") == []
+
+    def test_detection_is_case_insensitive(self):
+        from backend.eval.bird import gold_dialect_problems
+        upper = [{"question_id": 1, "db_id": "d",
+                  "SQL": "SELECT STRFTIME('%Y', x) FROM t"}]
+        assert gold_dialect_problems(upper, "postgres")
+
+    def test_a_column_merely_named_like_a_function_is_not_flagged(self):
+        """The pattern requires a call, so a column called `strftime_result`
+        does not trip it."""
+        from backend.eval.bird import gold_dialect_problems
+        ok = [{"question_id": 1, "db_id": "d",
+               "SQL": "SELECT strftime_result FROM t"}]
+        assert gold_dialect_problems(ok, "postgres") == []

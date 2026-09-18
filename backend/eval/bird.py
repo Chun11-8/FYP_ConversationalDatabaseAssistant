@@ -240,6 +240,50 @@ def extract_sqlite_schema(db_path: str) -> str:
         conn.close()
 
 
+# ── Gold-dialect preflight (GH#131) ───────────────────────────────────────────
+
+# Functions that exist in SQLite and NOT in PostgreSQL. Verified against a live
+# PostgreSQL 16 server rather than from memory: each of these raises
+# "function ... does not exist" there.
+_SQLITE_ONLY = (
+    (r"\bstrftime\s*\(", "strftime(...)", "EXTRACT(YEAR FROM col) / TO_CHAR(col, 'YYYY')"),
+    (r"\bjulianday\s*\(", "julianday(...)", "(a::date - b::date)"),
+    (r"\biif\s*\(", "IIF(...)", "CASE WHEN ... THEN ... ELSE ... END"),
+)
+
+
+def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
+    """
+    Gold SQL that cannot run on *engine*, as human-readable strings (GH#131).
+
+    BIRD ships two question files: mini_dev_sqlite.json and
+    mini_dev_postgresql.json, differing in the dialect of the `SQL` field.
+    Pairing --engine postgres with the SQLite file is an easy mistake and a
+    quiet one, which is why this is a hard stop rather than a warning:
+
+    gold that fails to execute is recorded as `gold_error`, and
+    compute_bird_metrics treats a gold_error question as UNWINNABLE and drops
+    it from the denominator. So the run would not look broken — it would report
+    a plausible EX over whichever questions happened to survive, and the
+    summary's "UNWINNABLE" count is the only clue. A benchmark that silently
+    scores a subset is worse than one that refuses to start.
+    """
+    if (engine or "").lower() != "postgres":
+        return []
+    problems: List[str] = []
+    for pattern, name, replacement in _SQLITE_ONLY:
+        hits = [q for q in questions
+                if re.search(pattern, q.get("SQL") or "", re.IGNORECASE)]
+        if hits:
+            example = next(iter(hits))
+            problems.append(
+                f"{len(hits)} gold quer{'y' if len(hits) == 1 else 'ies'} use "
+                f"{name}, which PostgreSQL does not have (use {replacement}). "
+                f"First: question_id={example.get('question_id')} "
+                f"db={example.get('db_id')}")
+    return problems
+
+
 # ── Question selection (GH#120) ───────────────────────────────────────────────
 
 SAMPLE_STRATEGIES = ("head", "random", "stratified")
@@ -1516,6 +1560,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         judge_llm = build_for_target(judge_target)
         logger.info("[BIRD] trust eval: ON | judge → %s",
                     describe_target(judge_model, judge_target.base_url))
+
+    # GH#131: stop before spending anything if the gold cannot run on this
+    # engine. Inside the loop this would be worthless — every question would
+    # already have been generated and paid for.
+    gold_problems = gold_dialect_problems(load_dev_json(args.dev_json), args.engine)
+    if gold_problems:
+        print(f"\n[BIRD] --engine {args.engine} but the gold SQL in "
+              f"{args.dev_json} is SQLite dialect:", file=sys.stderr)
+        for problem in gold_problems:
+            print(f"  - {problem}", file=sys.stderr)
+        print("\n  Use BIRD's PostgreSQL question file "
+              "(mini_dev_postgresql.json) with --engine postgres,\n"
+              "  or run --engine sqlite --db-dir <dev_databases> with the "
+              "SQLite one.\n"
+              "  Not a warning: gold that fails to execute is recorded as "
+              "gold_error, and those\n"
+              "  questions are dropped from the EX denominator — the run would "
+              "report a plausible\n  score over whatever survived.",
+              file=sys.stderr)
+        return 2
 
     results = run_bird_eval(
         dev_json_path=args.dev_json,
