@@ -262,7 +262,6 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── bird.py                     # BIRD mini-dev harness (EX / Soft-F1 / VES)
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
-│   │   └── smoke_examples.py           # Self-contained SQLite fixtures
 │   ├── tests/                          # 1287 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
@@ -976,12 +975,12 @@ generator — at a cost of two extra LLM calls per question. Leave it off for
 model comparisons and ablations; switch it on for the one or two runs where
 you want the judge gate scored.
 
-# End-to-end BIRD run (predictions + official EX/F1/VES scoring)
-bash backend/eval/run_bird.sh
+# BIRD run — EX / Soft-F1 / VES, computed by backend/eval/bird.py
+python -m backend.eval.bird --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+    --engine postgres --pg-dbname bird --subset 40 --sample stratified
 
-# Override the model for this run (any OpenAI model id, not just the
-# frontend's allow-list — see backend/eval/bird.py::resolve_model)
-MODEL=gpt-4o bash backend/eval/run_bird.sh
+# All seven models in one command
+python -m backend.eval.run_all_models --difficulty moderate --subset 40
 
 # Or the lightweight ground-truth harness on your own labelled set
 python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP --model gpt-4o
@@ -1099,7 +1098,7 @@ providers — the configuration the literature reports at 0.82 AUROC against
 0.72–0.78 for a single judge. Running both through one gateway (OpenRouter)
 needs only `LLM_API_KEY`.
 
-`--base-url` also works on `bird_predict.py` and `smoke_examples.py`, and can
+`--base-url` also works on the other eval CLIs, and can
 be set once via `$LLM_BASE_URL` or `llm.base_url` in `config.yaml`. Each run
 records both `model` and `base_url` in the results file's `run_config` — the
 same model id served by two providers can differ in weights, quantisation and

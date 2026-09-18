@@ -1,180 +1,35 @@
 # Benchmarking the system against BIRD (mini-dev)
 
-This guide shows how to score **your** conversational text-to-SQL system against
-the **official** [BIRD mini-dev benchmark](https://github.com/bird-bench/mini_dev).
+Scores this text-to-SQL system against the
+[BIRD mini-dev benchmark](https://github.com/bird-bench/mini_dev) using
+`backend/eval/bird.py`, which computes EX, Soft-F1 and VES itself.
 
-There are two ways to do it. Read the difference before you pick one.
+> **Official scoring is no longer wired up.** `bird_predict.py` (which wrote
+> predictions in the official file format) and `run_bird.sh` (which drove the
+> official `evaluation_ex.py` / `_f1.py` / `_ves.py` scorers) were removed in
+> GH#132. What remains is this harness's own re-implementation of the three
+> metrics. It is the right tool for iterating, and for comparing models against
+> each other on identical questions — but a number from it is **not** the same
+> artefact as a leaderboard score, and a write-up should say so. Restoring the
+> official path means re-adding a script that emits `{question_id: sql}` JSON
+> and feeding it to the cloned mini_dev repo.
 
-| | Path A — **Official scoring** (use for the report) | Path B — Quick self-check |
+## Engines
+
+BIRD publishes the benchmark twice, and the gold dialect must match the engine:
+
+| `--engine` | Question file | Data |
 |---|---|---|
-| Scoring code | Official BIRD `evaluation_ex.py` / `evaluation_ves.py` / `evaluation_f1.py` | Our own `backend/eval/bird.py` |
-| Credible for FYP write-up? | ✅ Yes — identical to the leaderboard | ⚠️ Re-implementation, good for iteration |
-| Generates predictions | `backend/eval/bird_predict.py` | built in |
-| Subset / difficulty flags | ❌ (must score full set) | ✅ `--subset`, `--difficulty` |
-| Needs the official repo cloned | ✅ | ❌ |
+| `postgres` (default) | `mini_dev_postgresql.json` | all tables in ONE PostgreSQL database |
+| `sqlite` | `mini_dev_sqlite.json` | `--db-dir` of `{db_id}/{db_id}.sqlite` files |
 
-**Recommendation:** use **Path A** for the numbers you put in your report, and
-**Path B** while iterating on prompts/agents because it's faster and self-contained.
-
-> **One-command shortcut:** once the dataset is downloaded and the official repo
-> is cloned, `backend/eval/run_bird.sh` does all of Path A (generate predictions
-> → score EX + F1 + VES) in a single run. See [TL;DR](#tldr--one-command-path-a) below.
+Pairing `--engine postgres` with the SQLite question file is refused before the
+run starts (GH#131): gold that cannot execute is recorded as `gold_error`, and
+those questions are dropped from the EX denominator, so the run would otherwise
+report a plausible score over whatever survived.
 
 ---
 
-## TL;DR — one command (Path A)
-
-```bash
-# from the repo root, after downloading the data and cloning the official repo
-export OPENAI_API_KEY=sk-your-key
-BIRD_DATA=path/to/mini_dev_data \
-MINI_DEV_REPO=path/to/mini_dev \
-bash backend/eval/run_bird.sh
-```
-
-That script generates predictions with your system and runs all three official
-scorers, writing logs to `<mini_dev>/eval_result/predict_mini_dev_MYSYS_SQLite_{EX,F1,VES}.txt`.
-Useful overrides (all optional):
-
-| Env var | Default | Purpose |
-|---|---|---|
-| `BIRD_DATA` | `./mini_dev_data` | dataset root (questions, gold, dev_databases) |
-| `MINI_DEV_REPO` | `./mini_dev` | cloned official evaluator |
-| `SQL_DIALECT` | `SQLite` | `SQLite` \| `MySQL` \| `PostgreSQL` |
-| `NUM_CPUS` | `4` | parallelism for the scorers |
-| `SKIP_GENERATE` | `0` | set `1` to re-score existing predictions without regenerating |
-
-The sections below explain each step that this wrapper automates.
-
----
-
-## How the official BIRD evaluation actually works
-
-This is the part that confused you. The official evaluator **does not run your
-model.** It only scores a *predictions file* you give it. The flow is:
-
-```
-                 ┌─────────────────────────┐
-  BIRD questions │ mini_dev_sqlite.json     │
-  + SQLite DBs   │ dev_databases/<id>/*.sqlite
-                 └───────────┬─────────────┘
-                             │  (1) bird_predict.py  ← YOUR system runs here
-                             ▼
-                 ┌─────────────────────────┐
-  predictions    │ predict_..._SQLite.json │   {"0":"SELECT ...\t----- bird -----\tdb_id", ...}
-                 └───────────┬─────────────┘
-                             │  (2) official evaluation_ex.py
-                             ▼
-            gold:  mini_dev_sqlite_gold.sql   (one "SQL<TAB>db_id" per line)
-                             ▼
-                      EX / VES / F1 scores
-```
-
-So the only thing your system has to produce is the **predictions JSON** in the
-exact official format. `backend/eval/bird_predict.py` does that.
-
-### The official predictions format
-
-A JSON object keyed by question index (0-based, **in the same order as the gold
-file**). Each value is the predicted SQL, the separator `\t----- bird -----\t`,
-then the `db_id`:
-
-```json
-{
-  "0": "SELECT COUNT(*) FROM schools\t----- bird -----\tcalifornia_schools",
-  "1": "SELECT MAX(T1.rating) FROM ...\t----- bird -----\tfinancial"
-}
-```
-
----
-
-# Path A — Official scoring (step by step)
-
-### Step 1 — Get the dataset
-
-Download the mini-dev data (questions + SQLite databases + gold SQL) from the
-[HuggingFace dataset](https://huggingface.co/datasets/birdsql/bird_mini_dev) or
-the Google-Drive link in the [mini_dev README](https://github.com/bird-bench/mini_dev).
-You should end up with:
-
-```
-mini_dev_data/
-  mini_dev_sqlite.json            ← 500 questions (db_id, question, evidence, SQL, difficulty)
-  mini_dev_sqlite_gold.sql        ← gold SQL, one "SQL<TAB>db_id" per line
-  dev_databases/
-    california_schools/california_schools.sqlite
-    financial/financial.sqlite
-    ...                           ← 11 databases
-```
-
-### Step 2 — Clone the official evaluation suite
-
-```bash
-git clone https://github.com/bird-bench/mini_dev.git
-# the scorers live in mini_dev/evaluation/
-```
-
-### Step 3 — Set your OpenAI key (your system needs it to generate SQL)
-
-```bash
-export OPENAI_API_KEY=sk-your-key
-# or put it in backend/config/secrets.env
-```
-
-### Step 4 — Generate predictions with YOUR system
-
-Run from the **repo root** of *this* project. Generate over the **full** set
-(no `--subset` / `--difficulty`, or the indices won't line up with the gold file):
-
-```bash
-python -m backend.eval.bird_predict \
-    --questions  path/to/mini_dev_data/mini_dev_sqlite.json \
-    --db-dir     path/to/mini_dev_data/dev_databases \
-    --output     path/to/mini_dev/sql_result/predict_mini_dev_MYSYS_SQLite.json
-```
-
-> The output filename matters: the official `run_evaluation.sh` derives the log
-> name from `basename <file> .json`. Keep the `predict_..._SQLite.json` shape.
-
-This takes ~20–40 min for 500 questions (one LLM round-trip per question).
-
-### Step 5 — Score with the official scripts
-
-From inside `mini_dev/evaluation/`:
-
-```bash
-# Execution Accuracy (EX)
-python3 evaluation_ex.py \
-    --db_root_path       path/to/mini_dev_data/dev_databases/ \
-    --predicted_sql_path path/to/mini_dev/sql_result/predict_mini_dev_MYSYS_SQLite.json \
-    --ground_truth_path  path/to/mini_dev_data/mini_dev_sqlite_gold.sql \
-    --diff_json_path     path/to/mini_dev_data/mini_dev_sqlite.json \
-    --num_cpus 4 --meta_time_out 30.0 --sql_dialect SQLite \
-    --output_log_path    path/to/mini_dev/eval_result/mysys_ex.txt
-
-# Soft F1
-python3 evaluation_f1.py   <same args, --output_log_path ..._f1.txt>
-
-# Valid Efficiency Score (VES)
-python3 evaluation_ves.py  <same args, --output_log_path ..._ves.txt>
-```
-
-The official scripts print accuracy broken down by **simple / moderate /
-challenging** plus the overall score, and write the same to the log file.
-
-> Tip: `mini_dev/evaluation/run_evaluation.sh` does all three at once — edit the
-> paths at the top of that script to point at your files and run `bash
-> run_evaluation.sh`.
-
-### Step 6 — (Optional) MySQL / PostgreSQL dialects
-
-mini-dev also ships `mini_dev_mysql.json` / `mini_dev_postgresql.json`. To score
-those, generate predictions against that dialect and pass `--sql_dialect MySQL`
-or `PostgreSQL` to the scorers. Our generator currently targets **SQLite**
-(`bird_config` sets `dialect: "sqlite"`); change that if you benchmark another
-dialect.
-
----
 
 # Path B — Quick self-contained score (fast iteration)
 
@@ -207,7 +62,7 @@ python -m backend.eval.bird \
 Both harnesses are unit-tested. From the repo root:
 
 ```bash
-pytest backend/tests/test_bird_eval.py backend/tests/test_bird_predict.py -v
+pytest backend/tests/test_bird_eval.py backend/tests/test_db_backends.py -v
 ```
 
 ---

@@ -336,8 +336,8 @@ class TestEveryCallSiteUsesIt:
         root = pathlib.Path(__file__).resolve().parent.parent
         offenders = []
         for path in (root / "agents" / "db_agent.py", root / "eval" / "bird.py",
-                     root / "eval" / "bird_predict.py",
-                     root / "eval" / "smoke_examples.py"):
+                     root / "eval" / "db_backends.py",
+                     root / "eval" / "trust_eval.py"):
             text = path.read_text()
             if 'config["llm"]["api_key"]' in text:
                 offenders.append(path.name)
