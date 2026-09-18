@@ -39,6 +39,7 @@ crashes outright on a Windows cp1252 terminal.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +64,24 @@ DEV_JSON = "dataset/minidev/MINIDEV/mini_dev_sqlite.json"
 DB_DIR = "dataset/minidev/MINIDEV/dev_databases"
 
 
+def is_complete(out_file: Path) -> bool:
+    """
+    Did this model already finish, or is the file the wreckage of a crash?
+
+    Existence alone is the wrong test. A run killed partway -- Ctrl-C, a lost
+    connection, the machine sleeping -- can leave a truncated or empty file,
+    and treating that as done would silently drop a model from the comparison
+    with nothing to show it happened. A finished run always carries a metrics
+    block with an EX figure, so that is what is checked.
+    """
+    try:
+        with open(out_file, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and "EX" in (payload.get("metrics") or {})
+
+
 def build_command(short: str, args: argparse.Namespace,
                   passthrough: List[str]) -> List[str]:
     """The bird.py command for one model. Only --model and --output differ
@@ -84,6 +103,32 @@ def build_command(short: str, args: argparse.Namespace,
     if args.question_timeout is not None:
         cmd += ["--question-timeout", str(args.question_timeout)]
     return cmd + passthrough
+
+
+def resume_command(args: argparse.Namespace,
+                   passthrough: List[str]) -> List[str]:
+    """This same sweep, with --resume added, so it skips what is finished."""
+    cmd = [sys.executable, "-m", "backend.eval.run_all_models",
+           "--difficulty", args.difficulty,
+           "--subset", str(args.subset),
+           "--sample", args.sample,
+           "--seed", str(args.seed),
+           "--resume"]
+    if args.mode:
+        cmd += ["--mode", args.mode]
+    if args.db_id:
+        cmd += ["--db-id", args.db_id]
+    if args.question_timeout is not None:
+        cmd += ["--question-timeout", str(args.question_timeout)]
+    if args.dev_json != DEV_JSON:
+        cmd += ["--dev-json", args.dev_json]
+    if args.db_dir != DB_DIR:
+        cmd += ["--db-dir", args.db_dir]
+    if args.only:
+        cmd += ["--only"] + list(args.only)
+    if passthrough:
+        cmd += ["--"] + passthrough
+    return cmd
 
 
 def confirm(prompt: str) -> bool:
@@ -165,6 +210,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--only", nargs="+", metavar="SHORTNAME",
                         choices=list(MODELS),
                         help=f"Run only these: {', '.join(MODELS)}")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip models whose output file is already a "
+                             "COMPLETE run, so a sweep interrupted partway "
+                             "picks up where it stopped instead of paying for "
+                             "the finished models again. A truncated file from "
+                             "a crash is not treated as done.")
     parser.add_argument("--mode", choices=("auto", "pause"), default=None,
                         help="auto: run every model straight through. "
                              "pause: wait for Enter after each model completes. "
@@ -175,9 +226,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
 
-    shorts = args.only or list(MODELS)
+    requested = args.only or list(MODELS)
     out_dir = Path("outputs") / args.difficulty
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    def out_path(short: str) -> Path:
+        return out_dir / f"{args.difficulty}v2_{short}.json"
+
+    skipped: List[str] = []
+    if args.resume:
+        skipped = [m for m in requested if is_complete(out_path(m))]
+        shorts = [m for m in requested if m not in skipped]
+    else:
+        shorts = list(requested)
 
     print()
     print("=" * 66)
@@ -187,7 +248,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  output -> {out_dir}/{args.difficulty}v2_<model>.json")
     if passthrough:
         print(f"  extra  -> {' '.join(passthrough)}")
+    if skipped:
+        print(f"  resume -> skipping {len(skipped)} already complete: "
+              f"{', '.join(skipped)}")
     print("=" * 66)
+
+    if not shorts:
+        print("\n  Nothing left to run -- every requested model is complete.")
+        print(f"  Results in {out_dir}/\n")
+        return 0
 
     if args.dry_run:
         for short in shorts:
@@ -203,6 +272,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     failed: List[str] = []
     completed_count = 0
+    interrupted = False
     for idx, short in enumerate(shorts, start=1):
         cmd = build_command(short, args, passthrough)
         out_file = cmd[cmd.index("--output") + 1]
@@ -218,7 +288,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Output is NOT captured: a run takes many minutes, and watching the
         # per-question lines is how a model failing every question is noticed
         # now rather than at the end.
-        completed = subprocess.run(cmd)
+        try:
+            completed = subprocess.run(cmd)
+        except KeyboardInterrupt:
+            # Ctrl-C reaches the child first; it dies and we land here. Report
+            # it as a stop rather than a traceback, and fall through to the
+            # summary so the resume line is still printed.
+            print(f"\n\n  INTERRUPTED during {short}.")
+            interrupted = True
+            break
         completed_count += 1
         if completed.returncode == 0:
             print(f"\n  DONE {short} -> {out_file}")
@@ -246,8 +324,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print("  No failures.")
     print(f"  Results in {out_dir}/")
+
+    # Whatever stopped the sweep -- a crash, Ctrl-C, q, a failing model -- the
+    # next thing anyone needs is the command that picks up the rest without
+    # paying for the finished ones again. Print it here rather than leaving it
+    # to be reconstructed from which files happen to exist.
+    outstanding = [m for m in requested if not is_complete(out_path(m))]
+    if outstanding:
+        print()
+        print(f"  Still to run ({len(outstanding)}): {', '.join(outstanding)}")
+        print("  Resume with:")
+        print(f"    {' '.join(resume_command(args, passthrough))}")
     print("=" * 66)
     print()
+    if interrupted:
+        return 130
     return 1 if failed else 0
 
 
