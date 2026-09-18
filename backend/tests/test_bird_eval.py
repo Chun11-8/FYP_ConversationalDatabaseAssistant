@@ -1093,3 +1093,87 @@ class TestEffectiveCandidateCount:
         import yaml
         cfg = yaml.safe_load(open("backend/config/config.yaml", encoding="utf-8"))
         assert all(n >= 1 for n in cfg["sql"]["candidates_by_tier"].values())
+
+
+# ── GH#128: the SQLite timeout must actually stop the query ────────────────────
+
+@pytest.fixture(scope="module")
+def slow_db(tmp_path_factory) -> str:
+    """A database whose three-way self join takes minutes: no I/O, no network.
+
+    Module-scoped and defined at module level — a class-scoped fixture written
+    as an instance method is deprecated by pytest and silently rebuilt.
+    """
+    path = tmp_path_factory.mktemp("slow") / "slow.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE t (id INTEGER, v INTEGER)")
+    conn.executemany("INSERT INTO t VALUES (?,?)", [(i, i % 7) for i in range(3000)])
+    conn.commit()
+    conn.close()
+    return str(path)
+
+
+class TestExecuteSqliteReallyTimesOut:
+    """
+    The old implementation reported a timeout without causing one. It submitted
+    the query to a ThreadPoolExecutor and abandoned the future after `timeout`,
+    but the `with` block's __exit__ calls shutdown(wait=True), which JOINS the
+    worker -- and sqlite3.execute() cannot be interrupted from Python. So the
+    call returned "Query timed out after 3.0s" and then sat there for as long as
+    the query really took. Measured before the fix: a 3s timeout blocking 15.6s.
+
+    It compounds: execution voting runs up to five candidates per question, so a
+    slow generated query over a large table stalls the run with nothing printed.
+    """
+
+    SLOW = "SELECT COUNT(*) FROM t a, t b, t c WHERE a.v = b.v AND b.v = c.v"
+
+    def test_the_call_returns_within_the_timeout(self, slow_db):
+        """The assertion the old code could not pass."""
+        t0 = time.perf_counter()
+        rows, err, _ = execute_sqlite(self.SLOW, slow_db, timeout=1.0)
+        elapsed = time.perf_counter() - t0
+        assert err and "timed out" in err
+        assert rows == []
+        assert elapsed < 4.0, (
+            f"took {elapsed:.1f}s for a 1s timeout — the query was not actually "
+            f"interrupted, only abandoned")
+
+    def test_a_longer_timeout_is_honoured_too(self, slow_db):
+        """Guards against a fix that just returns instantly regardless."""
+        t0 = time.perf_counter()
+        _, err, _ = execute_sqlite(self.SLOW, slow_db, timeout=2.0)
+        elapsed = time.perf_counter() - t0
+        assert err and "timed out" in err
+        assert 1.5 < elapsed < 5.0, f"expected ~2s, got {elapsed:.1f}s"
+
+    def test_a_normal_query_is_unaffected(self, slow_db):
+        rows, err, elapsed = execute_sqlite("SELECT COUNT(*) FROM t", slow_db,
+                                            timeout=30.0)
+        assert err is None
+        assert rows == [(3000,)]
+        assert elapsed >= 0.0
+
+    def test_a_sql_error_is_still_reported_as_itself(self, slow_db):
+        """An interrupt and a genuine error are both OperationalError; only the
+        interrupt may be reported as a timeout."""
+        rows, err, _ = execute_sqlite("SELECT nope FROM t", slow_db, timeout=30.0)
+        assert rows == []
+        assert err and "no such column" in err
+        assert "timed out" not in err
+
+    def test_a_missing_table_is_reported_not_swallowed(self, slow_db):
+        _, err, _ = execute_sqlite("SELECT 1 FROM absent", slow_db, timeout=30.0)
+        assert err and "no such table" in err
+
+    def test_timeout_zero_disables_the_guard(self, slow_db):
+        """0 means no deadline, not an instant abort."""
+        rows, err, _ = execute_sqlite("SELECT COUNT(*) FROM t", slow_db, timeout=0)
+        assert err is None and rows == [(3000,)]
+
+    def test_the_connection_does_not_leak_across_calls(self, slow_db):
+        """The progress handler is cleared and the connection closed in a
+        finally, so a timed-out query cannot poison the next one."""
+        execute_sqlite(self.SLOW, slow_db, timeout=1.0)
+        rows, err, _ = execute_sqlite("SELECT COUNT(*) FROM t", slow_db, timeout=30.0)
+        assert err is None and rows == [(3000,)]

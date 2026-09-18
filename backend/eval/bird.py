@@ -49,7 +49,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import json
 import logging
 import os
@@ -450,26 +449,49 @@ def execute_sqlite(
         elapsed — wall-clock execution time in seconds
     """
 
-    def _run() -> Tuple[List[tuple], float]:
-        conn = sqlite3.connect(db_path)
-        try:
-            cursor = conn.cursor()
-            t0 = time.perf_counter()
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            return rows, time.perf_counter() - t0
-        finally:
-            conn.close()
+    conn = sqlite3.connect(db_path)
+    t0 = time.perf_counter()
+    deadline = t0 + max(timeout, 0.0)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        fut = pool.submit(_run)
-        try:
-            rows, elapsed = fut.result(timeout=timeout)
-            return rows, None, elapsed
-        except concurrent.futures.TimeoutError:
+    # GH#128: abort through SQLite itself rather than around it.
+    #
+    # This used to submit the query to a ThreadPoolExecutor and give up on the
+    # future after `timeout`. That reported a timeout without causing one: the
+    # `with` block's __exit__ calls shutdown(wait=True), which JOINS the worker
+    # — and sqlite3.execute() cannot be interrupted from Python, so the call
+    # returned "Query timed out after 3.0s" and then sat there for as long as
+    # the query actually took. Measured: a 3s timeout blocking 15.6s.
+    #
+    # It compounds: execution voting runs up to five candidates, and a
+    # generated query over a large table (a CTE plus a correlated subquery on
+    # codebase_community's posts, say) can take minutes EACH, with nothing
+    # printed. That is the "console frozen on challenging questions" symptom.
+    #
+    # A progress handler runs inside SQLite's virtual machine every N
+    # instructions; returning non-zero aborts the statement and raises
+    # OperationalError("interrupted"). Real cancellation, no thread, and the
+    # connection is closed promptly instead of being held by a live worker.
+    def _past_deadline() -> int:
+        return 1 if time.perf_counter() > deadline else 0
+
+    try:
+        if timeout and timeout > 0:
+            # ~10k VM instructions between checks: fine-grained enough that the
+            # overshoot is milliseconds, coarse enough not to slow the query.
+            conn.set_progress_handler(_past_deadline, 10_000)
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        return rows, None, time.perf_counter() - t0
+    except sqlite3.OperationalError as exc:
+        if "interrupted" in str(exc).lower():
             return [], f"Query timed out after {timeout}s", timeout
-        except Exception as exc:
-            return [], str(exc), 0.0
+        return [], str(exc), 0.0
+    except Exception as exc:
+        return [], str(exc), 0.0
+    finally:
+        conn.set_progress_handler(None, 0)
+        conn.close()
 
 
 # ── Metric helpers ─────────────────────────────────────────────────────────────
