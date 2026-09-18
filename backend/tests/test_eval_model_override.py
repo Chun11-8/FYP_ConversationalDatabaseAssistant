@@ -1,7 +1,7 @@
 """
 Tests for the eval-CLI --model override (companion to GH#52's frontend/API
 model picker): backend/eval/bird.py::resolve_model, its reuse from
-bird_predict.py, run_eval.py's model= passthrough into agent.run(), and that
+run_eval.py's model= passthrough into agent.run(), and that
 each CLI's argparse actually accepts --model.
 
 All offline — no network, no OpenAI key, no BIRD dataset required.
@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import backend.eval.bird as bird
-import backend.eval.bird_predict as bird_predict
 import backend.eval.run_eval as run_eval_mod
 from backend.eval.bird import resolve_model
 
@@ -62,14 +61,6 @@ class TestResolveModel:
             result = resolve_model("anything-goes", config)
         assert result == "anything-goes"
         assert not any("not in config.yaml" in r.message for r in caplog.records)
-
-    def test_bird_predict_reexports_same_function(self):
-        # bird_predict.py imports resolve_model from bird.py — must be the
-        # identical function, not a divergent copy.
-        assert bird_predict.resolve_model is bird.resolve_model
-
-
-# ── run_eval.py: model= passthrough ─────────────────────────────────────────────
 
 class TestRunEvalModelPassthrough:
 
@@ -140,15 +131,6 @@ class TestCliAcceptsModelFlag:
                 bird.main([
                     "--dev-json", "dev.json", "--db-dir", "dbs",
                     "--model", "gpt-4o",
-                ])
-
-    def test_bird_predict_main_accepts_model_flag(self):
-        with patch("backend.config.config_loader.load_config",
-                    side_effect=_StopAfterParse):
-            with pytest.raises(_StopAfterParse):
-                bird_predict.main([
-                    "--questions", "q.json", "--db-dir", "dbs",
-                    "--output", "out.json", "--model", "gpt-4o",
                 ])
 
     def test_run_eval_main_accepts_model_flag(self):

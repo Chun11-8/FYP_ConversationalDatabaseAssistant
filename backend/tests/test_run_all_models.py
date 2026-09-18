@@ -28,7 +28,8 @@ from backend.eval.run_all_models import (
 def _args(**over) -> argparse.Namespace:
     base = dict(difficulty="moderate", subset=40, sample="stratified", seed=42,
                 db_id=None, question_timeout=None,
-                dev_json="dev.json", db_dir="dbs")
+                dev_json="dev.json", db_dir="dbs",
+                engine="postgres", pg_dbname=None, pg_schema="public")
     base.update(over)
     return argparse.Namespace(**base)
 
@@ -464,3 +465,38 @@ class TestResumeCommand:
         cmd = resume_command(args, [])
         assert cmd[cmd.index("--dev-json") + 1] == "my/dev.json"
         assert cmd[cmd.index("--db-dir") + 1] == "my/dbs"
+
+
+class TestEngineWiring:
+    """GH#129/131: the gold dialect and the engine must agree, so the sweep
+    defaults to the pair that works together."""
+
+    def test_postgres_is_the_default_and_matches_the_dev_file(self):
+        from backend.eval.run_all_models import DEV_JSON
+        cmd = build_command("gpt4oMini", _args(), [])
+        assert cmd[cmd.index("--engine") + 1] == "postgres"
+        assert "postgresql" in DEV_JSON, (
+            "default --dev-json must be BIRD's PostgreSQL question file, or "
+            "every gold query errors on the default engine")
+
+    def test_db_dir_is_only_sent_for_sqlite(self):
+        """PostgreSQL reads one database; passing a SQLite directory would be
+        meaningless and imply the wrong layout."""
+        assert "--db-dir" not in build_command("gpt4oMini", _args(engine="postgres"), [])
+        sqlite_cmd = build_command("gpt4oMini", _args(engine="sqlite"), [])
+        assert sqlite_cmd[sqlite_cmd.index("--db-dir") + 1] == "dbs"
+
+    def test_pg_options_are_forwarded_when_set(self):
+        cmd = build_command("gpt4oMini",
+                            _args(pg_dbname="bird", pg_schema="bench"), [])
+        assert cmd[cmd.index("--pg-dbname") + 1] == "bird"
+        assert cmd[cmd.index("--pg-schema") + 1] == "bench"
+
+    def test_a_default_schema_is_not_spelled_out(self):
+        assert "--pg-schema" not in build_command("gpt4oMini", _args(), [])
+
+    def test_the_engine_is_identical_across_models(self):
+        """Mixing engines within a sweep would make the EX column meaningless."""
+        engines = {build_command(m, _args(), [])[
+            build_command(m, _args(), []).index("--engine") + 1] for m in MODELS}
+        assert engines == {"postgres"}

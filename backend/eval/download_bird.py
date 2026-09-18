@@ -1,7 +1,7 @@
 """
 backend/eval/download_bird.py — Download the BIRD mini-dev dataset via HuggingFace.
 
-Saves data in the exact structure expected by bird_predict.py and run_bird.sh:
+Saves data in the exact structure expected by bird.py:
 
     <output-dir>/
       mini_dev_sqlite.json          # questions array
@@ -23,7 +23,7 @@ You must obtain the `.sqlite` files separately:
     cp -r mini_dev/mini_dev_sqlite/dev_databases <output-dir>/dev_databases/
 
 This script will create the <output-dir>/dev_databases/ directory and warn you
-if the databases are missing when bird_predict.py would need them.
+if the databases are missing when bird.py would need them.
 
 Usage
 -----
@@ -32,7 +32,7 @@ Usage
 
 After running this script, follow the NOTE above to populate dev_databases/,
 then run:
-    bash backend/eval/run_bird.sh
+    python -m backend.eval.bird --dev-json <dev.json> --engine postgres
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ── Field mapping ─────────────────────────────────────────────────────────────
 # The HuggingFace dataset schema may differ slightly from the official JSON.
-# We normalise to the fields bird_predict.py expects.
+# We normalise to the fields bird.py expects.
 
 _HF_FIELD_MAP = {
     # HF field name → our canonical name
@@ -158,7 +158,7 @@ def download(output_dir: Path) -> None:
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "  DATABASE FILES NOT FOUND\n"
             "  The HuggingFace dataset does not include SQLite .sqlite files.\n"
-            "  bird_predict.py needs them under:\n"
+            "  bird.py needs them under:\n"
             f"    {db_dir}/<db_id>/<db_id>.sqlite\n\n"
             "  To populate them choose one option:\n\n"
             "  Option A — Official mini-dev archive:\n"
@@ -178,8 +178,8 @@ def download(output_dir: Path) -> None:
     logger.info(
         "\nDone. Next steps:\n"
         "  1. (If warned above) populate dev_databases/ with .sqlite files\n"
-        "  2. Run:  bash backend/eval/run_bird.sh\n"
-        "     or:  python -m backend.eval.bird_predict \\\n"
+        "  2. Run:  python -m backend.eval.bird --dev-json <dev.json>\n"
+        "     or:  python -m backend.eval.bird \\\n"
         f"              --questions {questions_path} \\\n"
         f"              --db-dir    {db_dir} \\\n"
         "              --output    predictions.json"
@@ -191,7 +191,7 @@ def download(output_dir: Path) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Download BIRD mini-dev dataset via HuggingFace and save it "
-                    "in the structure expected by bird_predict.py / run_bird.sh.",
+                    "in the structure expected by bird.py.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

@@ -73,7 +73,8 @@ backend/
   memory/        session_memory.py (_PgBackend / _RamBackend), semantic_cache.py, skeleton.py
   pipelines/     postprocessing.py (ResponseOptimizer), prompt_response.md
   eval/          bird.py (BIRD mini-dev harness), trust_eval.py (detector AUROC),
-                 bird_predict.py, smoke_examples.py, error_analysis.py, download_bird.py
+                 db_backends.py (postgres/sqlite engines), error_analysis.py,
+                 run_all_models.py (sweep), download_bird.py
   tools/         base.py, registry.py, web_search.py
   config/        config.yaml (models, providers, pricing, retrieval, sql),
                  config_loader.py, check_models.py, secrets.env, compose.yml,

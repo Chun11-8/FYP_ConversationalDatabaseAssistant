@@ -90,7 +90,7 @@ def build_command(short: str, args: argparse.Namespace,
     cmd = [
         sys.executable, "-m", "backend.eval.bird",
         "--dev-json", args.dev_json,
-        "--db-dir", args.db_dir,
+        "--engine", args.engine,
         "--model", MODELS[short],
         "--output", str(out),
         "--difficulty", args.difficulty,
@@ -98,6 +98,14 @@ def build_command(short: str, args: argparse.Namespace,
         "--sample", args.sample,
         "--seed", str(args.seed),
     ]
+    # --db-dir is the SQLite layout; PostgreSQL reads one database instead.
+    if args.engine == "sqlite":
+        cmd += ["--db-dir", args.db_dir]
+    else:
+        if args.pg_dbname:
+            cmd += ["--pg-dbname", args.pg_dbname]
+        if args.pg_schema != "public":
+            cmd += ["--pg-schema", args.pg_schema]
     if args.db_id:
         cmd += ["--db-id", args.db_id]
     if args.question_timeout is not None:
@@ -205,6 +213,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Seconds per question before it is abandoned and "
                              "scored 0. Raise it for a slow reasoning model; "
                              "omit for bird.py's default.")
+    parser.add_argument("--engine", choices=("postgres", "sqlite"),
+                        default="postgres",
+                        help="Where the SQL runs. Default postgres, matching "
+                             "--dev-json's mini_dev_postgresql.json: the gold "
+                             "dialect and the engine must agree or every gold "
+                             "query errors.")
+    parser.add_argument("--pg-dbname", default=None,
+                        help="PostgreSQL database holding the BIRD tables")
+    parser.add_argument("--pg-schema", default="public")
     parser.add_argument("--dev-json", default=DEV_JSON)
     parser.add_argument("--db-dir", default=DB_DIR)
     parser.add_argument("--only", nargs="+", metavar="SHORTNAME",
