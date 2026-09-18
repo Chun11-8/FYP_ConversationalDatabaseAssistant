@@ -66,6 +66,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import sqlglot
 
 from backend.agents import usage as usage_tracking
+from backend.agents.utils import estimate_tokens
 from backend.eval.error_analysis import categorize, summarize
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,46 @@ def _distinct_values(cursor, table: str, col: str) -> Optional[List[str]]:
     return values or None
 
 
+# GH#126: extracted schemas, keyed by database file. A schema cannot change
+# during a run, and extraction is expensive — see cached_sqlite_schema().
+_SCHEMA_CACHE: Dict[str, str] = {}
+
+
+def cached_sqlite_schema(db_path: str) -> str:
+    """
+    :func:`extract_sqlite_schema`, computed once per database file (GH#126).
+
+    Extraction is not cheap. Value grounding issues
+    ``SELECT DISTINCT col FROM table LIMIT 2001`` for every text column, and
+    the LIMIT only helps a HIGH-cardinality column: to prove a status column
+    has eleven distinct values SQLite must scan the whole table, unindexed.
+
+    The loop previously did this per QUESTION. A 40-question stratified run
+    re-extracted 11 distinct schemas 40 times — formula_1 seven times,
+    codebase_community six — and because extraction happens before the
+    question budget starts and logs nothing, a large database reads as a
+    frozen console rather than a slow one.
+
+    Keyed on the path, not the db_id, so two runs pointed at different copies
+    of the same database cannot collide. The cache lives for the process: BIRD
+    runs are one-shot, and a schema that changed mid-run would invalidate the
+    comparison anyway.
+    """
+    cached = _SCHEMA_CACHE.get(db_path)
+    if cached is not None:
+        return cached
+    t0 = time.perf_counter()
+    schema = extract_sqlite_schema(db_path)
+    elapsed = time.perf_counter() - t0
+    _SCHEMA_CACHE[db_path] = schema
+    # Logged because the alternative is a silent multi-minute pause that looks
+    # like a hang. Only on a miss — a hit is instant and not worth a line.
+    logger.info("[BIRD] schema for %s extracted in %.1fs (~%d tokens), cached",
+                Path(db_path).stem, elapsed,
+                estimate_tokens(schema) if schema else 0)
+    return schema
+
+
 def extract_sqlite_schema(db_path: str) -> str:
     """
     Introspect a SQLite database and return a plain-text schema context string
@@ -142,6 +183,8 @@ def extract_sqlite_schema(db_path: str) -> str:
 
     For low-cardinality TEXT columns the actual distinct values are appended
     (Issue #19) so the model can map question phrases to exact stored values.
+
+    Callers in the evaluation loop should use :func:`cached_sqlite_schema`.
     """
     if not Path(db_path).exists():
         raise FileNotFoundError(f"SQLite database not found: {db_path}")
@@ -861,6 +904,16 @@ def run_bird_eval(
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
         budget = _Budget(question_timeout)
+        # GH#126: announce the question BEFORE the work, not only after it.
+        # Everything a question does — schema, linking, n candidates, voting,
+        # refine — was silent until the result line, so a slow question and a
+        # hung one looked identical. The tier is on this line because it sets
+        # the candidate count (sql.candidates_by_tier: challenging is 7 against
+        # simple's 2), which is the main reason a challenging run feels stalled.
+        logger.info("[%d/%d] START qid=%s db=%s tier=%s%s",
+                    idx, total, qid, db_id, difficulty,
+                    f" budget={question_timeout:g}s"
+                    if question_timeout and question_timeout > 0 else "")
 
         # Official mini-dev ships {db_id}.sqlite; older/self-built sets use .db.
         db_path = str(Path(db_dir) / db_id / f"{db_id}.sqlite")
@@ -868,8 +921,16 @@ def run_bird_eval(
             db_path = str(Path(db_dir) / db_id / f"{db_id}.db")
 
         # ── Schema ───────────────────────────────────────────────────────────
+        # Deliberately NOT under the question budget. Extraction is local
+        # SQLite work, not a network call, and it is the one stage whose cost
+        # belongs to the DATABASE rather than the question: charging it to the
+        # first question of a large database would abandon that question, and
+        # on a database slower than one budget it would abandon every question
+        # in turn — strictly worse than the slowness it was meant to bound.
+        # The cache below is what actually fixes the cost; the log line is what
+        # makes it visible instead of looking like a hang.
         try:
-            schema_context = extract_sqlite_schema(db_path)
+            schema_context = cached_sqlite_schema(db_path)
         except Exception as exc:
             logger.error(f"[BIRD] Schema extraction failed for db={db_id}: {exc}")
             results.append(
@@ -953,6 +1014,8 @@ def run_bird_eval(
                         logger.warning(f"[BIRD] alt-plan skipped qid={qid}: {exc}")
                 return _select(sqls)
 
+            logger.info("[%d/%d] generating (%s candidates)...", idx, total,
+                        getattr(sql_agent, "top_k", "?"))
             pred_sql, vote_info = budget.run(_generate, "generation", q_usage)
         except _QuestionTimeout as exc:
             logger.warning(f"[BIRD] qid={qid} SKIPPED — {exc}")
