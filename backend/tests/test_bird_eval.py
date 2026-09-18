@@ -1061,3 +1061,35 @@ class TestSchemaCacheAndProgress:
                 sql_agent=sql_agent, validator=validator, subset=1,
                 question_timeout=90.0, refine=False)
         assert "budget=90s" in caplog.text
+
+
+# ── GH#127: the candidate count that actually ran must be recorded ─────────────
+
+class TestEffectiveCandidateCount:
+    """
+    `top_k` is the BASE count. With adaptive prompting on, the tier overrides
+    it, so a challenging run recorded "5" while generating 7 -- the number that
+    drove the run was absent from the file and two runs at different counts
+    looked identical. That matters more now the challenging count has changed:
+    old and new results are not comparable, and the file has to say which.
+    """
+
+    def test_the_configured_tier_counts_are_what_the_agent_uses(self):
+        import yaml
+        from backend.agents.sql_code_agent import SQLCodeAgent
+        cfg = yaml.safe_load(open("backend/config/config.yaml", encoding="utf-8"))
+        agent = SQLCodeAgent(cfg, MagicMock())
+        assert agent._tier_candidates == cfg["sql"]["candidates_by_tier"]
+
+    def test_challenging_is_no_longer_more_expensive_than_moderate(self):
+        """GH#127 lowered challenging from 7 to 5. Output tokens are generated
+        serially, so the candidate count is where the wall-clock goes."""
+        import yaml
+        cfg = yaml.safe_load(open("backend/config/config.yaml", encoding="utf-8"))
+        tiers = cfg["sql"]["candidates_by_tier"]
+        assert tiers["challenging"] <= tiers["moderate"]
+
+    def test_every_tier_generates_at_least_one_candidate(self):
+        import yaml
+        cfg = yaml.safe_load(open("backend/config/config.yaml", encoding="utf-8"))
+        assert all(n >= 1 for n in cfg["sql"]["candidates_by_tier"].values())

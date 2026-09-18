@@ -150,10 +150,17 @@ sql:
   # Difficulty-adaptive prompting (Issue #27): strategy block + per-tier
   # candidate counts. BIRD passes the dataset's real difficulty label.
   adaptive_prompting: true
+  # GH#127: challenging was 7. Output tokens are generated SERIALLY, and
+  # measured output on this tier is ~2,575 per question against simple's 948,
+  # so the candidate count is where challenging's wall-clock goes — 7 makes a
+  # run feel stalled. Lowered to 5, matching moderate. This CHANGES accuracy as
+  # well as speed (fewer candidates for execution voting to choose between), so
+  # a challenging run at 5 is not comparable with one at 7; the effective count
+  # is recorded in each results file's run_config.
   candidates_by_tier:
     simple: 2
     moderate: 5
-    challenging: 7
+    challenging: 5
   # GH#85: the tier every LIVE question gets. There is no difficulty label
   # outside the benchmark, and the heuristic that used to infer one read it
   # from the linker plan — the artefact that fails. A plan that collapsed a

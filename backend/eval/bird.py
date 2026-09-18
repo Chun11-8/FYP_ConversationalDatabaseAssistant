@@ -1523,6 +1523,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         "exec_voting": use_voting,
         "refine": use_refine,
         "n_candidates": sql_agent.top_k,
+        # GH#127: top_k is the BASE count. With adaptive prompting on, the tier
+        # overrides it (sql.candidates_by_tier), so a challenging run recorded
+        # "5" while actually generating 7 — the number that drove the run was
+        # not in the file, and two runs at different counts looked identical.
+        "candidates_by_tier": dict(getattr(sql_agent, "_tier_candidates", {}) or {}),
+        "candidates_effective": (
+            (getattr(sql_agent, "_tier_candidates", {}) or {}).get(args.difficulty)
+            if getattr(sql_agent, "_adaptive", False) and args.difficulty
+            else sql_agent.top_k),
         "adaptive_prompting": getattr(sql_agent, "_adaptive", None),
         "subset": args.subset,
         "difficulty": args.difficulty,
