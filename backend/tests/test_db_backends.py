@@ -435,3 +435,48 @@ class TestNullOrderingIsReallyInverted:
         assert desc == [(2,)], "PostgreSQL DESC must put the NULL first"
         assert asc == [(1,)], "PostgreSQL ASC must put the NULL last"
         assert fixed == [(3,)], "NULLS LAST must recover the real maximum"
+
+
+class TestGoldDialectGuardBothDirections:
+    """
+    GH#134: the original preflight only caught `--engine postgres` with SQLite
+    gold. The unguarded direction was the more dangerous one, because the sweep
+    defaulted --dev-json to the PostgreSQL file — so `--engine sqlite` paired
+    SQLite with PostgreSQL gold and said nothing.
+    """
+
+    PG_GOLD = [
+        {"question_id": 36, "db_id": "california_schools",
+         "SQL": 'SELECT a FROM t ORDER BY b DESC NULLS LAST LIMIT 1'},
+        {"question_id": 40, "db_id": "thrombosis_prediction",
+         "SQL": 'SELECT EXTRACT(YEAR FROM AGE(CURRENT_DATE, x))::int FROM p'},
+    ]
+    SQLITE_GOLD = [
+        {"question_id": 7, "db_id": "thrombosis_prediction",
+         "SQL": "SELECT strftime('%Y', d) FROM p"},
+    ]
+
+    def test_postgres_gold_on_sqlite_is_now_caught(self):
+        from backend.eval.bird import gold_dialect_problems
+        problems = gold_dialect_problems(self.PG_GOLD, "sqlite")
+        assert problems, "the mirror direction is unguarded again"
+        joined = " ".join(problems)
+        for construct in ("EXTRACT", "::cast", "NULLS FIRST/LAST"):
+            assert construct in joined
+
+    def test_sqlite_gold_on_postgres_is_still_caught(self):
+        from backend.eval.bird import gold_dialect_problems
+        assert gold_dialect_problems(self.SQLITE_GOLD, "postgres")
+
+    def test_matched_pairs_pass_cleanly(self):
+        """The guard must not block the correct combinations."""
+        from backend.eval.bird import gold_dialect_problems
+        assert gold_dialect_problems(self.PG_GOLD, "postgres") == []
+        assert gold_dialect_problems(self.SQLITE_GOLD, "sqlite") == []
+
+    def test_the_message_says_which_file_it_is(self):
+        """'that is PostgreSQL gold' is the sentence that tells you what to
+        change; a bare 'unsupported construct' would not."""
+        from backend.eval.bird import gold_dialect_problems
+        assert "PostgreSQL gold" in " ".join(gold_dialect_problems(self.PG_GOLD, "sqlite"))
+        assert "SQLite gold" in " ".join(gold_dialect_problems(self.SQLITE_GOLD, "postgres"))

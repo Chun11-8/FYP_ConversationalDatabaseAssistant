@@ -62,12 +62,12 @@ class TestBuildCommand:
     def test_output_path_follows_the_repo_convention(self):
         cmd = build_command("qwen3.8Flash", _args(difficulty="simple"), [])
         out = cmd[cmd.index("--output") + 1]
-        assert Path(out) == Path("outputs/simple/simplev2_qwen3.8Flash.json")
+        assert Path(out) == Path("outputs/simple/simple_v3_qwen3.8Flash.json")
 
     def test_the_difficulty_drives_folder_prefix_and_filter(self):
         cmd = build_command("llama4", _args(difficulty="challenging"), [])
         out = cmd[cmd.index("--output") + 1]
-        assert "challenging/challengingv2_llama4.json" in out.replace("\\", "/")
+        assert "challenging/challenging_v3_llama4.json" in out.replace("\\", "/")
         assert cmd[cmd.index("--difficulty") + 1] == "challenging"
 
     def test_only_model_and_output_differ_between_models(self):
@@ -228,7 +228,7 @@ class TestSweepBehaviour:
         monkeypatch.chdir(tmp_path)
         done = tmp_path / "outputs" / "simple"
         done.mkdir(parents=True)
-        (done / "simplev2_gpt4oMini.json").write_text("{}", encoding="utf-8")
+        (done / "simple_v3_gpt4oMini.json").write_text("{}", encoding="utf-8")
         with patch("backend.eval.run_all_models.subprocess.run", side_effect=self._ok), \
              patch("builtins.input", return_value=""):
             main(["--difficulty", "simple", "--mode", "auto", "--only", "gpt4oMini"])
@@ -347,8 +347,8 @@ class TestResume:
         monkeypatch.chdir(tmp_path)
         d = tmp_path / "outputs" / "simple"
         for m in ("gpt4oMini", "gpt4.1Mini"):
-            self._complete(d / f"simplev2_{m}.json")
-        (d / "simplev2_gemini3.7Flash.json").write_text('{"metri', encoding="utf-8")
+            self._complete(d / f"simple_v3_{m}.json")
+        (d / "simple_v3_gemini3.7Flash.json").write_text('{"metri', encoding="utf-8")
 
         ran = []
 
@@ -367,7 +367,7 @@ class TestResume:
 
     def test_without_resume_everything_runs_again(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        self._complete(tmp_path / "outputs" / "simple" / "simplev2_gpt4oMini.json")
+        self._complete(tmp_path / "outputs" / "simple" / "simple_v3_gpt4oMini.json")
         ran = []
 
         def record(cmd, *a, **k):
@@ -382,7 +382,7 @@ class TestResume:
     def test_resume_with_nothing_left_exits_cleanly(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
         for m in MODELS:
-            self._complete(tmp_path / "outputs" / "simple" / f"simplev2_{m}.json")
+            self._complete(tmp_path / "outputs" / "simple" / f"simple_v3_{m}.json")
         with patch("backend.eval.run_all_models.subprocess.run") as sp, \
              patch("builtins.input", side_effect=AssertionError("must not prompt")):
             rc = main(["--difficulty", "simple", "--mode", "auto", "--resume"])
@@ -500,3 +500,53 @@ class TestEngineWiring:
         engines = {build_command(m, _args(), [])[
             build_command(m, _args(), []).index("--engine") + 1] for m in MODELS}
         assert engines == {"postgres"}
+
+
+class TestGoldFollowsTheEngine:
+    """
+    GH#134. The gold dialect and the engine must agree, and a mismatch fails
+    QUIETLY: gold that cannot execute is recorded as gold_error, and those
+    questions are dropped from the EX denominator — so the run reports a
+    plausible score over whatever survived.
+
+    Before this, --dev-json defaulted to ONE fixed path (the PostgreSQL file),
+    so `--engine sqlite` with no explicit --dev-json silently ran SQLite against
+    PostgreSQL gold.
+    """
+
+    def test_sqlite_gets_the_sqlite_question_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        with patch("backend.eval.run_all_models.subprocess.run") as sp:
+            main(["--difficulty", "simple", "--engine", "sqlite", "--dry-run"])
+        out = capsys.readouterr().out
+        assert "mini_dev_sqlite.json" in out
+        assert "mini_dev_postgresql.json" not in out
+        sp.assert_not_called()
+
+    def test_postgres_gets_the_postgres_question_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        main(["--difficulty", "simple", "--engine", "postgres", "--dry-run"])
+        out = capsys.readouterr().out
+        assert "mini_dev_postgresql.json" in out
+        assert "mini_dev_sqlite.json" not in out
+
+    def test_the_two_engines_never_share_a_default(self):
+        from backend.eval.run_all_models import DEV_JSON_BY_ENGINE
+        assert DEV_JSON_BY_ENGINE["sqlite"] != DEV_JSON_BY_ENGINE["postgres"]
+        assert "sqlite" in DEV_JSON_BY_ENGINE["sqlite"]
+        assert "postgres" in DEV_JSON_BY_ENGINE["postgres"]
+
+    def test_an_explicit_dev_json_still_wins(self, tmp_path, monkeypatch, capsys):
+        """Overriding must stay possible — a custom subset file is legitimate."""
+        monkeypatch.chdir(tmp_path)
+        main(["--difficulty", "simple", "--engine", "sqlite",
+              "--dev-json", "my/custom.json", "--dry-run"])
+        assert "my/custom.json" in capsys.readouterr().out
+
+    def test_the_banner_states_engine_and_gold_together(self, tmp_path, monkeypatch, capsys):
+        """The pairing is what goes wrong, so it is printed as one line rather
+        than left to be inferred from the command."""
+        monkeypatch.chdir(tmp_path)
+        main(["--difficulty", "simple", "--engine", "sqlite", "--dry-run"])
+        out = capsys.readouterr().out
+        assert "Engine   : sqlite" in out and "mini_dev_sqlite.json" in out

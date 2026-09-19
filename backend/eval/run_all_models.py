@@ -12,7 +12,7 @@ exits before the loop -- does not take the rest of the sweep with it, no state
 carries between models, and the exact command for any single model is printed
 so it can be re-run on its own.
 
-Output lands at outputs/<difficulty>/<difficulty>v2_<ShortName>.json, matching
+Output lands at outputs/<difficulty>/<difficulty>_v3_<ShortName>.json, matching
 the naming already in the repo.
 
 Run from the repo root:
@@ -60,7 +60,17 @@ MODELS: Dict[str, str] = {
     "deepseekV4Flash": "deepseek/deepseek-v4-flash",
 }
 
-DEV_JSON = "dataset/minidev/MINIDEV/mini_dev_postgresql.json"
+# GH#134: the gold dialect must match the engine, so the default question file
+# follows --engine instead of being one fixed path. BIRD ships two files whose
+# `SQL` fields differ, and pairing them wrongly fails QUIETLY — gold that cannot
+# execute is recorded as gold_error and dropped from the EX denominator, so the
+# run reports a plausible score over whatever survived. --dev-json still wins
+# when given explicitly.
+DEV_JSON_BY_ENGINE = {
+    "postgres": "dataset/minidev/MINIDEV/mini_dev_postgresql.json",
+    "sqlite":   "dataset/minidev/MINIDEV/mini_dev_sqlite.json",
+}
+DEV_JSON = DEV_JSON_BY_ENGINE["postgres"]     # kept for importers
 DB_DIR = "dataset/minidev/MINIDEV/dev_databases"
 
 
@@ -86,7 +96,7 @@ def build_command(short: str, args: argparse.Namespace,
                   passthrough: List[str]) -> List[str]:
     """The bird.py command for one model. Only --model and --output differ
     between models -- everything else is shared, which is the whole point."""
-    out = Path("outputs") / args.difficulty / f"{args.difficulty}v2_{short}.json"
+    out = Path("outputs") / args.difficulty / f"{args.difficulty}_v3_{short}.json"
     cmd = [
         sys.executable, "-m", "backend.eval.bird",
         "--dev-json", args.dev_json,
@@ -222,7 +232,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--pg-dbname", default=None,
                         help="PostgreSQL database holding the BIRD tables")
     parser.add_argument("--pg-schema", default="public")
-    parser.add_argument("--dev-json", default=DEV_JSON)
+    parser.add_argument("--dev-json", default=None,
+                        help="BIRD question file. Defaults to the one matching "
+                             "--engine: mini_dev_postgresql.json for postgres, "
+                             "mini_dev_sqlite.json for sqlite. The gold dialect "
+                             "and the engine must agree.")
     parser.add_argument("--db-dir", default=DB_DIR)
     parser.add_argument("--only", nargs="+", metavar="SHORTNAME",
                         choices=list(MODELS),
@@ -243,12 +257,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
 
+    # Resolve the gold file before anything downstream reads args.dev_json.
+    if args.dev_json is None:
+        args.dev_json = DEV_JSON_BY_ENGINE[args.engine]
+
     requested = args.only or list(MODELS)
     out_dir = Path("outputs") / args.difficulty
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def out_path(short: str) -> Path:
-        return out_dir / f"{args.difficulty}v2_{short}.json"
+        return out_dir / f"{args.difficulty}_v3_{short}.json"
 
     skipped: List[str] = []
     if args.resume:
@@ -260,9 +278,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     print()
     print("=" * 66)
     print(f"  BIRD sweep -- {len(shorts)} model(s), tier '{args.difficulty}'")
+    print(f"  Engine   : {args.engine}   gold: {Path(args.dev_json).name}")
     print(f"  subset={args.subset}  sample={args.sample}  seed={args.seed}"
           + (f"  db_id={args.db_id}" if args.db_id else ""))
-    print(f"  output -> {out_dir}/{args.difficulty}v2_<model>.json")
+    print(f"  output -> {out_dir}/{args.difficulty}_v3_<model>.json")
     if passthrough:
         print(f"  extra  -> {' '.join(passthrough)}")
     if skipped:

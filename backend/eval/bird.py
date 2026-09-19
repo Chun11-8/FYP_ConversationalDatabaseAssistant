@@ -251,6 +251,19 @@ _SQLITE_ONLY = (
     (r"\biif\s*\(", "IIF(...)", "CASE WHEN ... THEN ... ELSE ... END"),
 )
 
+# The MIRROR: constructs in BIRD's PostgreSQL gold that SQLite cannot run.
+# GH#134 — the original guard only checked one direction, and the unguarded
+# direction is the more dangerous one, because run_all_models defaults
+# --dev-json to the PostgreSQL file. `--engine sqlite` without an explicit
+# --dev-json therefore paired SQLite with PostgreSQL gold and said nothing.
+_POSTGRES_ONLY = (
+    (r"\bextract\s*\(\s*\w+\s+from\b", "EXTRACT(x FROM col)", "strftime('%Y', col)"),
+    (r"::\s*[a-z]", "::cast", "CAST(col AS type)"),
+    (r"\bage\s*\(", "AGE(...)", "a date difference in SQLite terms"),
+    (r"\bnulls\s+(?:first|last)\b", "NULLS FIRST/LAST",
+     "SQLite's own defaults — DESC already sorts NULLs last"),
+)
+
 
 def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
     """
@@ -258,8 +271,9 @@ def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
 
     BIRD ships two question files: mini_dev_sqlite.json and
     mini_dev_postgresql.json, differing in the dialect of the `SQL` field.
-    Pairing --engine postgres with the SQLite file is an easy mistake and a
-    quiet one, which is why this is a hard stop rather than a warning:
+    Pairing an engine with the OTHER file's gold is an easy mistake and a quiet
+    one in BOTH directions, which is why this is a hard stop rather than a
+    warning:
 
     gold that fails to execute is recorded as `gold_error`, and
     compute_bird_metrics treats a gold_error question as UNWINNABLE and drops
@@ -268,17 +282,23 @@ def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
     summary's "UNWINNABLE" count is the only clue. A benchmark that silently
     scores a subset is worse than one that refuses to start.
     """
-    if (engine or "").lower() != "postgres":
+    engine = (engine or "").lower()
+    if engine == "postgres":
+        checks, other = _SQLITE_ONLY, "SQLite"
+    elif engine == "sqlite":
+        checks, other = _POSTGRES_ONLY, "PostgreSQL"
+    else:
         return []
     problems: List[str] = []
-    for pattern, name, replacement in _SQLITE_ONLY:
+    for pattern, name, replacement in checks:
         hits = [q for q in questions
                 if re.search(pattern, q.get("SQL") or "", re.IGNORECASE)]
         if hits:
             example = next(iter(hits))
             problems.append(
                 f"{len(hits)} gold quer{'y' if len(hits) == 1 else 'ies'} use "
-                f"{name}, which PostgreSQL does not have (use {replacement}). "
+                f"{name}, which {engine} does not support (that is {other} gold; "
+                f"the equivalent here is {replacement}). "
                 f"First: question_id={example.get('question_id')} "
                 f"db={example.get('db_id')}")
     return problems
