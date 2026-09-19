@@ -16,7 +16,7 @@
     "subset": 40,
     "difficulty": "simple",
     "db_id": null,
-    "question_timeout": 60.0,
+    "question_timeout": 120.0,
     "sample": "stratified",
     "seed": 42,
     "databases_evaluated": [
@@ -35,31 +35,31 @@
   },
   "metrics": {
     "total": 40,
-    "EX": 72.5,
-    "F1": 73.5,
-    "VES": 67.0,
+    "EX": 75.0,
+    "F1": 76.0,
+    "VES": 71.57,
     "gold_errors": 0,
-    "EX_winnable": 72.5,
+    "EX_winnable": 75.0,
     "timeouts": 0,
     "error_categories": {
-      "pred_invalid": 2,
-      "correct": 29,
+      "correct": 30,
       "disjoint": 7,
       "partial_overlap": 1,
+      "zero_rows": 1,
       "arity_mismatch": 1
     },
-    "llm_calls": 86,
-    "llm_calls_per_question": 2.15,
-    "tokens_in": 381692,
-    "tokens_out": 37433,
-    "cost_usd": 0.4266,
-    "cost_usd_per_question": 0.010666,
+    "llm_calls": 81,
+    "llm_calls_per_question": 2.02,
+    "tokens_in": 363405,
+    "tokens_out": 31358,
+    "cost_usd": 0.3901,
+    "cost_usd_per_question": 0.009754,
     "by_difficulty": {
       "simple": {
         "count": 40,
-        "EX": 72.5,
-        "F1": 73.5,
-        "VES": 67.0
+        "EX": 75.0,
+        "F1": 76.0,
+        "VES": 71.57
       }
     }
   },
@@ -71,24 +71,24 @@
       "question": "Please list the codes of the schools with a total enrollment of over 500.",
       "evidence": "Total enrollment can be represented by `Enrollment (K-12)` + `Enrollment (Ages 5-17)`",
       "gold_sql": "SELECT T2.CDSCode FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.`Enrollment (K-12)` + T2.`Enrollment (Ages 5-17)` > 500",
-      "pred_sql": "SELECT CDSCode FROM frpm WHERE \"Enrollment (K-12)\" + \"Enrollment (Ages 5-17)\" > 500",
-      "valid": false,
+      "pred_sql": "SELECT `CDSCode`\nFROM frpm\nWHERE `Enrollment (K-12)` + `Enrollment (Ages 5-17)` > 500;",
+      "valid": true,
       "gold_error": null,
       "pred_error": null,
-      "ex": 0.0,
-      "f1": 0.0,
-      "ves_reward": 0.0,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
       "gold_row_count": 7806,
-      "pred_row_count": 0,
-      "gen_ms": 4958,
-      "gold_elapsed_ms": 10,
-      "pred_elapsed_ms": 0,
+      "pred_row_count": 7806,
+      "gen_ms": 4817,
+      "gold_elapsed_ms": 38,
+      "pred_elapsed_ms": 25,
       "exec_vote": {
         "candidates": 1,
-        "executed": 0,
-        "groups": 0,
-        "winner_votes": 0,
-        "fallback_reason": "no candidate executed successfully"
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
@@ -98,7 +98,7 @@
         "tables": [
           "frpm"
         ],
-        "join_path": [],
+        "join_path": null,
         "filters": [
           "frpm.`Enrollment (K-12)` + frpm.`Enrollment (Ages 5-17)` > 500"
         ],
@@ -114,33 +114,26 @@
       },
       "verification": {
         "candidates": 1,
-        "executed": 0,
-        "agreement": 0,
-        "distinct_result_sets": 0,
-        "decided_by": "none_executed",
-        "validated": false,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
         "validation_checks": {
           "syntax_ok": true,
           "safety_ok": true,
-          "semantic_ok": false
+          "semantic_ok": true
         },
         "refine_rounds": 0,
-        "risks": [
-          {
-            "code": "zero_rows",
-            "severity": "medium",
-            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
-            "detail": null
-          }
-        ],
-        "risk_score": 2,
+        "risks": [],
+        "risk_score": 0,
         "back_translation": null
       },
       "usage": {
-        "calls": 4,
-        "input_tokens": 16962,
-        "output_tokens": 3161,
-        "est_cost_usd": 0.024575,
+        "calls": 2,
+        "input_tokens": 9454,
+        "output_tokens": 800,
+        "est_cost_usd": 0.010091,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -150,30 +143,18 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2562,
-            "output_tokens": 846,
-            "est_cost_usd": 0.005094
+            "output_tokens": 589,
+            "est_cost_usd": 0.00413
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6900,
-            "output_tokens": 356,
-            "est_cost_usd": 0.00651
-          },
-          "refine_sql": {
-            "calls": 1,
-            "input_tokens": 4641,
-            "output_tokens": 1237,
-            "est_cost_usd": 0.00812
-          },
-          "rerank": {
-            "calls": 1,
-            "input_tokens": 2859,
-            "output_tokens": 722,
-            "est_cost_usd": 0.004852
+            "input_tokens": 6892,
+            "output_tokens": 211,
+            "est_cost_usd": 0.00596
           }
         }
       },
-      "error_category": "pred_invalid"
+      "error_category": "correct"
     },
     {
       "question_id": 737,
@@ -191,9 +172,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 2901,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3599,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -245,9 +226,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7756,
-        "output_tokens": 414,
-        "est_cost_usd": 0.007369,
+        "input_tokens": 7748,
+        "output_tokens": 643,
+        "est_cost_usd": 0.008222,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -257,14 +238,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1734,
-            "output_tokens": 264,
-            "est_cost_usd": 0.002291
+            "output_tokens": 411,
+            "est_cost_usd": 0.002842
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6022,
-            "output_tokens": 150,
-            "est_cost_usd": 0.005079
+            "input_tokens": 6014,
+            "output_tokens": 232,
+            "est_cost_usd": 0.005381
           }
         }
       },
@@ -286,9 +267,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 5683,
-      "gold_elapsed_ms": 5,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 5209,
+      "gold_elapsed_ms": 20,
+      "pred_elapsed_ms": 15,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -306,11 +287,10 @@
         ],
         "join_path": [],
         "filters": [
-          "substr(birthday, 1, 7) = '1970-10'"
+          "substr(Player.birthday, 1, 7) = '1970-10'"
         ],
         "evidence_predicates": [
-          "substr(birthday, 1, 4) = '1970'",
-          "substr(birthday, 6, 2) = '10'"
+          "substr(birthday, 1, 7) = '1970-10'"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -338,9 +318,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 12566,
-        "output_tokens": 1165,
-        "est_cost_usd": 0.013793,
+        "input_tokens": 12545,
+        "output_tokens": 906,
+        "est_cost_usd": 0.012806,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -350,14 +330,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 4132,
-            "output_tokens": 596,
-            "est_cost_usd": 0.005334
+            "output_tokens": 472,
+            "est_cost_usd": 0.004869
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 8434,
-            "output_tokens": 569,
-            "est_cost_usd": 0.008459
+            "input_tokens": 8413,
+            "output_tokens": 434,
+            "est_cost_usd": 0.007937
           }
         }
       },
@@ -379,9 +359,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4892,
+      "gen_ms": 4326,
       "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -402,13 +382,13 @@
           "income.date_received BETWEEN '2019-09-01' AND '2019-09-30'"
         ],
         "evidence_predicates": [
-          "income.date_received BETWEEN '2019-09-01' AND '2019-09-30'"
+          "date_received BETWEEN '2019-09-01' AND '2019-09-30'"
         ],
         "evidence_formula": null,
         "aggregation": null,
         "group_by": "income.source",
         "having": null,
-        "order_by": "SUM(income.amount) DESC LIMIT 1",
+        "order_by": "SUM(income.amount) DESC",
         "set_op": null
       },
       "verification": {
@@ -430,9 +410,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8960,
-        "output_tokens": 978,
-        "est_cost_usd": 0.010388,
+        "input_tokens": 8947,
+        "output_tokens": 1120,
+        "est_cost_usd": 0.01091,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -442,14 +422,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2315,
-            "output_tokens": 678,
-            "est_cost_usd": 0.004279
+            "output_tokens": 748,
+            "est_cost_usd": 0.004541
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6645,
-            "output_tokens": 300,
-            "est_cost_usd": 0.006109
+            "input_tokens": 6632,
+            "output_tokens": 372,
+            "est_cost_usd": 0.006369
           }
         }
       },
@@ -471,9 +451,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4474,
-      "gold_elapsed_ms": 41,
-      "pred_elapsed_ms": 42,
+      "gen_ms": 4275,
+      "gold_elapsed_ms": 148,
+      "pred_elapsed_ms": 156,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -498,7 +478,7 @@
           "yearmonth.Consumption > 1000"
         ],
         "evidence_predicates": [
-          "Currency = 'EUR'"
+          "customers.Currency = 'EUR'"
         ],
         "evidence_formula": null,
         "aggregation": "COUNT",
@@ -526,9 +506,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7286,
-        "output_tokens": 850,
-        "est_cost_usd": 0.008652,
+        "input_tokens": 7280,
+        "output_tokens": 733,
+        "est_cost_usd": 0.008209,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -538,14 +518,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1493,
-            "output_tokens": 527,
-            "est_cost_usd": 0.003096
+            "output_tokens": 465,
+            "est_cost_usd": 0.002864
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5793,
-            "output_tokens": 323,
-            "est_cost_usd": 0.005556
+            "input_tokens": 5787,
+            "output_tokens": 268,
+            "est_cost_usd": 0.005345
           }
         }
       },
@@ -567,27 +547,27 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3504,
-      "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 3436,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 8,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "COUNT(connected.bond_id)",
+        "target": "COUNT(bond_id)",
         "tables": [
           "connected"
         ],
         "join_path": null,
         "filters": [
-          "connected.atom_id LIKE 'TR%_19'"
+          "atom_id LIKE 'TR%_19'"
         ],
         "evidence_predicates": [
           "atom_id LIKE 'TR%_19'"
@@ -600,9 +580,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -618,9 +598,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7240,
-        "output_tokens": 803,
-        "est_cost_usd": 0.008441,
+        "input_tokens": 7228,
+        "output_tokens": 712,
+        "est_cost_usd": 0.008091,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -630,14 +610,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1481,
-            "output_tokens": 548,
-            "est_cost_usd": 0.003166
+            "output_tokens": 556,
+            "est_cost_usd": 0.003196
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5759,
-            "output_tokens": 255,
-            "est_cost_usd": 0.005276
+            "input_tokens": 5747,
+            "output_tokens": 156,
+            "est_cost_usd": 0.004895
           }
         }
       },
@@ -659,9 +639,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4510,
-      "gold_elapsed_ms": 298,
-      "pred_elapsed_ms": 262,
+      "gen_ms": 5552,
+      "gold_elapsed_ms": 893,
+      "pred_elapsed_ms": 814,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -691,7 +671,7 @@
         "aggregation": null,
         "group_by": null,
         "having": null,
-        "order_by": "posts.ViewCount DESC",
+        "order_by": "posts.ViewCount DESC LIMIT 1",
         "set_op": null
       },
       "verification": {
@@ -713,9 +693,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8208,
-        "output_tokens": 666,
-        "est_cost_usd": 0.008653,
+        "input_tokens": 8203,
+        "output_tokens": 686,
+        "est_cost_usd": 0.008725,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -725,14 +705,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1955,
-            "output_tokens": 411,
-            "est_cost_usd": 0.003008
+            "output_tokens": 357,
+            "est_cost_usd": 0.002805
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6253,
-            "output_tokens": 255,
-            "est_cost_usd": 0.005646
+            "input_tokens": 6248,
+            "output_tokens": 329,
+            "est_cost_usd": 0.00592
           }
         }
       },
@@ -745,18 +725,18 @@
       "question": "Please list all the superpowers of 3-D Man.",
       "evidence": "3-D Man refers to superhero_name = '3-D Man'; superpowers refers to power_name",
       "gold_sql": "SELECT T3.power_name FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T2.power_id = T3.id WHERE T1.superhero_name = '3-D Man'",
-      "pred_sql": "SELECT DISTINCT t1.power_name FROM superpower AS t1 INNER JOIN hero_power AS t2 ON t1.id = t2.power_id INNER JOIN superhero AS t3 ON t2.hero_id = t3.id WHERE t3.superhero_name = '3-D Man'",
+      "pred_sql": "SELECT DISTINCT t3.power_name FROM superhero AS t1 INNER JOIN hero_power AS t2 ON t1.id = t2.hero_id INNER JOIN superpower AS t3 ON t2.power_id = t3.id WHERE t1.superhero_name = '3-D Man'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.5,
+      "ves_reward": 1.0,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 3982,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 1,
+      "gen_ms": 4365,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 4,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -770,20 +750,18 @@
       "query_plan": {
         "target": "superpower.power_name",
         "tables": [
-          "superpower",
+          "superhero",
           "hero_power",
-          "superhero"
+          "superpower"
         ],
         "join_path": [
-          "hero_power.power_id = superpower.id",
-          "hero_power.hero_id = superhero.id"
+          "superhero.id = hero_power.hero_id",
+          "hero_power.power_id = superpower.id"
         ],
         "filters": [
           "superhero.superhero_name = '3-D Man'"
         ],
-        "evidence_predicates": [
-          "superhero.superhero_name = '3-D Man'"
-        ],
+        "evidence_predicates": [],
         "evidence_formula": null,
         "aggregation": null,
         "group_by": null,
@@ -810,9 +788,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7822,
-        "output_tokens": 522,
-        "est_cost_usd": 0.007824,
+        "input_tokens": 7792,
+        "output_tokens": 607,
+        "est_cost_usd": 0.00812,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -822,14 +800,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1753,
-            "output_tokens": 285,
-            "est_cost_usd": 0.002384
+            "output_tokens": 348,
+            "est_cost_usd": 0.00262
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6069,
-            "output_tokens": 237,
-            "est_cost_usd": 0.005441
+            "input_tokens": 6039,
+            "output_tokens": 259,
+            "est_cost_usd": 0.005501
           }
         }
       },
@@ -848,17 +826,17 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3080,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3183,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -884,105 +862,6 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
-        "distinct_result_sets": 1,
-        "decided_by": "plurality",
-        "validated": true,
-        "validation_checks": {
-          "syntax_ok": true,
-          "safety_ok": true,
-          "semantic_ok": true
-        },
-        "refine_rounds": 0,
-        "risks": [],
-        "risk_score": 0,
-        "back_translation": null
-      },
-      "usage": {
-        "calls": 2,
-        "input_tokens": 9458,
-        "output_tokens": 379,
-        "est_cost_usd": 0.008515,
-        "models": [
-          "google/gemini-3.7-flash"
-        ],
-        "cost_known": true,
-        "unpriced_models": [],
-        "by_stage": {
-          "link_schema": {
-            "calls": 1,
-            "input_tokens": 2596,
-            "output_tokens": 247,
-            "est_cost_usd": 0.002873
-          },
-          "generate_sql": {
-            "calls": 1,
-            "input_tokens": 6862,
-            "output_tokens": 132,
-            "est_cost_usd": 0.005641
-          }
-        }
-      },
-      "error_category": "correct"
-    },
-    {
-      "question_id": 92,
-      "db_id": "financial",
-      "difficulty": "simple",
-      "question": "List out the no. of districts that have female average salary is more than 6000 but less than 10000?",
-      "evidence": "A11 refers to average salary; Female mapps to gender = 'F'",
-      "gold_sql": "SELECT COUNT(DISTINCT T2.district_id)  FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T1.gender = 'F' AND T2.A11 BETWEEN 6000 AND 10000",
-      "pred_sql": "SELECT COUNT(DISTINCT t1.district_id) FROM district AS t1 INNER JOIN client AS t2 ON t1.district_id = t2.district_id WHERE t2.gender = 'F' AND t1.A11 > 6000 AND t1.A11 < 10000",
-      "valid": true,
-      "gold_error": null,
-      "pred_error": null,
-      "ex": 1.0,
-      "f1": 1.0,
-      "ves_reward": 0.75,
-      "gold_row_count": 1,
-      "pred_row_count": 1,
-      "gen_ms": 5684,
-      "gold_elapsed_ms": 1,
-      "pred_elapsed_ms": 1,
-      "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
-        "groups": 1,
-        "winner_votes": 1,
-        "fallback_reason": null
-      },
-      "refined": false,
-      "timeout_note": null,
-      "gold_transpiled": false,
-      "query_plan": {
-        "target": "COUNT(DISTINCT district.district_id)",
-        "tables": [
-          "district",
-          "client"
-        ],
-        "join_path": [
-          "client.district_id = district.district_id"
-        ],
-        "filters": [
-          "client.gender = 'F'",
-          "district.A11 > 6000",
-          "district.A11 < 10000"
-        ],
-        "evidence_predicates": [
-          "district.A11 > 6000",
-          "district.A11 < 10000",
-          "client.gender = 'F'"
-        ],
-        "evidence_formula": null,
-        "aggregation": "COUNT",
-        "group_by": null,
-        "having": null,
-        "order_by": null,
-        "set_op": null
-      },
-      "verification": {
         "candidates": 1,
         "executed": 1,
         "agreement": 1,
@@ -1001,9 +880,106 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8991,
-        "output_tokens": 1371,
-        "est_cost_usd": 0.011884,
+        "input_tokens": 9450,
+        "output_tokens": 391,
+        "est_cost_usd": 0.008554,
+        "models": [
+          "google/gemini-3.7-flash"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2596,
+            "output_tokens": 299,
+            "est_cost_usd": 0.003068
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6854,
+            "output_tokens": 92,
+            "est_cost_usd": 0.005485
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 92,
+      "db_id": "financial",
+      "difficulty": "simple",
+      "question": "List out the no. of districts that have female average salary is more than 6000 but less than 10000?",
+      "evidence": "A11 refers to average salary; Female mapps to gender = 'F'",
+      "gold_sql": "SELECT COUNT(DISTINCT T2.district_id)  FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T1.gender = 'F' AND T2.A11 BETWEEN 6000 AND 10000",
+      "pred_sql": "SELECT COUNT(DISTINCT t1.district_id) FROM district AS t1 INNER JOIN client AS t2 ON t1.district_id = t2.district_id WHERE t2.gender = 'F' AND t1.A11 > 6000 AND t1.A11 < 10000",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5389,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT district.district_id)",
+        "tables": [
+          "district",
+          "client"
+        ],
+        "join_path": [
+          "district.district_id = client.district_id"
+        ],
+        "filters": [
+          "client.gender = 'F'",
+          "district.A11 > 6000",
+          "district.A11 < 10000"
+        ],
+        "evidence_predicates": [
+          "client.gender = 'F'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8954,
+        "output_tokens": 1117,
+        "est_cost_usd": 0.010904,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1013,14 +989,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2320,
-            "output_tokens": 852,
-            "est_cost_usd": 0.004935
+            "output_tokens": 689,
+            "est_cost_usd": 0.004324
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6671,
-            "output_tokens": 519,
-            "est_cost_usd": 0.006949
+            "input_tokens": 6634,
+            "output_tokens": 428,
+            "est_cost_usd": 0.00658
           }
         }
       },
@@ -1042,14 +1018,14 @@
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4129,
-      "gold_elapsed_ms": 6,
-      "pred_elapsed_ms": 4,
+      "gen_ms": 3974,
+      "gold_elapsed_ms": 17,
+      "pred_elapsed_ms": 17,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -1060,7 +1036,7 @@
         "tables": [
           "zip_code"
         ],
-        "join_path": [],
+        "join_path": null,
         "filters": [
           "zip_code.county = 'Orange County'",
           "zip_code.state = 'Virginia'"
@@ -1074,9 +1050,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -1092,9 +1068,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8817,
-        "output_tokens": 621,
-        "est_cost_usd": 0.008941,
+        "input_tokens": 8809,
+        "output_tokens": 688,
+        "est_cost_usd": 0.009187,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1104,14 +1080,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2273,
-            "output_tokens": 359,
-            "est_cost_usd": 0.003051
+            "output_tokens": 426,
+            "est_cost_usd": 0.003302
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6544,
+            "input_tokens": 6536,
             "output_tokens": 262,
-            "est_cost_usd": 0.00589
+            "est_cost_usd": 0.005884
           }
         }
       },
@@ -1133,7 +1109,7 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3287,
+      "gen_ms": 2924,
       "gold_elapsed_ms": 0,
       "pred_elapsed_ms": 0,
       "exec_vote": {
@@ -1180,9 +1156,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8795,
-        "output_tokens": 529,
-        "est_cost_usd": 0.00858,
+        "input_tokens": 8787,
+        "output_tokens": 271,
+        "est_cost_usd": 0.007607,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1192,14 +1168,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2272,
-            "output_tokens": 423,
-            "est_cost_usd": 0.00329
+            "output_tokens": 99,
+            "est_cost_usd": 0.002075
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6523,
-            "output_tokens": 106,
-            "est_cost_usd": 0.00529
+            "input_tokens": 6515,
+            "output_tokens": 172,
+            "est_cost_usd": 0.005531
           }
         }
       },
@@ -1221,9 +1197,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 15,
       "pred_row_count": 5,
-      "gen_ms": 4667,
-      "gold_elapsed_ms": 5,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 5068,
+      "gold_elapsed_ms": 16,
+      "pred_elapsed_ms": 16,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1279,9 +1255,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9562,
-        "output_tokens": 896,
-        "est_cost_usd": 0.010531,
+        "input_tokens": 9554,
+        "output_tokens": 893,
+        "est_cost_usd": 0.010514,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1291,14 +1267,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2622,
-            "output_tokens": 519,
-            "est_cost_usd": 0.003913
+            "output_tokens": 508,
+            "est_cost_usd": 0.003872
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6940,
-            "output_tokens": 377,
-            "est_cost_usd": 0.006619
+            "input_tokens": 6932,
+            "output_tokens": 385,
+            "est_cost_usd": 0.006643
           }
         }
       },
@@ -1311,18 +1287,18 @@
       "question": "What language is the set of 180 cards that belongs to the Ravnica block translated into?",
       "evidence": "set of 180 cards refers to baseSetSize = 180",
       "gold_sql": "SELECT T2.language FROM sets AS T1 INNER JOIN set_translations AS T2 ON T1.code = T2.setCode WHERE T1.block = 'Ravnica' AND T1.baseSetSize = 180",
-      "pred_sql": "SELECT DISTINCT t1.language FROM set_translations AS t1 INNER JOIN sets AS t2 ON t1.setCode = t2.code WHERE t2.baseSetSize = 180 AND t2.block = 'Ravnica'",
+      "pred_sql": "SELECT DISTINCT t1.language FROM set_translations AS t1 INNER JOIN sets AS t2 ON t1.setCode = t2.code WHERE t2.block = 'Ravnica' AND t2.baseSetSize = 180",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 10,
       "pred_row_count": 10,
-      "gen_ms": 7739,
-      "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 2,
+      "gen_ms": 4640,
+      "gold_elapsed_ms": 8,
+      "pred_elapsed_ms": 6,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1336,15 +1312,15 @@
       "query_plan": {
         "target": "set_translations.language",
         "tables": [
-          "set_translations",
-          "sets"
+          "sets",
+          "set_translations"
         ],
         "join_path": [
           "set_translations.setCode = sets.code"
         ],
         "filters": [
-          "sets.baseSetSize = 180",
-          "sets.block = 'Ravnica'"
+          "sets.block = 'Ravnica'",
+          "sets.baseSetSize = 180"
         ],
         "evidence_predicates": [
           "sets.baseSetSize = 180"
@@ -1375,9 +1351,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9735,
-        "output_tokens": 786,
-        "est_cost_usd": 0.010249,
+        "input_tokens": 9727,
+        "output_tokens": 693,
+        "est_cost_usd": 0.009894,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1387,14 +1363,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2717,
-            "output_tokens": 371,
-            "est_cost_usd": 0.003429
+            "output_tokens": 389,
+            "est_cost_usd": 0.003496
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 7018,
-            "output_tokens": 415,
-            "est_cost_usd": 0.00682
+            "input_tokens": 7010,
+            "output_tokens": 304,
+            "est_cost_usd": 0.006398
           }
         }
       },
@@ -1407,7 +1383,7 @@
       "question": "What is the percentage of the customers who used EUR in 2012/8/25?",
       "evidence": "'2012/8/25' can be represented by '2012-08-25'",
       "gold_sql": "SELECT CAST(SUM(IIF(T2.Currency = 'EUR', 1, 0)) AS FLOAT) * 100 / COUNT(T1.CustomerID) FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Date = '2012-08-25'",
-      "pred_sql": "SELECT CAST(COUNT(DISTINCT CASE WHEN t2.currency = 'EUR' THEN t1.customerid END) AS REAL) * 100 / COUNT(DISTINCT t1.customerid) FROM transactions_1k AS t1 INNER JOIN customers AS t2 ON t1.customerid = t2.customerid WHERE t1.date = '2012-08-25'",
+      "pred_sql": "SELECT CAST(COUNT(DISTINCT CASE WHEN t2.Currency = 'EUR' THEN t1.CustomerID END) AS REAL) * 100 / COUNT(DISTINCT t1.CustomerID) FROM transactions_1k AS t1 INNER JOIN customers AS t2 ON t1.CustomerID = t2.CustomerID WHERE t1.Date = '2012-08-25'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -1416,9 +1392,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 6327,
-      "gold_elapsed_ms": 1,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 4473,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 4,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1430,7 +1406,7 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "CAST(COUNT(DISTINCT CASE WHEN customers.Currency = 'EUR' THEN customers.CustomerID END) AS REAL) * 100 / COUNT(DISTINCT customers.CustomerID)",
+        "target": "CAST(COUNT(DISTINCT CASE WHEN customers.Currency = 'EUR' THEN transactions_1k.CustomerID END) AS REAL) * 100 / COUNT(DISTINCT transactions_1k.CustomerID)",
         "tables": [
           "transactions_1k",
           "customers"
@@ -1470,9 +1446,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7359,
-        "output_tokens": 1113,
-        "est_cost_usd": 0.009693,
+        "input_tokens": 7357,
+        "output_tokens": 1002,
+        "est_cost_usd": 0.009275,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1482,14 +1458,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1508,
-            "output_tokens": 616,
-            "est_cost_usd": 0.003441
+            "output_tokens": 651,
+            "est_cost_usd": 0.003572
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5851,
-            "output_tokens": 497,
-            "est_cost_usd": 0.006252
+            "input_tokens": 5849,
+            "output_tokens": 351,
+            "est_cost_usd": 0.005703
           }
         }
       },
@@ -1502,7 +1478,7 @@
       "question": "Please list the disparate time of the transactions taken place in the gas stations from chain no. 11.",
       "evidence": "",
       "gold_sql": "SELECT DISTINCT T1.Time FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T2.ChainID = 11",
-      "pred_sql": "SELECT DISTINCT t1.time FROM transactions_1k AS t1 INNER JOIN gasstations AS t2 ON t1.gasstationid = t2.gasstationid WHERE t2.chainid = 11",
+      "pred_sql": "SELECT DISTINCT t1.Time FROM transactions_1k AS t1 INNER JOIN gasstations AS t2 ON t1.GasStationID = t2.GasStationID WHERE t2.ChainID = 11",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -1511,9 +1487,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 2,
       "pred_row_count": 2,
-      "gen_ms": 4127,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3911,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 3,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1563,9 +1539,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7222,
-        "output_tokens": 540,
-        "est_cost_usd": 0.007442,
+        "input_tokens": 7214,
+        "output_tokens": 479,
+        "est_cost_usd": 0.007207,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1575,14 +1551,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1471,
-            "output_tokens": 286,
-            "est_cost_usd": 0.002176
+            "output_tokens": 255,
+            "est_cost_usd": 0.00206
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5751,
-            "output_tokens": 254,
-            "est_cost_usd": 0.005266
+            "input_tokens": 5743,
+            "output_tokens": 224,
+            "est_cost_usd": 0.005147
           }
         }
       },
@@ -1604,9 +1580,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 25061,
       "pred_row_count": 25061,
-      "gen_ms": 3090,
-      "gold_elapsed_ms": 79,
-      "pred_elapsed_ms": 76,
+      "gen_ms": 4443,
+      "gold_elapsed_ms": 254,
+      "pred_elapsed_ms": 277,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1618,14 +1594,14 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "name",
+        "target": "cards.name",
         "tables": [
           "cards"
         ],
         "join_path": [],
         "filters": [
-          "cardKingdomFoilId IS NOT NULL",
-          "cardKingdomId IS NOT NULL"
+          "cards.cardKingdomFoilId IS NOT NULL",
+          "cards.cardKingdomId IS NOT NULL"
         ],
         "evidence_predicates": [
           "cardKingdomFoilId is not null AND cardKingdomId is not null"
@@ -1656,9 +1632,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9697,
-        "output_tokens": 366,
-        "est_cost_usd": 0.008645,
+        "input_tokens": 9695,
+        "output_tokens": 508,
+        "est_cost_usd": 0.009176,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1668,14 +1644,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2711,
-            "output_tokens": 247,
-            "est_cost_usd": 0.002959
+            "output_tokens": 345,
+            "est_cost_usd": 0.003327
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6986,
-            "output_tokens": 119,
-            "est_cost_usd": 0.005686
+            "input_tokens": 6984,
+            "output_tokens": 163,
+            "est_cost_usd": 0.005849
           }
         }
       },
@@ -1694,12 +1670,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3476,
-      "gold_elapsed_ms": 16,
-      "pred_elapsed_ms": 16,
+      "gen_ms": 3567,
+      "gold_elapsed_ms": 58,
+      "pred_elapsed_ms": 54,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1751,9 +1727,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8191,
-        "output_tokens": 588,
-        "est_cost_usd": 0.008348,
+        "input_tokens": 8183,
+        "output_tokens": 560,
+        "est_cost_usd": 0.008237,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1763,14 +1739,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1950,
-            "output_tokens": 325,
-            "est_cost_usd": 0.002681
+            "output_tokens": 433,
+            "est_cost_usd": 0.003086
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6241,
-            "output_tokens": 263,
-            "est_cost_usd": 0.005667
+            "input_tokens": 6233,
+            "output_tokens": 127,
+            "est_cost_usd": 0.005151
           }
         }
       },
@@ -1789,12 +1765,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 5260,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 5168,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1806,10 +1782,10 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "circuits.lat, circuits.lng",
+        "target": "DISTINCT circuits.lat, circuits.lng",
         "tables": [
-          "races",
-          "circuits"
+          "circuits",
+          "races"
         ],
         "join_path": [
           "races.circuitId = circuits.circuitId"
@@ -1846,9 +1822,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9484,
-        "output_tokens": 812,
-        "est_cost_usd": 0.010158,
+        "input_tokens": 9477,
+        "output_tokens": 661,
+        "est_cost_usd": 0.009586,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1858,14 +1834,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2597,
-            "output_tokens": 472,
-            "est_cost_usd": 0.003718
+            "output_tokens": 314,
+            "est_cost_usd": 0.003125
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6887,
-            "output_tokens": 340,
-            "est_cost_usd": 0.00644
+            "input_tokens": 6880,
+            "output_tokens": 347,
+            "est_cost_usd": 0.006461
           }
         }
       },
@@ -1884,12 +1860,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 5047,
-      "gold_elapsed_ms": 6,
-      "pred_elapsed_ms": 5,
+      "gen_ms": 3418,
+      "gold_elapsed_ms": 13,
+      "pred_elapsed_ms": 14,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -1913,9 +1889,10 @@
           "users.DisplayName = 'chl'"
         ],
         "evidence_predicates": [
-          "users.DisplayName = 'chl'"
+          "DisplayName = 'chl'",
+          "cast its first vote refers to MIN(CreationDate)"
         ],
-        "evidence_formula": "MIN(CreationDate)",
+        "evidence_formula": null,
         "aggregation": "MIN",
         "group_by": null,
         "having": null,
@@ -1941,9 +1918,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8189,
-        "output_tokens": 452,
-        "est_cost_usd": 0.007837,
+        "input_tokens": 8179,
+        "output_tokens": 455,
+        "est_cost_usd": 0.007841,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -1953,14 +1930,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1944,
-            "output_tokens": 279,
-            "est_cost_usd": 0.002504
+            "output_tokens": 330,
+            "est_cost_usd": 0.002695
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6245,
-            "output_tokens": 173,
-            "est_cost_usd": 0.005332
+            "input_tokens": 6235,
+            "output_tokens": 125,
+            "est_cost_usd": 0.005145
           }
         }
       },
@@ -1982,9 +1959,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7174,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 1,
+      "gen_ms": 6585,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 3,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2004,7 +1981,7 @@
           "district"
         ],
         "join_path": [
-          "disp.client_id = client.client_id",
+          "client.client_id = disp.client_id",
           "disp.account_id = account.account_id",
           "account.district_id = district.district_id"
         ],
@@ -2013,7 +1990,7 @@
           "client.birth_date = '1976-01-29'"
         ],
         "evidence_predicates": [
-          "gender = 'F'"
+          "client.gender = 'F'"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -2041,9 +2018,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8966,
-        "output_tokens": 1119,
-        "est_cost_usd": 0.010921,
+        "input_tokens": 8960,
+        "output_tokens": 1031,
+        "est_cost_usd": 0.010586,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2053,14 +2030,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2314,
-            "output_tokens": 525,
-            "est_cost_usd": 0.003704
+            "output_tokens": 541,
+            "est_cost_usd": 0.003764
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6652,
-            "output_tokens": 594,
-            "est_cost_usd": 0.007217
+            "input_tokens": 6646,
+            "output_tokens": 490,
+            "est_cost_usd": 0.006822
           }
         }
       },
@@ -2082,9 +2059,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 804,
       "pred_row_count": 804,
-      "gen_ms": 3202,
-      "gold_elapsed_ms": 61,
-      "pred_elapsed_ms": 61,
+      "gen_ms": 3471,
+      "gold_elapsed_ms": 209,
+      "pred_elapsed_ms": 212,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2100,7 +2077,7 @@
         "tables": [
           "cards"
         ],
-        "join_path": [],
+        "join_path": null,
         "filters": [
           "cards.duelDeck = 'a'"
         ],
@@ -2133,9 +2110,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9663,
-        "output_tokens": 332,
-        "est_cost_usd": 0.008492,
+        "input_tokens": 9655,
+        "output_tokens": 318,
+        "est_cost_usd": 0.008434,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2145,14 +2122,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2702,
-            "output_tokens": 217,
-            "est_cost_usd": 0.00284
+            "output_tokens": 239,
+            "est_cost_usd": 0.002923
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6961,
-            "output_tokens": 115,
-            "est_cost_usd": 0.005652
+            "input_tokens": 6953,
+            "output_tokens": 79,
+            "est_cost_usd": 0.005511
           }
         }
       },
@@ -2174,14 +2151,14 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7221,
-      "gold_elapsed_ms": 1,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 7948,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 3,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -2194,15 +2171,14 @@
           "qualifying"
         ],
         "join_path": [
-          "drivers.driverId = qualifying.driverId"
+          "qualifying.driverId = drivers.driverId"
         ],
         "filters": [
-          "qualifying.raceId = 19"
+          "qualifying.raceId = 19",
+          "qualifying.q2 IS NOT NULL"
         ],
         "evidence_predicates": [
-          "race number = qualifying.raceId",
-          "second qualifying period = qualifying.q2",
-          "best lap time = MIN(qualifying.q2)"
+          "qualifying.raceId = 19"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -2212,9 +2188,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2230,9 +2206,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9537,
-        "output_tokens": 1386,
-        "est_cost_usd": 0.01235,
+        "input_tokens": 9514,
+        "output_tokens": 1198,
+        "est_cost_usd": 0.011628,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2242,14 +2218,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2610,
-            "output_tokens": 535,
-            "est_cost_usd": 0.003964
+            "output_tokens": 474,
+            "est_cost_usd": 0.003735
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6927,
-            "output_tokens": 851,
-            "est_cost_usd": 0.008386
+            "input_tokens": 6904,
+            "output_tokens": 724,
+            "est_cost_usd": 0.007893
           }
         }
       },
@@ -2271,8 +2247,8 @@
       "ves_reward": 1.25,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3680,
-      "gold_elapsed_ms": 0,
+      "gen_ms": 5450,
+      "gold_elapsed_ms": 2,
       "pred_elapsed_ms": 0,
       "exec_vote": {
         "candidates": 1,
@@ -2287,8 +2263,8 @@
       "query_plan": {
         "target": "major.major_name",
         "tables": [
-          "member",
-          "major"
+          "major",
+          "member"
         ],
         "join_path": [
           "member.link_to_major = major.major_id"
@@ -2324,9 +2300,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8855,
-        "output_tokens": 449,
-        "est_cost_usd": 0.008325,
+        "input_tokens": 8847,
+        "output_tokens": 471,
+        "est_cost_usd": 0.008402,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2336,14 +2312,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2285,
-            "output_tokens": 286,
-            "est_cost_usd": 0.002786
+            "output_tokens": 298,
+            "est_cost_usd": 0.002831
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6570,
-            "output_tokens": 163,
-            "est_cost_usd": 0.005539
+            "input_tokens": 6562,
+            "output_tokens": 173,
+            "est_cost_usd": 0.00557
           }
         }
       },
@@ -2365,14 +2341,14 @@
       "ves_reward": 0.75,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 3955,
-      "gold_elapsed_ms": 57,
-      "pred_elapsed_ms": 66,
+      "gen_ms": 6972,
+      "gold_elapsed_ms": 243,
+      "pred_elapsed_ms": 257,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -2391,19 +2367,19 @@
           "Match.season = '2015/2016'"
         ],
         "evidence_predicates": [
-          "Match.season = '2015/2016'"
+          "season = '2015/2016'"
         ],
         "evidence_formula": null,
         "aggregation": "COUNT",
         "group_by": "League.name",
         "having": null,
-        "order_by": "COUNT(Match.id) DESC",
+        "order_by": "COUNT(Match.id) DESC LIMIT 4",
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2419,9 +2395,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 12578,
-        "output_tokens": 947,
-        "est_cost_usd": 0.012985,
+        "input_tokens": 12571,
+        "output_tokens": 912,
+        "est_cost_usd": 0.012848,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2431,14 +2407,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 4129,
-            "output_tokens": 607,
-            "est_cost_usd": 0.005373
+            "output_tokens": 425,
+            "est_cost_usd": 0.00469
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 8449,
-            "output_tokens": 340,
-            "est_cost_usd": 0.007612
+            "input_tokens": 8442,
+            "output_tokens": 487,
+            "est_cost_usd": 0.008158
           }
         }
       },
@@ -2460,9 +2436,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3849,
-      "gold_elapsed_ms": 13,
-      "pred_elapsed_ms": 9,
+      "gen_ms": 4698,
+      "gold_elapsed_ms": 44,
+      "pred_elapsed_ms": 34,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -2474,13 +2450,13 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "COUNT(Id)",
+        "target": "COUNT(users.Id)",
         "tables": [
           "users"
         ],
-        "join_path": null,
+        "join_path": [],
         "filters": [
-          "LastAccessDate > '2014-09-01'"
+          "users.LastAccessDate > '2014-09-01'"
         ],
         "evidence_predicates": [
           "LastAccessDate > '2014-09-01'"
@@ -2511,9 +2487,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8208,
-        "output_tokens": 580,
-        "est_cost_usd": 0.008331,
+        "input_tokens": 8204,
+        "output_tokens": 481,
+        "est_cost_usd": 0.007957,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2523,14 +2499,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1963,
-            "output_tokens": 297,
-            "est_cost_usd": 0.002586
+            "output_tokens": 300,
+            "est_cost_usd": 0.002597
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6245,
-            "output_tokens": 283,
-            "est_cost_usd": 0.005745
+            "input_tokens": 6241,
+            "output_tokens": 181,
+            "est_cost_usd": 0.005359
           }
         }
       },
@@ -2543,7 +2519,7 @@
       "question": "State the category of events were held at MU 215.",
       "evidence": "'MU 215' is the location of event; ",
       "gold_sql": "SELECT DISTINCT T2.category FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.location = 'MU 215'",
-      "pred_sql": "SELECT DISTINCT type FROM event WHERE location = 'MU 215'",
+      "pred_sql": "SELECT type FROM event WHERE location = 'MU 215'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -2551,8 +2527,8 @@
       "f1": 0.0,
       "ves_reward": 0.0,
       "gold_row_count": 4,
-      "pred_row_count": 3,
-      "gen_ms": 4361,
+      "pred_row_count": 19,
+      "gen_ms": 3902,
       "gold_elapsed_ms": 0,
       "pred_elapsed_ms": 0,
       "exec_vote": {
@@ -2574,9 +2550,7 @@
         "filters": [
           "event.location = 'MU 215'"
         ],
-        "evidence_predicates": [
-          "event.location = 'MU 215'"
-        ],
+        "evidence_predicates": [],
         "evidence_formula": null,
         "aggregation": null,
         "group_by": null,
@@ -2603,9 +2577,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8817,
-        "output_tokens": 814,
-        "est_cost_usd": 0.009665,
+        "input_tokens": 8789,
+        "output_tokens": 746,
+        "est_cost_usd": 0.009389,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2615,14 +2589,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2275,
-            "output_tokens": 504,
-            "est_cost_usd": 0.003596
+            "output_tokens": 469,
+            "est_cost_usd": 0.003465
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6542,
-            "output_tokens": 310,
-            "est_cost_usd": 0.006069
+            "input_tokens": 6514,
+            "output_tokens": 277,
+            "est_cost_usd": 0.005924
           }
         }
       },
@@ -2644,9 +2618,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 157,
       "pred_row_count": 157,
-      "gen_ms": 3030,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 4223,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2662,7 +2636,7 @@
         "tables": [
           "drivers"
         ],
-        "join_path": null,
+        "join_path": [],
         "filters": [
           "drivers.nationality = 'American'"
         ],
@@ -2695,9 +2669,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9413,
-        "output_tokens": 274,
-        "est_cost_usd": 0.008087,
+        "input_tokens": 9405,
+        "output_tokens": 330,
+        "est_cost_usd": 0.008291,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2707,14 +2681,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2578,
-            "output_tokens": 206,
-            "est_cost_usd": 0.002706
+            "output_tokens": 187,
+            "est_cost_usd": 0.002635
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6835,
-            "output_tokens": 68,
-            "est_cost_usd": 0.005381
+            "input_tokens": 6827,
+            "output_tokens": 143,
+            "est_cost_usd": 0.005657
           }
         }
       },
@@ -2727,7 +2701,7 @@
       "question": "What is the disease patient '30609' diagnosed with. List all the date of laboratory tests done for this patient.",
       "evidence": "'30609' is the Patient ID; disease means Diagnosis",
       "gold_sql": "SELECT T1.Diagnosis, T2.Date FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID = 30609",
-      "pred_sql": "SELECT DISTINCT T1.Diagnosis, T2.Date FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID = 30609",
+      "pred_sql": "SELECT DISTINCT t1.Diagnosis, t2.Date FROM Patient AS t1 INNER JOIN Laboratory AS t2 ON t1.ID = t2.ID WHERE t1.ID = 30609",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -2736,9 +2710,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 60,
       "pred_row_count": 60,
-      "gen_ms": 4675,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 4530,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2788,9 +2762,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8277,
-        "output_tokens": 605,
-        "est_cost_usd": 0.008476,
+        "input_tokens": 8269,
+        "output_tokens": 723,
+        "est_cost_usd": 0.008913,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2800,14 +2774,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2004,
-            "output_tokens": 294,
-            "est_cost_usd": 0.002606
+            "output_tokens": 438,
+            "est_cost_usd": 0.003145
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6273,
-            "output_tokens": 311,
-            "est_cost_usd": 0.005871
+            "input_tokens": 6265,
+            "output_tokens": 285,
+            "est_cost_usd": 0.005768
           }
         }
       },
@@ -2820,39 +2794,39 @@
       "question": "Please list the product description of the products consumed in September, 2013.",
       "evidence": "September 2013 refers to 201309; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
       "gold_sql": "SELECT T3.Description FROM transactions_1k AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID INNER JOIN products AS T3 ON T1.ProductID = T3.ProductID WHERE T2.Date = '201309'",
-      "pred_sql": "SELECT DISTINCT T1.Description FROM products AS T1 INNER JOIN transactions_1k AS T2 ON T1.ProductID = T2.ProductID INNER JOIN yearmonth AS T3 ON T2.CustomerID = T3.CustomerID WHERE T3.Date = '201309'",
+      "pred_sql": "SELECT DISTINCT t1.Description FROM products AS t1 INNER JOIN transactions_1k AS t2 ON t1.ProductID = t2.ProductID WHERE t2.Date LIKE '2013-09%'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
-      "ex": 1.0,
-      "f1": 1.0,
-      "ves_reward": 1.0,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
       "gold_row_count": 976,
-      "pred_row_count": 27,
-      "gen_ms": 7208,
-      "gold_elapsed_ms": 3,
-      "pred_elapsed_ms": 1,
+      "pred_row_count": 0,
+      "gen_ms": 10911,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
-      "refined": true,
+      "refined": false,
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "products.Description",
+        "target": "DISTINCT products.Description",
         "tables": [
           "products",
           "transactions_1k"
         ],
         "join_path": [
-          "transactions_1k.ProductID = products.ProductID"
+          "products.ProductID = transactions_1k.ProductID"
         ],
         "filters": [
-          "strftime('%Y-%m', transactions_1k.Date) = '2013-09'"
+          "transactions_1k.Date LIKE '2013-09%' OR transactions_1k.Date LIKE '201309%'"
         ],
         "evidence_predicates": [
           "September 2013 refers to 201309"
@@ -2865,9 +2839,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2876,16 +2850,23 @@
           "safety_ok": true,
           "semantic_ok": true
         },
-        "refine_rounds": 1,
-        "risks": [],
-        "risk_score": 0,
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
         "back_translation": null
       },
       "usage": {
         "calls": 3,
-        "input_tokens": 11002,
-        "output_tokens": 5031,
-        "est_cost_usd": 0.027118,
+        "input_tokens": 10994,
+        "output_tokens": 4013,
+        "est_cost_usd": 0.023294,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2895,24 +2876,24 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1528,
-            "output_tokens": 1138,
-            "est_cost_usd": 0.005413
+            "output_tokens": 1043,
+            "est_cost_usd": 0.005057
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5837,
-            "output_tokens": 784,
-            "est_cost_usd": 0.007318
+            "input_tokens": 5838,
+            "output_tokens": 1234,
+            "est_cost_usd": 0.009006
           },
           "refine_sql": {
             "calls": 1,
-            "input_tokens": 3637,
-            "output_tokens": 3109,
-            "est_cost_usd": 0.014386
+            "input_tokens": 3628,
+            "output_tokens": 1736,
+            "est_cost_usd": 0.009231
           }
         }
       },
-      "error_category": "correct"
+      "error_category": "zero_rows"
     },
     {
       "question_id": 537,
@@ -2930,9 +2911,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3399,
-      "gold_elapsed_ms": 244,
-      "pred_elapsed_ms": 242,
+      "gen_ms": 5200,
+      "gold_elapsed_ms": 856,
+      "pred_elapsed_ms": 815,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2984,9 +2965,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8168,
-        "output_tokens": 495,
-        "est_cost_usd": 0.007982,
+        "input_tokens": 8160,
+        "output_tokens": 595,
+        "est_cost_usd": 0.008351,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -2996,14 +2977,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1938,
-            "output_tokens": 287,
-            "est_cost_usd": 0.00253
+            "output_tokens": 370,
+            "est_cost_usd": 0.002841
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6230,
-            "output_tokens": 208,
-            "est_cost_usd": 0.005453
+            "input_tokens": 6222,
+            "output_tokens": 225,
+            "est_cost_usd": 0.00551
           }
         }
       },
@@ -3025,9 +3006,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4425,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3579,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 3,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -3045,15 +3026,15 @@
           "qualifying"
         ],
         "join_path": [
-          "qualifying.driverId = drivers.driverId"
+          "drivers.driverId = qualifying.driverId"
         ],
         "filters": [
           "qualifying.raceId = 45",
           "qualifying.q3 LIKE '1:33%'"
         ],
         "evidence_predicates": [
-          "qualifying.raceId = 45",
-          "qualifying.q3 LIKE '1:33%'"
+          "raceId = 45",
+          "q3 LIKE '1:33%'"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -3081,9 +3062,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9560,
-        "output_tokens": 663,
-        "est_cost_usd": 0.009656,
+        "input_tokens": 9548,
+        "output_tokens": 812,
+        "est_cost_usd": 0.010206,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3093,14 +3074,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2625,
-            "output_tokens": 362,
-            "est_cost_usd": 0.003326
+            "output_tokens": 547,
+            "est_cost_usd": 0.00402
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6935,
-            "output_tokens": 301,
-            "est_cost_usd": 0.00633
+            "input_tokens": 6923,
+            "output_tokens": 265,
+            "est_cost_usd": 0.006186
           }
         }
       },
@@ -3122,9 +3103,9 @@
       "ves_reward": 1.25,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 5978,
-      "gold_elapsed_ms": 13,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 4852,
+      "gold_elapsed_ms": 53,
+      "pred_elapsed_ms": 19,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -3145,7 +3126,7 @@
           "Player.height = (SELECT MAX(Player.height) FROM Player)"
         ],
         "evidence_predicates": [
-          "rank based on the height in descending order = 1"
+          "RANK() OVER (ORDER BY Player.height DESC) = 1"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -3173,9 +3154,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 12457,
-        "output_tokens": 718,
-        "est_cost_usd": 0.012035,
+        "input_tokens": 12452,
+        "output_tokens": 796,
+        "est_cost_usd": 0.012324,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3185,14 +3166,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 4092,
-            "output_tokens": 428,
-            "est_cost_usd": 0.004674
+            "output_tokens": 457,
+            "est_cost_usd": 0.004783
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 8365,
-            "output_tokens": 290,
-            "est_cost_usd": 0.007361
+            "input_tokens": 8360,
+            "output_tokens": 339,
+            "est_cost_usd": 0.007541
           }
         }
       },
@@ -3211,12 +3192,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 20,
       "pred_row_count": 20,
-      "gen_ms": 4582,
-      "gold_elapsed_ms": 4,
-      "pred_elapsed_ms": 2,
+      "gen_ms": 3308,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 12,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -3228,7 +3209,7 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "Patient.ID, Patient.SEX, Patient.Birthday",
+        "target": "DISTINCT Patient.ID, Patient.SEX, Patient.Birthday",
         "tables": [
           "Patient",
           "Laboratory"
@@ -3268,9 +3249,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8292,
-        "output_tokens": 873,
-        "est_cost_usd": 0.009493,
+        "input_tokens": 8285,
+        "output_tokens": 627,
+        "est_cost_usd": 0.008565,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3280,14 +3261,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2003,
-            "output_tokens": 508,
-            "est_cost_usd": 0.003407
+            "output_tokens": 395,
+            "est_cost_usd": 0.002984
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6289,
-            "output_tokens": 365,
-            "est_cost_usd": 0.006086
+            "input_tokens": 6282,
+            "output_tokens": 232,
+            "est_cost_usd": 0.005582
           }
         }
       },
@@ -3306,292 +3287,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
-      "gold_row_count": 1,
-      "pred_row_count": 1,
-      "gen_ms": 7431,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
-      "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
-        "groups": 1,
-        "winner_votes": 1,
-        "fallback_reason": null
-      },
-      "refined": false,
-      "timeout_note": null,
-      "gold_transpiled": false,
-      "query_plan": {
-        "target": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob), drivers.forename, drivers.surname",
-        "tables": [
-          "drivers"
-        ],
-        "join_path": [],
-        "filters": [
-          "drivers.nationality = 'Japanese'"
-        ],
-        "evidence_predicates": [
-          "drivers.nationality = 'Japanese'"
-        ],
-        "evidence_formula": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob)",
-        "aggregation": null,
-        "group_by": null,
-        "having": null,
-        "order_by": "drivers.dob DESC",
-        "set_op": null
-      },
-      "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
-        "distinct_result_sets": 1,
-        "decided_by": "plurality",
-        "validated": true,
-        "validation_checks": {
-          "syntax_ok": true,
-          "safety_ok": true,
-          "semantic_ok": true
-        },
-        "refine_rounds": 0,
-        "risks": [],
-        "risk_score": 0,
-        "back_translation": null
-      },
-      "usage": {
-        "calls": 2,
-        "input_tokens": 9545,
-        "output_tokens": 1041,
-        "est_cost_usd": 0.011062,
-        "models": [
-          "google/gemini-3.7-flash"
-        ],
-        "cost_known": true,
-        "unpriced_models": [],
-        "by_stage": {
-          "link_schema": {
-            "calls": 1,
-            "input_tokens": 2620,
-            "output_tokens": 389,
-            "est_cost_usd": 0.003424
-          },
-          "generate_sql": {
-            "calls": 1,
-            "input_tokens": 6925,
-            "output_tokens": 652,
-            "est_cost_usd": 0.007639
-          }
-        }
-      },
-      "error_category": "correct"
-    },
-    {
-      "question_id": 1144,
-      "db_id": "european_football_2",
-      "difficulty": "simple",
-      "question": "Please state the finishing rate and curve score of the player who has the heaviest weight.",
-      "evidence": "finishing rate refer to finishing; curve score refer to curve; heaviest weight refers to MAX(weight)",
-      "gold_sql": "SELECT id, finishing, curve FROM Player_Attributes WHERE player_api_id = ( SELECT player_api_id FROM Player ORDER BY weight DESC LIMIT 1 ) LIMIT 1",
-      "pred_sql": "SELECT t2.finishing, t2.curve FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id ORDER BY t1.weight DESC NULLS FIRST LIMIT 1",
-      "valid": true,
-      "gold_error": null,
-      "pred_error": null,
-      "ex": 0.0,
-      "f1": 0.0,
-      "ves_reward": 0.0,
-      "gold_row_count": 1,
-      "pred_row_count": 1,
-      "gen_ms": 5608,
-      "gold_elapsed_ms": 36,
-      "pred_elapsed_ms": 111,
-      "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
-        "groups": 1,
-        "winner_votes": 1,
-        "fallback_reason": null
-      },
-      "refined": false,
-      "timeout_note": null,
-      "gold_transpiled": false,
-      "query_plan": {
-        "target": "Player_Attributes.finishing, Player_Attributes.curve",
-        "tables": [
-          "Player",
-          "Player_Attributes"
-        ],
-        "join_path": [
-          "Player.player_api_id = Player_Attributes.player_api_id"
-        ],
-        "filters": [],
-        "evidence_predicates": [
-          "Player.weight = (SELECT MAX(weight) FROM Player)"
-        ],
-        "evidence_formula": null,
-        "aggregation": null,
-        "group_by": null,
-        "having": null,
-        "order_by": "Player.weight DESC",
-        "set_op": null
-      },
-      "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
-        "distinct_result_sets": 1,
-        "decided_by": "plurality",
-        "validated": true,
-        "validation_checks": {
-          "syntax_ok": true,
-          "safety_ok": true,
-          "semantic_ok": true
-        },
-        "refine_rounds": 0,
-        "risks": [],
-        "risk_score": 0,
-        "back_translation": null
-      },
-      "usage": {
-        "calls": 2,
-        "input_tokens": 12499,
-        "output_tokens": 1043,
-        "est_cost_usd": 0.013285,
-        "models": [
-          "google/gemini-3.7-flash"
-        ],
-        "cost_known": true,
-        "unpriced_models": [],
-        "by_stage": {
-          "link_schema": {
-            "calls": 1,
-            "input_tokens": 4099,
-            "output_tokens": 507,
-            "est_cost_usd": 0.004975
-          },
-          "generate_sql": {
-            "calls": 1,
-            "input_tokens": 8400,
-            "output_tokens": 536,
-            "est_cost_usd": 0.00831
-          }
-        }
-      },
-      "error_category": "arity_mismatch"
-    },
-    {
-      "question_id": 792,
-      "db_id": "superhero",
-      "difficulty": "simple",
-      "question": "What is Abomination's superpower?",
-      "evidence": "Abomination refers to superhero_name = 'Abomination'; superpower refers to power_name;",
-      "gold_sql": "SELECT T3.power_name FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T2.power_id = T3.id WHERE T1.superhero_name = 'Abomination'",
-      "pred_sql": "SELECT t3.power_name FROM superhero AS t1 INNER JOIN hero_power AS t2 ON t1.id = t2.hero_id INNER JOIN superpower AS t3 ON t2.power_id = t3.id WHERE t1.superhero_name = 'Abomination'",
-      "valid": true,
-      "gold_error": null,
-      "pred_error": null,
-      "ex": 1.0,
-      "f1": 1.0,
-      "ves_reward": 1.0,
-      "gold_row_count": 8,
-      "pred_row_count": 8,
-      "gen_ms": 3289,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
-      "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
-        "groups": 1,
-        "winner_votes": 1,
-        "fallback_reason": null
-      },
-      "refined": false,
-      "timeout_note": null,
-      "gold_transpiled": false,
-      "query_plan": {
-        "target": "superpower.power_name",
-        "tables": [
-          "superpower",
-          "hero_power",
-          "superhero"
-        ],
-        "join_path": [
-          "superhero.id = hero_power.hero_id",
-          "hero_power.power_id = superpower.id"
-        ],
-        "filters": [
-          "superhero.superhero_name = 'Abomination'"
-        ],
-        "evidence_predicates": [],
-        "evidence_formula": null,
-        "aggregation": null,
-        "group_by": null,
-        "having": null,
-        "order_by": null,
-        "set_op": null
-      },
-      "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
-        "distinct_result_sets": 1,
-        "decided_by": "plurality",
-        "validated": true,
-        "validation_checks": {
-          "syntax_ok": true,
-          "safety_ok": true,
-          "semantic_ok": true
-        },
-        "refine_rounds": 0,
-        "risks": [],
-        "risk_score": 0,
-        "back_translation": null
-      },
-      "usage": {
-        "calls": 2,
-        "input_tokens": 7782,
-        "output_tokens": 479,
-        "est_cost_usd": 0.007633,
-        "models": [
-          "google/gemini-3.7-flash"
-        ],
-        "cost_known": true,
-        "unpriced_models": [],
-        "by_stage": {
-          "link_schema": {
-            "calls": 1,
-            "input_tokens": 1745,
-            "output_tokens": 297,
-            "est_cost_usd": 0.002423
-          },
-          "generate_sql": {
-            "calls": 1,
-            "input_tokens": 6037,
-            "output_tokens": 182,
-            "est_cost_usd": 0.00521
-          }
-        }
-      },
-      "error_category": "correct"
-    },
-    {
-      "question_id": 531,
-      "db_id": "codebase_community",
-      "difficulty": "simple",
-      "question": "Which user has a higher reputation, Harlan or Jarrod Dixon?",
-      "evidence": "\"Harlan\" and \"Jarrod Dixon\" are both DisplayName; highest reputation refers to Max(Reputation)",
-      "gold_sql": "SELECT DisplayName FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') AND Reputation = ( SELECT MAX(Reputation) FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') )",
-      "pred_sql": "SELECT DisplayName FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') ORDER BY Reputation DESC NULLS FIRST LIMIT 1",
-      "valid": true,
-      "gold_error": null,
-      "pred_error": null,
-      "ex": 1.0,
-      "f1": 1.0,
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3833,
-      "gold_elapsed_ms": 18,
-      "pred_elapsed_ms": 10,
+      "gen_ms": 7117,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -3603,22 +3304,22 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "users.DisplayName",
+        "target": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob), forename, surname",
         "tables": [
-          "users"
+          "drivers"
         ],
         "join_path": [],
         "filters": [
-          "users.DisplayName IN ('Harlan', 'Jarrod Dixon')"
+          "nationality = 'Japanese'"
         ],
         "evidence_predicates": [
-          "DisplayName IN ('Harlan', 'Jarrod Dixon')"
+          "nationality = 'Japanese'"
         ],
-        "evidence_formula": null,
+        "evidence_formula": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob)",
         "aggregation": null,
         "group_by": null,
         "having": null,
-        "order_by": "users.Reputation DESC",
+        "order_by": "dob DESC",
         "set_op": null
       },
       "verification": {
@@ -3640,9 +3341,290 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8180,
-        "output_tokens": 628,
-        "est_cost_usd": 0.00849,
+        "input_tokens": 9527,
+        "output_tokens": 1139,
+        "est_cost_usd": 0.011416,
+        "models": [
+          "google/gemini-3.7-flash"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2620,
+            "output_tokens": 404,
+            "est_cost_usd": 0.00348
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6907,
+            "output_tokens": 735,
+            "est_cost_usd": 0.007936
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1144,
+      "db_id": "european_football_2",
+      "difficulty": "simple",
+      "question": "Please state the finishing rate and curve score of the player who has the heaviest weight.",
+      "evidence": "finishing rate refer to finishing; curve score refer to curve; heaviest weight refers to MAX(weight)",
+      "gold_sql": "SELECT id, finishing, curve FROM Player_Attributes WHERE player_api_id = ( SELECT player_api_id FROM Player ORDER BY weight DESC LIMIT 1 ) LIMIT 1",
+      "pred_sql": "SELECT t2.finishing, t2.curve FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id ORDER BY t1.weight DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6103,
+      "gold_elapsed_ms": 143,
+      "pred_elapsed_ms": 418,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Player_Attributes.finishing, Player_Attributes.curve",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "Player.weight DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 12469,
+        "output_tokens": 929,
+        "est_cost_usd": 0.012835,
+        "models": [
+          "google/gemini-3.7-flash"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 4099,
+            "output_tokens": 343,
+            "est_cost_usd": 0.00436
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 8370,
+            "output_tokens": 586,
+            "est_cost_usd": 0.008475
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 792,
+      "db_id": "superhero",
+      "difficulty": "simple",
+      "question": "What is Abomination's superpower?",
+      "evidence": "Abomination refers to superhero_name = 'Abomination'; superpower refers to power_name;",
+      "gold_sql": "SELECT T3.power_name FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T2.power_id = T3.id WHERE T1.superhero_name = 'Abomination'",
+      "pred_sql": "SELECT t3.power_name FROM superhero AS t1 INNER JOIN hero_power AS t2 ON t1.id = t2.hero_id INNER JOIN superpower AS t3 ON t2.power_id = t3.id WHERE t1.superhero_name = 'Abomination'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 8,
+      "pred_row_count": 8,
+      "gen_ms": 5982,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "superpower.power_name",
+        "tables": [
+          "superhero",
+          "hero_power",
+          "superpower"
+        ],
+        "join_path": [
+          "superhero.id = hero_power.hero_id",
+          "hero_power.power_id = superpower.id"
+        ],
+        "filters": [
+          "superhero.superhero_name = 'Abomination'"
+        ],
+        "evidence_predicates": [
+          "superhero.superhero_name = 'Abomination'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7794,
+        "output_tokens": 670,
+        "est_cost_usd": 0.008358,
+        "models": [
+          "google/gemini-3.7-flash"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1745,
+            "output_tokens": 248,
+            "est_cost_usd": 0.002239
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6049,
+            "output_tokens": 422,
+            "est_cost_usd": 0.006119
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 531,
+      "db_id": "codebase_community",
+      "difficulty": "simple",
+      "question": "Which user has a higher reputation, Harlan or Jarrod Dixon?",
+      "evidence": "\"Harlan\" and \"Jarrod Dixon\" are both DisplayName; highest reputation refers to Max(Reputation)",
+      "gold_sql": "SELECT DisplayName FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') AND Reputation = ( SELECT MAX(Reputation) FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') )",
+      "pred_sql": "SELECT DisplayName FROM users WHERE DisplayName IN ('Harlan', 'Jarrod Dixon') ORDER BY Reputation DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3463,
+      "gold_elapsed_ms": 64,
+      "pred_elapsed_ms": 33,
+      "exec_vote": {
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "users.DisplayName",
+        "tables": [
+          "users"
+        ],
+        "join_path": [],
+        "filters": [
+          "users.DisplayName IN ('Harlan', 'Jarrod Dixon')"
+        ],
+        "evidence_predicates": [
+          "\"Harlan\" and \"Jarrod Dixon\" are both DisplayName",
+          "highest reputation refers to Max(Reputation)"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "users.Reputation DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8186,
+        "output_tokens": 475,
+        "est_cost_usd": 0.007921,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3652,14 +3634,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1950,
-            "output_tokens": 324,
-            "est_cost_usd": 0.002678
+            "output_tokens": 316,
+            "est_cost_usd": 0.002647
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6230,
-            "output_tokens": 304,
-            "est_cost_usd": 0.005812
+            "input_tokens": 6236,
+            "output_tokens": 159,
+            "est_cost_usd": 0.005273
           }
         }
       },
@@ -3672,24 +3654,24 @@
       "question": "Which state special schools have the highest number of enrollees from grades 1 through 12?",
       "evidence": "State Special Schools refers to DOC = 31; Grades 1 through 12 means K-12",
       "gold_sql": "SELECT T2.School FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.DOC = 31 ORDER BY T1.`Enrollment (K-12)` DESC LIMIT 1",
-      "pred_sql": "SELECT t1.School FROM schools AS t1 INNER JOIN frpm AS t2 ON t1.CDSCode = t2.CDSCode WHERE t1.DOC = '31' AND NOT t2.\"Enrollment (K-12)\" IS NULL ORDER BY t2.\"Enrollment (K-12)\" DESC NULLS FIRST LIMIT 1",
-      "valid": false,
+      "pred_sql": "SELECT t1.School FROM schools AS t1 INNER JOIN frpm AS t2 ON t1.CDSCode = t2.CDSCode WHERE t1.DOC = '31' ORDER BY t2.\"Enrollment (K-12)\" DESC NULLS FIRST LIMIT 1",
+      "valid": true,
       "gold_error": null,
       "pred_error": null,
-      "ex": 0.0,
-      "f1": 0.0,
-      "ves_reward": 0.0,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
-      "pred_row_count": 0,
-      "gen_ms": 9891,
-      "gold_elapsed_ms": 12,
-      "pred_elapsed_ms": 0,
+      "pred_row_count": 1,
+      "gen_ms": 3629,
+      "gold_elapsed_ms": 38,
+      "pred_elapsed_ms": 30,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 0,
-        "groups": 0,
-        "winner_votes": 0,
-        "fallback_reason": "no candidate executed successfully"
+        "candidates": 1,
+        "executed": 1,
+        "groups": 1,
+        "winner_votes": 1,
+        "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
@@ -3701,10 +3683,11 @@
           "frpm"
         ],
         "join_path": [
-          "schools.CDSCode = frpm.CDSCode"
+          "frpm.CDSCode = schools.CDSCode"
         ],
         "filters": [
-          "schools.DOC = '31'"
+          "schools.DOC = '31'",
+          "frpm.`Enrollment (K-12)` IS NOT NULL"
         ],
         "evidence_predicates": [
           "schools.DOC = '31'"
@@ -3717,34 +3700,27 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 0,
-        "agreement": 0,
-        "distinct_result_sets": 0,
-        "decided_by": "none_executed",
-        "validated": false,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
         "validation_checks": {
           "syntax_ok": true,
           "safety_ok": true,
-          "semantic_ok": false
+          "semantic_ok": true
         },
         "refine_rounds": 0,
-        "risks": [
-          {
-            "code": "zero_rows",
-            "severity": "medium",
-            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
-            "detail": null
-          }
-        ],
-        "risk_score": 2,
+        "risks": [],
+        "risk_score": 0,
         "back_translation": null
       },
       "usage": {
-        "calls": 5,
-        "input_tokens": 19820,
-        "output_tokens": 2492,
-        "est_cost_usd": 0.02421,
+        "calls": 2,
+        "input_tokens": 9428,
+        "output_tokens": 725,
+        "est_cost_usd": 0.00979,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3754,30 +3730,18 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2559,
-            "output_tokens": 602,
-            "est_cost_usd": 0.004177
+            "output_tokens": 480,
+            "est_cost_usd": 0.003719
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6860,
-            "output_tokens": 565,
-            "est_cost_usd": 0.007264
-          },
-          "rerank": {
-            "calls": 2,
-            "input_tokens": 5732,
-            "output_tokens": 538,
-            "est_cost_usd": 0.006317
-          },
-          "refine_sql": {
-            "calls": 1,
-            "input_tokens": 4669,
-            "output_tokens": 787,
-            "est_cost_usd": 0.006453
+            "input_tokens": 6869,
+            "output_tokens": 245,
+            "est_cost_usd": 0.006071
           }
         }
       },
-      "error_category": "pred_invalid"
+      "error_category": "correct"
     },
     {
       "question_id": 785,
@@ -3792,12 +3756,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 28,
       "pred_row_count": 28,
-      "gen_ms": 3488,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3904,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -3849,9 +3813,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7773,
-        "output_tokens": 452,
-        "est_cost_usd": 0.007525,
+        "input_tokens": 7765,
+        "output_tokens": 442,
+        "est_cost_usd": 0.007481,
         "models": [
           "google/gemini-3.7-flash"
         ],
@@ -3861,14 +3825,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1745,
-            "output_tokens": 252,
-            "est_cost_usd": 0.002254
+            "output_tokens": 255,
+            "est_cost_usd": 0.002265
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6028,
-            "output_tokens": 200,
-            "est_cost_usd": 0.005271
+            "input_tokens": 6020,
+            "output_tokens": 187,
+            "est_cost_usd": 0.005216
           }
         }
       },

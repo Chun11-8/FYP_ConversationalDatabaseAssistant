@@ -16,7 +16,7 @@
     "subset": 40,
     "difficulty": "simple",
     "db_id": null,
-    "question_timeout": 60.0,
+    "question_timeout": 120.0,
     "sample": "stratified",
     "seed": 42,
     "databases_evaluated": [
@@ -35,33 +35,32 @@
   },
   "metrics": {
     "total": 40,
-    "EX": 65.0,
-    "F1": 66.38,
-    "VES": 62.08,
+    "EX": 67.5,
+    "F1": 68.88,
+    "VES": 64.58,
     "gold_errors": 0,
-    "EX_winnable": 65.0,
+    "EX_winnable": 67.5,
     "timeouts": 0,
     "error_categories": {
-      "pred_invalid": 2,
-      "correct": 26,
-      "disjoint": 8,
+      "correct": 27,
+      "disjoint": 9,
       "partial_overlap": 1,
       "superset": 1,
       "zero_rows": 1,
       "arity_mismatch": 1
     },
-    "llm_calls": 88,
-    "llm_calls_per_question": 2.2,
-    "tokens_in": 353419,
-    "tokens_out": 23225,
-    "cost_usd": 0.0814,
-    "cost_usd_per_question": 0.002035,
+    "llm_calls": 84,
+    "llm_calls_per_question": 2.1,
+    "tokens_in": 341469,
+    "tokens_out": 21918,
+    "cost_usd": 0.0783,
+    "cost_usd_per_question": 0.001958,
     "by_difficulty": {
       "simple": {
         "count": 40,
-        "EX": 65.0,
-        "F1": 66.38,
-        "VES": 62.08
+        "EX": 67.5,
+        "F1": 68.88,
+        "VES": 64.58
       }
     }
   },
@@ -73,24 +72,24 @@
       "question": "Please list the codes of the schools with a total enrollment of over 500.",
       "evidence": "Total enrollment can be represented by `Enrollment (K-12)` + `Enrollment (Ages 5-17)`",
       "gold_sql": "SELECT T2.CDSCode FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.`Enrollment (K-12)` + T2.`Enrollment (Ages 5-17)` > 500",
-      "pred_sql": "SELECT CDSCode\nFROM frpm\nWHERE `Enrollment (K-12)` + `Enrollment (Ages 5-17)` > 500;",
-      "valid": false,
+      "pred_sql": "SELECT CDSCode FROM frpm WHERE \"Enrollment (K-12)\" + \"Enrollment (Ages 5-17)\" > 500",
+      "valid": true,
       "gold_error": null,
       "pred_error": null,
-      "ex": 0.0,
-      "f1": 0.0,
-      "ves_reward": 0.0,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
       "gold_row_count": 7806,
-      "pred_row_count": 0,
-      "gen_ms": 6524,
-      "gold_elapsed_ms": 62,
-      "pred_elapsed_ms": 0,
+      "pred_row_count": 7806,
+      "gen_ms": 5160,
+      "gold_elapsed_ms": 36,
+      "pred_elapsed_ms": 26,
       "exec_vote": {
         "candidates": 2,
-        "executed": 0,
-        "groups": 0,
-        "winner_votes": 0,
-        "fallback_reason": "no candidate executed successfully"
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
@@ -114,33 +113,26 @@
       },
       "verification": {
         "candidates": 2,
-        "executed": 0,
-        "agreement": 0,
-        "distinct_result_sets": 0,
-        "decided_by": "none_executed",
-        "validated": false,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
         "validation_checks": {
           "syntax_ok": true,
           "safety_ok": true,
-          "semantic_ok": false
+          "semantic_ok": true
         },
         "refine_rounds": 0,
-        "risks": [
-          {
-            "code": "zero_rows",
-            "severity": "medium",
-            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
-            "detail": null
-          }
-        ],
-        "risk_score": 2,
+        "risks": [],
+        "risk_score": 0,
         "back_translation": null
       },
       "usage": {
-        "calls": 5,
-        "input_tokens": 18288,
-        "output_tokens": 783,
-        "est_cost_usd": 0.00394,
+        "calls": 2,
+        "input_tokens": 8720,
+        "output_tokens": 587,
+        "est_cost_usd": 0.002018,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -155,25 +147,13 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6328,
-            "output_tokens": 470,
-            "est_cost_usd": 0.001493
-          },
-          "rerank": {
-            "calls": 2,
-            "input_tokens": 5225,
-            "output_tokens": 4,
-            "est_cost_usd": 0.000982
-          },
-          "refine_sql": {
-            "calls": 1,
-            "input_tokens": 4345,
-            "output_tokens": 187,
-            "est_cost_usd": 0.000937
+            "input_tokens": 6330,
+            "output_tokens": 465,
+            "est_cost_usd": 0.00149
           }
         }
       },
-      "error_category": "pred_invalid"
+      "error_category": "correct"
     },
     {
       "question_id": 737,
@@ -188,17 +168,17 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 1.25,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3038,
+      "gen_ms": 4300,
       "gold_elapsed_ms": 1,
       "pred_elapsed_ms": 0,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -225,9 +205,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -243,9 +223,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7027,
-        "output_tokens": 391,
-        "est_cost_usd": 0.001573,
+        "input_tokens": 7029,
+        "output_tokens": 417,
+        "est_cost_usd": 0.00159,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -260,9 +240,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5471,
-            "output_tokens": 284,
-            "est_cost_usd": 0.001211
+            "input_tokens": 5473,
+            "output_tokens": 310,
+            "est_cost_usd": 0.001228
           }
         }
       },
@@ -284,9 +264,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 4392,
-      "gold_elapsed_ms": 7,
-      "pred_elapsed_ms": 7,
+      "gen_ms": 3111,
+      "gold_elapsed_ms": 18,
+      "pred_elapsed_ms": 14,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -304,11 +284,10 @@
         ],
         "join_path": [],
         "filters": [
-          "substr(birthday, 1, 4) = '1970'",
-          "substr(birthday, 6, 2) = '10'"
+          "substr(birthday, 1, 7) = '1970-10'"
         ],
         "evidence_predicates": [
-          "substr(birthday,1,7) = '1970-10'"
+          "substr(birthday,1,7) AS 'year-month', year = '1970' AND month = '10'"
         ],
         "evidence_formula": null,
         "aggregation": null,
@@ -336,9 +315,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 11169,
+        "input_tokens": 11166,
         "output_tokens": 395,
-        "est_cost_usd": 0.002352,
+        "est_cost_usd": 0.002351,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -348,14 +327,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 3613,
-            "output_tokens": 131,
-            "est_cost_usd": 0.000763
+            "output_tokens": 127,
+            "est_cost_usd": 0.00076
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 7556,
-            "output_tokens": 264,
-            "est_cost_usd": 0.001589
+            "input_tokens": 7553,
+            "output_tokens": 268,
+            "est_cost_usd": 0.001591
           }
         }
       },
@@ -374,12 +353,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 0.5,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 6094,
+      "gen_ms": 4629,
       "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -426,9 +405,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8034,
-        "output_tokens": 577,
-        "est_cost_usd": 0.001883,
+        "input_tokens": 8036,
+        "output_tokens": 591,
+        "est_cost_usd": 0.001892,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -443,9 +422,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6003,
-            "output_tokens": 427,
-            "est_cost_usd": 0.001404
+            "input_tokens": 6005,
+            "output_tokens": 441,
+            "est_cost_usd": 0.001414
           }
         }
       },
@@ -467,9 +446,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 6876,
-      "gold_elapsed_ms": 57,
-      "pred_elapsed_ms": 45,
+      "gen_ms": 3911,
+      "gold_elapsed_ms": 150,
+      "pred_elapsed_ms": 148,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -481,7 +460,7 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "COUNT(DISTINCT t1.CustomerID)",
+        "target": "COUNT(DISTINCT c.CustomerID)",
         "tables": [
           "customers",
           "yearmonth"
@@ -522,9 +501,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 6718,
-        "output_tokens": 577,
-        "est_cost_usd": 0.001636,
+        "input_tokens": 6719,
+        "output_tokens": 472,
+        "est_cost_usd": 0.001568,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -534,14 +513,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1386,
-            "output_tokens": 124,
-            "est_cost_usd": 0.000341
+            "output_tokens": 123,
+            "est_cost_usd": 0.00034
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5332,
-            "output_tokens": 453,
-            "est_cost_usd": 0.001295
+            "input_tokens": 5333,
+            "output_tokens": 349,
+            "est_cost_usd": 0.001228
           }
         }
       },
@@ -554,7 +533,7 @@
       "question": "How many connections does the atom 19 have?",
       "evidence": "connections refers to bond_id; atom 19 refers to atom_id like 'TR%_19';",
       "gold_sql": "SELECT COUNT(T.bond_id) FROM connected AS T WHERE SUBSTR(T.atom_id, -2) = '19'",
-      "pred_sql": "SELECT COUNT(t2.bond_id) FROM atom AS t1 INNER JOIN connected AS t2 ON t1.atom_id = t2.atom_id WHERE t1.atom_id LIKE 'TR%_19'",
+      "pred_sql": "SELECT COUNT(DISTINCT t2.bond_id) FROM atom AS t1 INNER JOIN connected AS t2 ON t1.atom_id = t2.atom_id WHERE t1.atom_id LIKE 'TR%_19'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -563,28 +542,27 @@
       "ves_reward": 0.5,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 17502,
-      "gold_elapsed_ms": 7,
-      "pred_elapsed_ms": 20,
+      "gen_ms": 4000,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 26,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
-        "groups": 2,
-        "winner_votes": 0,
-        "fallback_reason": "tie between distinct result sets"
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "COUNT(*)",
+        "target": "COUNT(DISTINCT connected.bond_id)",
         "tables": [
           "atom",
           "connected"
         ],
         "join_path": [
-          "atom.atom_id = connected.atom_id",
-          "atom.atom_id = connected.atom_id2"
+          "atom.atom_id = connected.atom_id"
         ],
         "filters": [
           "atom.atom_id LIKE 'TR%_19'"
@@ -600,8 +578,8 @@
       "verification": {
         "candidates": 2,
         "executed": 2,
-        "agreement": 0,
-        "distinct_result_sets": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
         "validation_checks": {
@@ -615,10 +593,10 @@
         "back_translation": null
       },
       "usage": {
-        "calls": 3,
-        "input_tokens": 8180,
-        "output_tokens": 1390,
-        "est_cost_usd": 0.002441,
+        "calls": 2,
+        "input_tokens": 6631,
+        "output_tokens": 438,
+        "est_cost_usd": 0.001529,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -628,20 +606,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1352,
-            "output_tokens": 115,
-            "est_cost_usd": 0.000329
+            "output_tokens": 111,
+            "est_cost_usd": 0.000326
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5282,
-            "output_tokens": 615,
-            "est_cost_usd": 0.001392
-          },
-          "rerank": {
-            "calls": 1,
-            "input_tokens": 1546,
-            "output_tokens": 660,
-            "est_cost_usd": 0.000721
+            "input_tokens": 5279,
+            "output_tokens": 327,
+            "est_cost_usd": 0.001203
           }
         }
       },
@@ -663,14 +635,14 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 6896,
-      "gold_elapsed_ms": 388,
-      "pred_elapsed_ms": 313,
+      "gen_ms": 19578,
+      "gold_elapsed_ms": 885,
+      "pred_elapsed_ms": 820,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -697,9 +669,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -715,9 +687,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7604,
-        "output_tokens": 472,
-        "est_cost_usd": 0.001734,
+        "input_tokens": 7606,
+        "output_tokens": 446,
+        "est_cost_usd": 0.001717,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -732,9 +704,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5764,
-            "output_tokens": 363,
-            "est_cost_usd": 0.001318
+            "input_tokens": 5766,
+            "output_tokens": 337,
+            "est_cost_usd": 0.001301
           }
         }
       },
@@ -756,9 +728,9 @@
       "ves_reward": 1.0,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 5349,
-      "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 1,
+      "gen_ms": 4877,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -810,9 +782,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7080,
-        "output_tokens": 500,
-        "est_cost_usd": 0.001654,
+        "input_tokens": 7082,
+        "output_tokens": 539,
+        "est_cost_usd": 0.00168,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -827,9 +799,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5506,
-            "output_tokens": 379,
-            "est_cost_usd": 0.00128
+            "input_tokens": 5508,
+            "output_tokens": 418,
+            "est_cost_usd": 0.001305
           }
         }
       },
@@ -848,12 +820,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4918,
-      "gold_elapsed_ms": 0,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 2443,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -900,9 +872,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8583,
-        "output_tokens": 381,
-        "est_cost_usd": 0.001858,
+        "input_tokens": 8585,
+        "output_tokens": 289,
+        "est_cost_usd": 0.001798,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -917,9 +889,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6240,
-            "output_tokens": 304,
-            "est_cost_usd": 0.001368
+            "input_tokens": 6242,
+            "output_tokens": 212,
+            "est_cost_usd": 0.001309
           }
         }
       },
@@ -932,18 +904,18 @@
       "question": "List out the no. of districts that have female average salary is more than 6000 but less than 10000?",
       "evidence": "A11 refers to average salary; Female mapps to gender = 'F'",
       "gold_sql": "SELECT COUNT(DISTINCT T2.district_id)  FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T1.gender = 'F' AND T2.A11 BETWEEN 6000 AND 10000",
-      "pred_sql": "SELECT COUNT(district_id) FROM district WHERE A11 > 6000 AND A11 < 10000",
+      "pred_sql": "SELECT COUNT(DISTINCT t1.district_id) FROM district AS t1 INNER JOIN client AS t2 ON t1.district_id = t2.district_id WHERE t2.gender = 'F' AND t1.A11 > 6000 AND t1.A11 < 10000",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.25,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7712,
-      "gold_elapsed_ms": 7,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 4982,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -993,9 +965,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8133,
-        "output_tokens": 583,
-        "est_cost_usd": 0.001905,
+        "input_tokens": 8135,
+        "output_tokens": 618,
+        "est_cost_usd": 0.001929,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1010,9 +982,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6027,
-            "output_tokens": 477,
-            "est_cost_usd": 0.001441
+            "input_tokens": 6029,
+            "output_tokens": 512,
+            "est_cost_usd": 0.001465
           }
         }
       },
@@ -1034,14 +1006,14 @@
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4564,
-      "gold_elapsed_ms": 9,
-      "pred_elapsed_ms": 5,
+      "gen_ms": 2307,
+      "gold_elapsed_ms": 12,
+      "pred_elapsed_ms": 12,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -1066,9 +1038,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -1084,9 +1056,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7916,
-        "output_tokens": 386,
-        "est_cost_usd": 0.001736,
+        "input_tokens": 7918,
+        "output_tokens": 303,
+        "est_cost_usd": 0.001682,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1101,9 +1073,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5911,
-            "output_tokens": 288,
-            "est_cost_usd": 0.001296
+            "input_tokens": 5913,
+            "output_tokens": 205,
+            "est_cost_usd": 0.001242
           }
         }
       },
@@ -1125,7 +1097,7 @@
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 8052,
+      "gen_ms": 5746,
       "gold_elapsed_ms": 0,
       "pred_elapsed_ms": 0,
       "exec_vote": {
@@ -1143,9 +1115,9 @@
         "tables": [
           "budget"
         ],
-        "join_path": [],
-        "filters": [],
-        "evidence_predicates": [],
+        "join_path": null,
+        "filters": null,
+        "evidence_predicates": null,
         "evidence_formula": "MAX(spent)",
         "aggregation": "MAX",
         "group_by": null,
@@ -1172,9 +1144,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7910,
-        "output_tokens": 588,
-        "est_cost_usd": 0.001867,
+        "input_tokens": 7912,
+        "output_tokens": 598,
+        "est_cost_usd": 0.001874,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1184,14 +1156,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2004,
-            "output_tokens": 86,
-            "est_cost_usd": 0.000432
+            "output_tokens": 89,
+            "est_cost_usd": 0.000434
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5906,
-            "output_tokens": 502,
-            "est_cost_usd": 0.001435
+            "input_tokens": 5908,
+            "output_tokens": 509,
+            "est_cost_usd": 0.00144
           }
         }
       },
@@ -1213,9 +1185,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 15,
       "pred_row_count": 5,
-      "gen_ms": 5138,
-      "gold_elapsed_ms": 47,
-      "pred_elapsed_ms": 8,
+      "gen_ms": 4361,
+      "gold_elapsed_ms": 13,
+      "pred_elapsed_ms": 11,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1268,9 +1240,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8681,
-        "output_tokens": 514,
-        "est_cost_usd": 0.001963,
+        "input_tokens": 8683,
+        "output_tokens": 495,
+        "est_cost_usd": 0.001951,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1285,9 +1257,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6313,
-            "output_tokens": 382,
-            "est_cost_usd": 0.001433
+            "input_tokens": 6315,
+            "output_tokens": 363,
+            "est_cost_usd": 0.001421
           }
         }
       },
@@ -1306,12 +1278,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 10,
       "pred_row_count": 10,
-      "gen_ms": 5283,
-      "gold_elapsed_ms": 3,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 4258,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1362,9 +1334,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9067,
-        "output_tokens": 482,
-        "est_cost_usd": 0.002015,
+        "input_tokens": 9069,
+        "output_tokens": 510,
+        "est_cost_usd": 0.002033,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1379,9 +1351,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6496,
-            "output_tokens": 369,
-            "est_cost_usd": 0.001459
+            "input_tokens": 6498,
+            "output_tokens": 397,
+            "est_cost_usd": 0.001477
           }
         }
       },
@@ -1403,9 +1375,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7615,
+      "gen_ms": 7553,
       "gold_elapsed_ms": 3,
-      "pred_elapsed_ms": 10,
+      "pred_elapsed_ms": 6,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1417,13 +1389,15 @@
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
-        "target": "DIVIDE(COUNT(DISTINCT t1.CustomerID), (SELECT COUNT(DISTINCT CustomerID) FROM customers)) * 100",
+        "target": "DIVIDE(COUNT(DISTINCT t1.CustomerID), COUNT(DISTINCT t2.CustomerID)) * 100",
         "tables": [
           "transactions_1k",
-          "customers"
+          "customers",
+          "customers AS customers_1"
         ],
         "join_path": [
-          "transactions_1k.CustomerID = customers.CustomerID"
+          "transactions_1k.CustomerID = customers.CustomerID",
+          "customers_1.CustomerID = transactions_1k.CustomerID"
         ],
         "filters": [
           "transactions_1k.Date = '2012-08-25'",
@@ -1456,9 +1430,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 6742,
-        "output_tokens": 682,
-        "est_cost_usd": 0.001709,
+        "input_tokens": 6764,
+        "output_tokens": 870,
+        "est_cost_usd": 0.001836,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1468,14 +1442,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1392,
-            "output_tokens": 146,
-            "est_cost_usd": 0.000356
+            "output_tokens": 164,
+            "est_cost_usd": 0.000368
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5350,
-            "output_tokens": 536,
-            "est_cost_usd": 0.001353
+            "input_tokens": 5372,
+            "output_tokens": 706,
+            "est_cost_usd": 0.001468
           }
         }
       },
@@ -1494,11 +1468,11 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 2,
       "pred_row_count": 2,
-      "gen_ms": 5374,
-      "gold_elapsed_ms": 1,
+      "gen_ms": 3627,
+      "gold_elapsed_ms": 2,
       "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
@@ -1549,9 +1523,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 6661,
-        "output_tokens": 461,
-        "est_cost_usd": 0.00155,
+        "input_tokens": 6663,
+        "output_tokens": 476,
+        "est_cost_usd": 0.00156,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1566,9 +1540,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5293,
-            "output_tokens": 348,
-            "est_cost_usd": 0.00122
+            "input_tokens": 5295,
+            "output_tokens": 363,
+            "est_cost_usd": 0.00123
           }
         }
       },
@@ -1590,9 +1564,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 25061,
       "pred_row_count": 25061,
-      "gen_ms": 5498,
-      "gold_elapsed_ms": 260,
-      "pred_elapsed_ms": 297,
+      "gen_ms": 4338,
+      "gold_elapsed_ms": 85,
+      "pred_elapsed_ms": 83,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1640,9 +1614,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9059,
-        "output_tokens": 433,
-        "est_cost_usd": 0.001981,
+        "input_tokens": 9061,
+        "output_tokens": 484,
+        "est_cost_usd": 0.002015,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1657,9 +1631,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6483,
-            "output_tokens": 334,
-            "est_cost_usd": 0.001433
+            "input_tokens": 6485,
+            "output_tokens": 385,
+            "est_cost_usd": 0.001467
           }
         }
       },
@@ -1681,9 +1655,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 12,
-      "gen_ms": 7024,
-      "gold_elapsed_ms": 52,
-      "pred_elapsed_ms": 53,
+      "gen_ms": 16568,
+      "gold_elapsed_ms": 57,
+      "pred_elapsed_ms": 54,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1734,9 +1708,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7601,
-        "output_tokens": 561,
-        "est_cost_usd": 0.001791,
+        "input_tokens": 7603,
+        "output_tokens": 580,
+        "est_cost_usd": 0.001804,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1751,9 +1725,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5767,
-            "output_tokens": 436,
-            "est_cost_usd": 0.001366
+            "input_tokens": 5769,
+            "output_tokens": 455,
+            "est_cost_usd": 0.001379
           }
         }
       },
@@ -1775,14 +1749,14 @@
       "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 9,
-      "gen_ms": 3301,
+      "gen_ms": 6635,
       "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -1809,9 +1783,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -1827,9 +1801,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8608,
-        "output_tokens": 431,
-        "est_cost_usd": 0.001895,
+        "input_tokens": 8610,
+        "output_tokens": 565,
+        "est_cost_usd": 0.001983,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1844,9 +1818,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6263,
-            "output_tokens": 324,
-            "est_cost_usd": 0.001386
+            "input_tokens": 6265,
+            "output_tokens": 458,
+            "est_cost_usd": 0.001474
           }
         }
       },
@@ -1859,18 +1833,18 @@
       "question": "When did 'chl' cast its first vote in a post?",
       "evidence": "DisplayName = 'chl'; cast its first vote refers to MIN(CreationDate);",
       "gold_sql": "SELECT T2.CreationDate FROM users AS T1 INNER JOIN votes AS T2 ON T1.Id = T2.UserId WHERE T1.DisplayName = 'chl' ORDER BY T2.CreationDate LIMIT 1",
-      "pred_sql": "SELECT MIN(t1.CreationDate) FROM votes AS t1 INNER JOIN users AS t2 ON t1.UserId = t2.Id WHERE t2.DisplayName = 'chl'",
+      "pred_sql": "SELECT MIN(t2.CreationDate) FROM users AS t1 INNER JOIN votes AS t2 ON t1.Id = t2.UserId WHERE t1.DisplayName = 'chl'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 16428,
-      "gold_elapsed_ms": 13,
-      "pred_elapsed_ms": 16,
+      "gen_ms": 5575,
+      "gold_elapsed_ms": 17,
+      "pred_elapsed_ms": 13,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1884,11 +1858,11 @@
       "query_plan": {
         "target": "MIN(CreationDate)",
         "tables": [
-          "votes",
-          "users"
+          "users",
+          "votes"
         ],
         "join_path": [
-          "votes.UserId = users.Id"
+          "users.Id = votes.UserId"
         ],
         "filters": [
           "users.DisplayName = 'chl'"
@@ -1920,9 +1894,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7578,
-        "output_tokens": 375,
-        "est_cost_usd": 0.001666,
+        "input_tokens": 7580,
+        "output_tokens": 364,
+        "est_cost_usd": 0.001659,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -1937,9 +1911,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5748,
-            "output_tokens": 271,
-            "est_cost_usd": 0.001255
+            "input_tokens": 5750,
+            "output_tokens": 260,
+            "est_cost_usd": 0.001248
           }
         }
       },
@@ -1952,7 +1926,7 @@
       "question": "For the female client who was born in 1976/1/29, which district did she opened her account?",
       "evidence": "Female refers to gender = 'F'; A2 refers to district names",
       "gold_sql": "SELECT T1.A2 FROM district AS T1 INNER JOIN client AS T2 ON T1.district_id = T2.district_id WHERE T2.birth_date = '1976-01-29' AND T2.gender = 'F'",
-      "pred_sql": "SELECT t2.A2 FROM client AS t1 INNER JOIN district AS t2 ON t1.district_id = t2.district_id WHERE t1.gender = 'F' AND t1.birth_date = '1976-01-29'",
+      "pred_sql": "SELECT t4.A2 FROM client AS t1 INNER JOIN disp AS t2 ON t1.client_id = t2.client_id INNER JOIN account AS t3 ON t2.account_id = t3.account_id INNER JOIN district AS t4 ON t3.district_id = t4.district_id WHERE t1.gender = 'F' AND t1.birth_date = '1976-01-29'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -1961,9 +1935,9 @@
       "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7647,
-      "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 2,
+      "gen_ms": 6804,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 5,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -1985,7 +1959,7 @@
         "join_path": [
           "client.client_id = disp.client_id",
           "disp.account_id = account.account_id",
-          "client.district_id = district.district_id"
+          "account.district_id = district.district_id"
         ],
         "filters": [
           "client.gender = 'F'",
@@ -2018,9 +1992,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8166,
-        "output_tokens": 615,
-        "est_cost_usd": 0.001932,
+        "input_tokens": 8168,
+        "output_tokens": 573,
+        "est_cost_usd": 0.001905,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2035,9 +2009,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6061,
-            "output_tokens": 476,
-            "est_cost_usd": 0.001447
+            "input_tokens": 6063,
+            "output_tokens": 434,
+            "est_cost_usd": 0.00142
           }
         }
       },
@@ -2056,12 +2030,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 804,
       "pred_row_count": 804,
-      "gen_ms": 7456,
-      "gold_elapsed_ms": 160,
-      "pred_elapsed_ms": 149,
+      "gen_ms": 2894,
+      "gold_elapsed_ms": 206,
+      "pred_elapsed_ms": 226,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2108,9 +2082,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 9021,
-        "output_tokens": 358,
-        "est_cost_usd": 0.001925,
+        "input_tokens": 9023,
+        "output_tokens": 317,
+        "est_cost_usd": 0.001899,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2125,9 +2099,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6457,
-            "output_tokens": 270,
-            "est_cost_usd": 0.001387
+            "input_tokens": 6459,
+            "output_tokens": 229,
+            "est_cost_usd": 0.00136
           }
         }
       },
@@ -2149,14 +2123,14 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 7695,
-      "gold_elapsed_ms": 3,
+      "gen_ms": 3692,
+      "gold_elapsed_ms": 4,
       "pred_elapsed_ms": 4,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -2177,18 +2151,18 @@
           "races.raceId = 19",
           "qualifying.q2 IS NOT NULL"
         ],
-        "evidence_predicates": null,
+        "evidence_predicates": [],
         "evidence_formula": "MIN(q2)",
-        "aggregation": "MIN",
+        "aggregation": null,
         "group_by": null,
         "having": null,
-        "order_by": null,
+        "order_by": "qualifying.q2 ASC",
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2204,9 +2178,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8672,
-        "output_tokens": 731,
-        "est_cost_usd": 0.002103,
+        "input_tokens": 8678,
+        "output_tokens": 444,
+        "est_cost_usd": 0.001917,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2216,14 +2190,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2358,
-            "output_tokens": 134,
-            "est_cost_usd": 0.00053
+            "output_tokens": 137,
+            "est_cost_usd": 0.000532
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6314,
-            "output_tokens": 597,
-            "est_cost_usd": 0.001573
+            "input_tokens": 6320,
+            "output_tokens": 307,
+            "est_cost_usd": 0.001385
           }
         }
       },
@@ -2242,17 +2216,17 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.25,
+      "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3389,
-      "gold_elapsed_ms": 2,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 4406,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 1,
+        "candidates": 2,
+        "executed": 2,
         "groups": 1,
-        "winner_votes": 1,
+        "winner_votes": 2,
         "fallback_reason": null
       },
       "refined": false,
@@ -2279,9 +2253,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 1,
-        "agreement": 1,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2297,9 +2271,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7952,
-        "output_tokens": 416,
-        "est_cost_usd": 0.001762,
+        "input_tokens": 7954,
+        "output_tokens": 513,
+        "est_cost_usd": 0.001826,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2314,9 +2288,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5938,
-            "output_tokens": 303,
-            "est_cost_usd": 0.001311
+            "input_tokens": 5940,
+            "output_tokens": 400,
+            "est_cost_usd": 0.001375
           }
         }
       },
@@ -2329,7 +2303,7 @@
       "question": "Which top 4 leagues had the most games in the 2015-2016 season?",
       "evidence": "in the 2015-2016 season refers to season = '2015/2016'; league with most games refers to League.name where MAX(COUNT(id))",
       "gold_sql": "SELECT t1.name FROM League AS t1 INNER JOIN Match AS t2 ON t1.id = t2.league_id WHERE t2.season = '2015/2016' GROUP BY t1.name ORDER BY COUNT(t2.id) DESC LIMIT 4",
-      "pred_sql": "SELECT t2.name FROM Match AS t1 INNER JOIN League AS t2 ON t1.league_id = t2.id WHERE t1.season = '2015/2016' GROUP BY t2.name ORDER BY COUNT(t1.id) DESC NULLS FIRST LIMIT 4",
+      "pred_sql": "SELECT t2.name FROM Match AS t1 INNER JOIN League AS t2 ON t1.league_id = t2.id WHERE t1.season = '2015/2016' GROUP BY t2.id ORDER BY COUNT(t1.id) DESC NULLS FIRST LIMIT 4",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -2338,14 +2312,14 @@
       "ves_reward": 1.0,
       "gold_row_count": 4,
       "pred_row_count": 4,
-      "gen_ms": 5309,
-      "gold_elapsed_ms": 236,
-      "pred_elapsed_ms": 231,
+      "gen_ms": 17948,
+      "gold_elapsed_ms": 208,
+      "pred_elapsed_ms": 207,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -2369,12 +2343,12 @@
         "group_by": "League.name",
         "having": null,
         "order_by": "COUNT(Match.id) DESC",
-        "set_op": "LIMIT 4"
+        "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2390,9 +2364,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 11147,
-        "output_tokens": 474,
-        "est_cost_usd": 0.002399,
+        "input_tokens": 11142,
+        "output_tokens": 570,
+        "est_cost_usd": 0.002461,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2402,14 +2376,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 3602,
-            "output_tokens": 117,
-            "est_cost_usd": 0.000752
+            "output_tokens": 114,
+            "est_cost_usd": 0.00075
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 7545,
-            "output_tokens": 357,
-            "est_cost_usd": 0.001648
+            "input_tokens": 7540,
+            "output_tokens": 456,
+            "est_cost_usd": 0.001711
           }
         }
       },
@@ -2431,9 +2405,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 3708,
-      "gold_elapsed_ms": 44,
-      "pred_elapsed_ms": 32,
+      "gen_ms": 2139,
+      "gold_elapsed_ms": 42,
+      "pred_elapsed_ms": 36,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2449,13 +2423,11 @@
         "tables": [
           "users"
         ],
-        "join_path": null,
+        "join_path": [],
         "filters": [
           "LastAccessDate > '2014-09-01'"
         ],
-        "evidence_predicates": [
-          "LastAccessDate > '2014-09-01'"
-        ],
+        "evidence_predicates": [],
         "evidence_formula": null,
         "aggregation": "COUNT",
         "group_by": null,
@@ -2482,9 +2454,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7598,
-        "output_tokens": 335,
-        "est_cost_usd": 0.001643,
+        "input_tokens": 7582,
+        "output_tokens": 273,
+        "est_cost_usd": 0.0016,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2494,14 +2466,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1838,
-            "output_tokens": 92,
-            "est_cost_usd": 0.000405
+            "output_tokens": 95,
+            "est_cost_usd": 0.000407
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5760,
-            "output_tokens": 243,
-            "est_cost_usd": 0.001239
+            "input_tokens": 5744,
+            "output_tokens": 178,
+            "est_cost_usd": 0.001193
           }
         }
       },
@@ -2523,9 +2495,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 4,
       "pred_row_count": 3,
-      "gen_ms": 2981,
-      "gold_elapsed_ms": 1,
-      "pred_elapsed_ms": 0,
+      "gen_ms": 3600,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2581,9 +2553,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7905,
-        "output_tokens": 298,
-        "est_cost_usd": 0.001677,
+        "input_tokens": 7907,
+        "output_tokens": 358,
+        "est_cost_usd": 0.001716,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2598,9 +2570,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5902,
-            "output_tokens": 207,
-            "est_cost_usd": 0.001242
+            "input_tokens": 5904,
+            "output_tokens": 267,
+            "est_cost_usd": 0.001281
           }
         }
       },
@@ -2613,18 +2585,18 @@
       "question": "List out the code for drivers who have nationality in American.",
       "evidence": "nationality = 'American'",
       "gold_sql": "SELECT code FROM drivers WHERE Nationality = 'American'",
-      "pred_sql": "SELECT DISTINCT code FROM drivers WHERE nationality = 'American'",
+      "pred_sql": "SELECT code FROM drivers WHERE nationality = 'American'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 157,
-      "pred_row_count": 3,
-      "gen_ms": 3930,
+      "pred_row_count": 157,
+      "gen_ms": 4558,
       "gold_elapsed_ms": 1,
-      "pred_elapsed_ms": 1,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -2673,9 +2645,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 8559,
-        "output_tokens": 423,
-        "est_cost_usd": 0.001881,
+        "input_tokens": 8561,
+        "output_tokens": 466,
+        "est_cost_usd": 0.001909,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2690,9 +2662,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6231,
-            "output_tokens": 328,
-            "est_cost_usd": 0.001382
+            "input_tokens": 6233,
+            "output_tokens": 371,
+            "est_cost_usd": 0.001411
           }
         }
       },
@@ -2711,18 +2683,18 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.75,
+      "ves_reward": 1.0,
       "gold_row_count": 60,
       "pred_row_count": 60,
-      "gen_ms": 5351,
+      "gen_ms": 5488,
       "gold_elapsed_ms": 1,
       "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
-        "groups": 1,
-        "winner_votes": 2,
-        "fallback_reason": null
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
       },
       "refined": false,
       "timeout_note": null,
@@ -2750,8 +2722,8 @@
       "verification": {
         "candidates": 2,
         "executed": 2,
-        "agreement": 2,
-        "distinct_result_sets": 1,
+        "agreement": 0,
+        "distinct_result_sets": 2,
         "decided_by": "plurality",
         "validated": true,
         "validation_checks": {
@@ -2765,10 +2737,10 @@
         "back_translation": null
       },
       "usage": {
-        "calls": 2,
-        "input_tokens": 7635,
-        "output_tokens": 1007,
-        "est_cost_usd": 0.002089,
+        "calls": 3,
+        "input_tokens": 9644,
+        "output_tokens": 1112,
+        "est_cost_usd": 0.002534,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2778,14 +2750,20 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1863,
-            "output_tokens": 555,
-            "est_cost_usd": 0.000711
+            "output_tokens": 639,
+            "est_cost_usd": 0.000766
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5772,
-            "output_tokens": 452,
-            "est_cost_usd": 0.001377
+            "input_tokens": 5774,
+            "output_tokens": 471,
+            "est_cost_usd": 0.00139
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2007,
+            "output_tokens": 2,
+            "est_cost_usd": 0.000378
           }
         }
       },
@@ -2798,23 +2776,23 @@
       "question": "Please list the product description of the products consumed in September, 2013.",
       "evidence": "September 2013 refers to 201309; The first 4 strings of the Date values in the yearmonth table can represent year; The 5th and 6th string of the date can refer to month.",
       "gold_sql": "SELECT T3.Description FROM transactions_1k AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID INNER JOIN products AS T3 ON T1.ProductID = T3.ProductID WHERE T2.Date = '201309'",
-      "pred_sql": "SELECT DISTINCT t2.Description FROM transactions_1k AS t1 INNER JOIN products AS t2 ON t1.ProductID = t2.ProductID INNER JOIN yearmonth AS t3 ON t1.CustomerID = t3.CustomerID WHERE t3.Date LIKE '201309%'",
+      "pred_sql": "SELECT DISTINCT t3.Description FROM yearmonth AS t1 INNER JOIN transactions_1k AS t2 ON t1.CustomerID = t2.CustomerID INNER JOIN products AS t3 ON t2.ProductID = t3.ProductID WHERE t1.Date = '201309'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 0.5,
+      "ves_reward": 1.0,
       "gold_row_count": 976,
       "pred_row_count": 27,
-      "gen_ms": 7747,
-      "gold_elapsed_ms": 40,
-      "pred_elapsed_ms": 135,
+      "gen_ms": 31785,
+      "gold_elapsed_ms": 11,
+      "pred_elapsed_ms": 8,
       "exec_vote": {
-        "candidates": 2,
-        "executed": 2,
+        "candidates": 1,
+        "executed": 1,
         "groups": 1,
-        "winner_votes": 2,
+        "winner_votes": 1,
         "fallback_reason": null
       },
       "refined": false,
@@ -2843,9 +2821,9 @@
         "set_op": null
       },
       "verification": {
-        "candidates": 2,
-        "executed": 2,
-        "agreement": 2,
+        "candidates": 1,
+        "executed": 1,
+        "agreement": 1,
         "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
@@ -2870,9 +2848,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 6774,
-        "output_tokens": 695,
-        "est_cost_usd": 0.001724,
+        "input_tokens": 6776,
+        "output_tokens": 600,
+        "est_cost_usd": 0.001662,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2887,9 +2865,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5359,
-            "output_tokens": 568,
-            "est_cost_usd": 0.001375
+            "input_tokens": 5361,
+            "output_tokens": 473,
+            "est_cost_usd": 0.001314
           }
         }
       },
@@ -2908,12 +2886,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4254,
-      "gold_elapsed_ms": 1075,
-      "pred_elapsed_ms": 943,
+      "gen_ms": 4510,
+      "gold_elapsed_ms": 825,
+      "pred_elapsed_ms": 872,
       "exec_vote": {
         "candidates": 1,
         "executed": 1,
@@ -2963,9 +2941,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7568,
+        "input_tokens": 7570,
         "output_tokens": 342,
-        "est_cost_usd": 0.001642,
+        "est_cost_usd": 0.001643,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -2980,7 +2958,7 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5744,
+            "input_tokens": 5746,
             "output_tokens": 237,
             "est_cost_usd": 0.001232
           }
@@ -2995,7 +2973,7 @@
       "question": "In the race No. 45, for the driver who had the Q3 time as 0:01:33, what is his abbreviated code?",
       "evidence": "race number refers to raceId; had the Q3 time as 0:0M:SS refers to q3 LIKE 'M:SS%'",
       "gold_sql": "SELECT T2.code FROM qualifying AS T1 INNER JOIN drivers AS T2 ON T2.driverId = T1.driverId WHERE T1.raceId = 45 AND T1.q3 LIKE '1:33%'",
-      "pred_sql": "SELECT t2.code FROM qualifying AS t1 INNER JOIN drivers AS t2 ON t1.driverId = t2.driverId WHERE t1.raceId = 45 AND t1.q3 LIKE '0:01:33%'",
+      "pred_sql": "SELECT T2.code FROM qualifying AS T1 INNER JOIN drivers AS T2 ON T1.driverId = T2.driverId WHERE T1.raceId = 45 AND T1.q3 LIKE '0:01:33%'",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -3004,9 +2982,9 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 0,
-      "gen_ms": 4863,
-      "gold_elapsed_ms": 4,
-      "pred_elapsed_ms": 3,
+      "gen_ms": 4967,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -3028,12 +3006,9 @@
         ],
         "filters": [
           "qualifying.raceId = 45",
-          "q3 LIKE '0:01:33%'"
+          "qualifying.q3 LIKE '0:01:33%'"
         ],
-        "evidence_predicates": [
-          "raceId = 45",
-          "q3 LIKE 'M:SS%'"
-        ],
+        "evidence_predicates": null,
         "evidence_formula": null,
         "aggregation": null,
         "group_by": null,
@@ -3067,9 +3042,9 @@
       },
       "usage": {
         "calls": 3,
-        "input_tokens": 13043,
-        "output_tokens": 798,
-        "est_cost_usd": 0.002966,
+        "input_tokens": 13024,
+        "output_tokens": 869,
+        "est_cost_usd": 0.003009,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3079,14 +3054,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2372,
-            "output_tokens": 130,
-            "est_cost_usd": 0.00053
+            "output_tokens": 117,
+            "est_cost_usd": 0.000521
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6318,
-            "output_tokens": 390,
-            "est_cost_usd": 0.001439
+            "input_tokens": 6299,
+            "output_tokens": 474,
+            "est_cost_usd": 0.00149
           },
           "refine_sql": {
             "calls": 1,
@@ -3114,9 +3089,9 @@
       "ves_reward": 1.25,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 4562,
-      "gold_elapsed_ms": 46,
-      "pred_elapsed_ms": 13,
+      "gen_ms": 47337,
+      "gold_elapsed_ms": 45,
+      "pred_elapsed_ms": 14,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -3163,9 +3138,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 11060,
-        "output_tokens": 492,
-        "est_cost_usd": 0.002395,
+        "input_tokens": 11062,
+        "output_tokens": 475,
+        "est_cost_usd": 0.002384,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3180,9 +3155,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 7480,
-            "output_tokens": 398,
-            "est_cost_usd": 0.001662
+            "input_tokens": 7482,
+            "output_tokens": 381,
+            "est_cost_usd": 0.001651
           }
         }
       },
@@ -3201,12 +3176,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 20,
       "pred_row_count": 20,
-      "gen_ms": 3555,
-      "gold_elapsed_ms": 11,
-      "pred_elapsed_ms": 9,
+      "gen_ms": 4984,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 10,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -3256,9 +3231,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7650,
-        "output_tokens": 395,
-        "est_cost_usd": 0.001692,
+        "input_tokens": 7652,
+        "output_tokens": 531,
+        "est_cost_usd": 0.001781,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3273,9 +3248,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5781,
-            "output_tokens": 294,
-            "est_cost_usd": 0.001276
+            "input_tokens": 5783,
+            "output_tokens": 430,
+            "est_cost_usd": 0.001365
           }
         }
       },
@@ -3288,7 +3263,7 @@
       "question": "How old is the youngest Japanese driver? What is his name?",
       "evidence": "date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa; Japanese refers to nationality = 'Japanese'; age = YEAR(CURRENT_TIMESTAMP) - YEAR(dob);",
       "gold_sql": "SELECT STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', dob), forename , surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC LIMIT 1",
-      "pred_sql": "SELECT forename, surname, (STRFTIME('%Y', 'now') - STRFTIME('%Y', dob)) AS age FROM drivers WHERE nationality = 'Japanese' ORDER BY dob ASC NULLS LAST LIMIT 1",
+      "pred_sql": "SELECT forename, surname, (STRFTIME('%Y', 'now') - STRFTIME('%Y', dob)) AS age FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC NULLS FIRST LIMIT 1",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -3297,15 +3272,15 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 11776,
-      "gold_elapsed_ms": 1,
+      "gen_ms": 6193,
+      "gold_elapsed_ms": 2,
       "pred_elapsed_ms": 1,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
-        "groups": 2,
-        "winner_votes": 0,
-        "fallback_reason": "tie between distinct result sets"
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
       },
       "refined": false,
       "timeout_note": null,
@@ -3330,8 +3305,8 @@
       "verification": {
         "candidates": 2,
         "executed": 2,
-        "agreement": 0,
-        "distinct_result_sets": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
         "decided_by": "plurality",
         "validated": true,
         "validation_checks": {
@@ -3345,10 +3320,10 @@
         "back_translation": null
       },
       "usage": {
-        "calls": 3,
-        "input_tokens": 11131,
-        "output_tokens": 1142,
-        "est_cost_usd": 0.002832,
+        "calls": 2,
+        "input_tokens": 8672,
+        "output_tokens": 585,
+        "est_cost_usd": 0.002008,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3363,15 +3338,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6301,
-            "output_tokens": 313,
-            "est_cost_usd": 0.001386
-          },
-          "rerank": {
-            "calls": 1,
-            "input_tokens": 2461,
-            "output_tokens": 720,
-            "est_cost_usd": 0.000931
+            "input_tokens": 6303,
+            "output_tokens": 476,
+            "est_cost_usd": 0.001492
           }
         }
       },
@@ -3384,7 +3353,7 @@
       "question": "Please state the finishing rate and curve score of the player who has the heaviest weight.",
       "evidence": "finishing rate refer to finishing; curve score refer to curve; heaviest weight refers to MAX(weight)",
       "gold_sql": "SELECT id, finishing, curve FROM Player_Attributes WHERE player_api_id = ( SELECT player_api_id FROM Player ORDER BY weight DESC LIMIT 1 ) LIMIT 1",
-      "pred_sql": "SELECT T2.finishing, T2.curve FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.weight = (SELECT MAX(weight) FROM Player)",
+      "pred_sql": "SELECT t2.finishing, t2.curve FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE t1.weight = (SELECT MAX(weight) FROM Player)",
       "valid": true,
       "gold_error": null,
       "pred_error": null,
@@ -3393,15 +3362,15 @@
       "ves_reward": 0.0,
       "gold_row_count": 1,
       "pred_row_count": 38,
-      "gen_ms": 6376,
-      "gold_elapsed_ms": 140,
-      "pred_elapsed_ms": 418,
+      "gen_ms": 39113,
+      "gold_elapsed_ms": 164,
+      "pred_elapsed_ms": 426,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
-        "groups": 1,
-        "winner_votes": 2,
-        "fallback_reason": null
+        "groups": 2,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
       },
       "refined": false,
       "timeout_note": null,
@@ -3429,8 +3398,8 @@
       "verification": {
         "candidates": 2,
         "executed": 2,
-        "agreement": 2,
-        "distinct_result_sets": 1,
+        "agreement": 0,
+        "distinct_result_sets": 2,
         "decided_by": "plurality",
         "validated": true,
         "validation_checks": {
@@ -3444,10 +3413,10 @@
         "back_translation": null
       },
       "usage": {
-        "calls": 2,
-        "input_tokens": 11093,
-        "output_tokens": 566,
-        "est_cost_usd": 0.002449,
+        "calls": 3,
+        "input_tokens": 13610,
+        "output_tokens": 1078,
+        "est_cost_usd": 0.003255,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3462,9 +3431,15 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 7505,
-            "output_tokens": 457,
-            "est_cost_usd": 0.001705
+            "input_tokens": 7507,
+            "output_tokens": 407,
+            "est_cost_usd": 0.001673
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2515,
+            "output_tokens": 562,
+            "est_cost_usd": 0.000838
           }
         }
       },
@@ -3483,11 +3458,11 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 0.75,
       "gold_row_count": 8,
       "pred_row_count": 8,
-      "gen_ms": 3788,
-      "gold_elapsed_ms": 3,
+      "gen_ms": 4871,
+      "gold_elapsed_ms": 2,
       "pred_elapsed_ms": 2,
       "exec_vote": {
         "candidates": 2,
@@ -3513,7 +3488,7 @@
         "filters": [
           "superhero.superhero_name = 'Abomination'"
         ],
-        "evidence_predicates": null,
+        "evidence_predicates": [],
         "evidence_formula": null,
         "aggregation": null,
         "group_by": null,
@@ -3540,9 +3515,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7067,
-        "output_tokens": 414,
-        "est_cost_usd": 0.001595,
+        "input_tokens": 7069,
+        "output_tokens": 524,
+        "est_cost_usd": 0.001667,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3552,14 +3527,14 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 1568,
-            "output_tokens": 121,
-            "est_cost_usd": 0.000373
+            "output_tokens": 120,
+            "est_cost_usd": 0.000372
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5499,
-            "output_tokens": 293,
-            "est_cost_usd": 0.001222
+            "input_tokens": 5501,
+            "output_tokens": 404,
+            "est_cost_usd": 0.001295
           }
         }
       },
@@ -3578,12 +3553,12 @@
       "pred_error": null,
       "ex": 1.0,
       "f1": 1.0,
-      "ves_reward": 1.0,
+      "ves_reward": 1.25,
       "gold_row_count": 1,
       "pred_row_count": 1,
-      "gen_ms": 6101,
-      "gold_elapsed_ms": 65,
-      "pred_elapsed_ms": 33,
+      "gen_ms": 8319,
+      "gold_elapsed_ms": 68,
+      "pred_elapsed_ms": 34,
       "exec_vote": {
         "candidates": 2,
         "executed": 2,
@@ -3630,9 +3605,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7575,
-        "output_tokens": 513,
-        "est_cost_usd": 0.001755,
+        "input_tokens": 7577,
+        "output_tokens": 511,
+        "est_cost_usd": 0.001754,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3647,9 +3622,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5741,
-            "output_tokens": 414,
-            "est_cost_usd": 0.001347
+            "input_tokens": 5743,
+            "output_tokens": 412,
+            "est_cost_usd": 0.001346
           }
         }
       },
@@ -3662,26 +3637,26 @@
       "question": "Which state special schools have the highest number of enrollees from grades 1 through 12?",
       "evidence": "State Special Schools refers to DOC = 31; Grades 1 through 12 means K-12",
       "gold_sql": "SELECT T2.School FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.DOC = 31 ORDER BY T1.`Enrollment (K-12)` DESC LIMIT 1",
-      "pred_sql": "SELECT t2.`School Name`\nFROM frpm AS t1\nINNER JOIN schools AS t2 ON t1.CDSCode = t2.CDSCode\nWHERE t1.`District Type` = 'State Special Schools' AND t1.`Low Grade` = '1' AND t1.`High Grade` = '12' AND t2.DOC = '31'\nORDER BY t1.`Enrollment (K-12)` DESC\nLIMIT 1;",
-      "valid": false,
+      "pred_sql": "SELECT T2.School\nFROM frpm AS T1\nINNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode\nWHERE T1.`District Type` = 'State Special Schools'\n  AND T1.`Low Grade` IN ('K', '1')\n  AND T1.`High Grade` = '12'\n  AND T2.DOC = '31'\nORDER BY T1.`Enrollment (K-12)` DESC\nLIMIT 1;",
+      "valid": true,
       "gold_error": null,
       "pred_error": null,
       "ex": 0.0,
       "f1": 0.0,
       "ves_reward": 0.0,
       "gold_row_count": 1,
-      "pred_row_count": 0,
-      "gen_ms": 5448,
-      "gold_elapsed_ms": 41,
-      "pred_elapsed_ms": 0,
+      "pred_row_count": 1,
+      "gen_ms": 6718,
+      "gold_elapsed_ms": 31,
+      "pred_elapsed_ms": 29,
       "exec_vote": {
-        "candidates": 1,
-        "executed": 0,
-        "groups": 0,
-        "winner_votes": 0,
-        "fallback_reason": "no candidate executed successfully"
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
       },
-      "refined": false,
+      "refined": true,
       "timeout_note": null,
       "gold_transpiled": false,
       "query_plan": {
@@ -3694,9 +3669,9 @@
           "frpm.CDSCode = schools.CDSCode"
         ],
         "filters": [
-          "District Type = 'State Special Schools'",
-          "Low Grade = '1'",
-          "High Grade = '12'"
+          "frpm.District Type = 'State Special Schools'",
+          "frpm.Low Grade = '1'",
+          "frpm.High Grade = '12'"
         ],
         "evidence_predicates": [
           "DOC = '31'"
@@ -3706,39 +3681,32 @@
         "group_by": null,
         "having": null,
         "order_by": [
-          "Enrollment (K-12) DESC"
+          "frpm.Enrollment (K-12) DESC"
         ],
         "set_op": null
       },
       "verification": {
-        "candidates": 1,
-        "executed": 0,
-        "agreement": 0,
-        "distinct_result_sets": 0,
-        "decided_by": "none_executed",
-        "validated": false,
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
         "validation_checks": {
           "syntax_ok": true,
           "safety_ok": true,
-          "semantic_ok": false
+          "semantic_ok": true
         },
-        "refine_rounds": 0,
-        "risks": [
-          {
-            "code": "zero_rows",
-            "severity": "medium",
-            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
-            "detail": null
-          }
-        ],
-        "risk_score": 2,
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
         "back_translation": null
       },
       "usage": {
-        "calls": 4,
-        "input_tokens": 16112,
-        "output_tokens": 1746,
-        "est_cost_usd": 0.00416,
+        "calls": 3,
+        "input_tokens": 13172,
+        "output_tokens": 1244,
+        "est_cost_usd": 0.003281,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3748,30 +3716,24 @@
           "link_schema": {
             "calls": 1,
             "input_tokens": 2391,
-            "output_tokens": 132,
-            "est_cost_usd": 0.000534
+            "output_tokens": 143,
+            "est_cost_usd": 0.000542
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 6347,
-            "output_tokens": 412,
-            "est_cost_usd": 0.001459
+            "input_tokens": 6360,
+            "output_tokens": 582,
+            "est_cost_usd": 0.001572
           },
           "refine_sql": {
             "calls": 1,
-            "input_tokens": 4399,
-            "output_tokens": 490,
-            "est_cost_usd": 0.001145
-          },
-          "rerank": {
-            "calls": 1,
-            "input_tokens": 2975,
-            "output_tokens": 712,
-            "est_cost_usd": 0.001022
+            "input_tokens": 4421,
+            "output_tokens": 519,
+            "est_cost_usd": 0.001168
           }
         }
       },
-      "error_category": "pred_invalid"
+      "error_category": "disjoint"
     },
     {
       "question_id": 785,
@@ -3789,7 +3751,7 @@
       "ves_reward": 1.0,
       "gold_row_count": 28,
       "pred_row_count": 28,
-      "gen_ms": 6936,
+      "gen_ms": 13674,
       "gold_elapsed_ms": 1,
       "pred_elapsed_ms": 1,
       "exec_vote": {
@@ -3841,9 +3803,9 @@
       },
       "usage": {
         "calls": 2,
-        "input_tokens": 7052,
-        "output_tokens": 503,
-        "est_cost_usd": 0.00165,
+        "input_tokens": 7054,
+        "output_tokens": 496,
+        "est_cost_usd": 0.001646,
         "models": [
           "meta-llama/llama-4-maverick"
         ],
@@ -3858,9 +3820,9 @@
           },
           "generate_sql": {
             "calls": 1,
-            "input_tokens": 5482,
-            "output_tokens": 399,
-            "est_cost_usd": 0.001288
+            "input_tokens": 5484,
+            "output_tokens": 392,
+            "est_cost_usd": 0.001284
           }
         }
       },

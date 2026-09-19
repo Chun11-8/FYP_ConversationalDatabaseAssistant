@@ -1,0 +1,158 @@
+{
+  "run_config": {
+    "model": "minimax/minimax-m3",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 1,
+    "difficulty": "simple",
+    "db_id": null,
+    "question_timeout": 60.0,
+    "sample": "stratified",
+    "seed": 42,
+    "databases_evaluated": [
+      "formula_1"
+    ]
+  },
+  "metrics": {
+    "total": 1,
+    "EX": 100.0,
+    "F1": 100.0,
+    "VES": 100.0,
+    "gold_errors": 0,
+    "EX_winnable": 100.0,
+    "timeouts": 0,
+    "error_categories": {
+      "correct": 1
+    },
+    "llm_calls": 4,
+    "llm_calls_per_question": 4.0,
+    "tokens_in": 16180,
+    "tokens_out": 2917,
+    "cost_usd": 0.0084,
+    "cost_usd_per_question": 0.008354,
+    "by_difficulty": {
+      "simple": {
+        "count": 1,
+        "EX": 100.0,
+        "F1": 100.0,
+        "VES": 100.0
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 898,
+      "db_id": "formula_1",
+      "difficulty": "simple",
+      "question": "How old is the youngest Japanese driver? What is his name?",
+      "evidence": "date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa; Japanese refers to nationality = 'Japanese'; age = YEAR(CURRENT_TIMESTAMP) - YEAR(dob);",
+      "gold_sql": "SELECT STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', dob), forename , surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC LIMIT 1",
+      "pred_sql": "SELECT STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', dob) AS age, forename, surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7147,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "YEAR(CURRENT_TIMESTAMP) - YEAR(drivers.dob) AS age, drivers.forename, drivers.surname",
+        "tables": [
+          "drivers"
+        ],
+        "join_path": [],
+        "filters": [
+          "drivers.nationality = 'Japanese'"
+        ],
+        "evidence_predicates": [
+          "drivers.nationality = 'Japanese'"
+        ],
+        "evidence_formula": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "drivers.dob DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 16180,
+        "output_tokens": 2917,
+        "est_cost_usd": 0.008354,
+        "models": [
+          "minimax/minimax-m3"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2533,
+            "output_tokens": 476,
+            "est_cost_usd": 0.001331
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6509,
+            "output_tokens": 736,
+            "est_cost_usd": 0.002836
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2647,
+            "output_tokens": 100,
+            "est_cost_usd": 0.000914
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4491,
+            "output_tokens": 1605,
+            "est_cost_usd": 0.003273
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}

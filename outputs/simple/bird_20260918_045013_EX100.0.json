@@ -1,0 +1,146 @@
+{
+  "run_config": {
+    "model": "google/gemini-3.7-flash",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "dialect": "sqlite",
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "adaptive_prompting": true,
+    "subset": 1,
+    "difficulty": "simple",
+    "db_id": null,
+    "question_timeout": 60.0,
+    "sample": "stratified",
+    "seed": 42,
+    "databases_evaluated": [
+      "formula_1"
+    ]
+  },
+  "metrics": {
+    "total": 1,
+    "EX": 100.0,
+    "F1": 100.0,
+    "VES": 86.6,
+    "gold_errors": 0,
+    "EX_winnable": 100.0,
+    "timeouts": 0,
+    "error_categories": {
+      "correct": 1
+    },
+    "llm_calls": 2,
+    "llm_calls_per_question": 2.0,
+    "tokens_in": 9539,
+    "tokens_out": 1008,
+    "cost_usd": 0.0109,
+    "cost_usd_per_question": 0.010934,
+    "by_difficulty": {
+      "simple": {
+        "count": 1,
+        "EX": 100.0,
+        "F1": 100.0,
+        "VES": 86.6
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 898,
+      "db_id": "formula_1",
+      "difficulty": "simple",
+      "question": "How old is the youngest Japanese driver? What is his name?",
+      "evidence": "date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa; Japanese refers to nationality = 'Japanese'; age = YEAR(CURRENT_TIMESTAMP) - YEAR(dob);",
+      "gold_sql": "SELECT STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', dob), forename , surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC LIMIT 1",
+      "pred_sql": "SELECT STRFTIME('%Y', 'now') - STRFTIME('%Y', dob) AS age, forename, surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6402,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 2,
+        "executed": 2,
+        "groups": 1,
+        "winner_votes": 2,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "YEAR(CURRENT_TIMESTAMP) - YEAR(drivers.dob), drivers.forename, drivers.surname",
+        "tables": [
+          "drivers"
+        ],
+        "join_path": [],
+        "filters": [
+          "drivers.nationality = 'Japanese'"
+        ],
+        "evidence_predicates": [
+          "drivers.nationality = 'Japanese'"
+        ],
+        "evidence_formula": "YEAR(CURRENT_TIMESTAMP) - YEAR(dob)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": "drivers.dob DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 2,
+        "executed": 2,
+        "agreement": 2,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9539,
+        "output_tokens": 1008,
+        "est_cost_usd": 0.010934,
+        "models": [
+          "google/gemini-3.7-flash"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2620,
+            "output_tokens": 249,
+            "est_cost_usd": 0.002899
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6919,
+            "output_tokens": 759,
+            "est_cost_usd": 0.008035
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}
