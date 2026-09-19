@@ -325,8 +325,17 @@ def _double_interior_apostrophes(sql: str) -> str:
 # dialect.
 #
 # Kept to constructs that actually appear in this workload: date extraction,
-# the boolean-as-integer idiom, and identifier quoting. A long dialect tutorial
-# would dilute the decomposition method the rest of the prompt teaches.
+# the boolean-as-integer idiom, identifier quoting, and NULL ordering.
+#
+# GH#133 added the superlative rules, measured rather than assumed. In the
+# SQLite runs 18-25% of predictions emitted `NULLS FIRST`, and 44% of those
+# scored 0 — DESC already sorts NULLs last there, so the clause inverted it.
+# The direction is dialect-specific because BIRD's PostgreSQL gold explicitly
+# pins PostgreSQL back to SQLite ordering (`DESC NULLS LAST` 21x,
+# `ASC NULLS FIRST` 14x across the gold we have), so matching gold means
+# writing the clause on PostgreSQL and omitting it on SQLite. Separately, gold
+# queries with ORDER BY ... LIMIT score 30% against 52% for the rest on the
+# challenging tier, which is why the MIN/MAX-subquery alternative is called out.
 DIALECT_NOTES: Dict[str, str] = {
     "postgres": (
         "POSTGRES DIALECT — these differ from SQLite and are the common errors here:\n"
@@ -344,11 +353,25 @@ DIALECT_NOTES: Dict[str, str] = {
         "  `CDSCode` or `Enrollment (K-12)` must be written double-quoted exactly\n"
         "  as shown — `\"CDSCode\"`, `\"Enrollment (K-12)\"` — or it will not be found.\n"
         "- Integer division truncates, so keep `CAST(... AS REAL)` on every ratio.\n"
+        "- SUPERLATIVES (\"highest\", \"most\", \"lowest\", \"earliest\"): PostgreSQL\n"
+        "  sorts NULLs FIRST on DESC and LAST on ASC — the opposite of SQLite — so a\n"
+        "  bare `ORDER BY col DESC LIMIT 1` returns the NULL row, not the maximum.\n"
+        "  Write `ORDER BY col DESC NULLS LAST` and `ORDER BY col ASC NULLS FIRST`.\n"
+        "- Get a superlative with `ORDER BY col DESC NULLS LAST LIMIT 1`, NOT with\n"
+        "  `WHERE col = (SELECT MAX(col) ...)`: the subquery returns EVERY tied row\n"
+        "  where the sort returns one.\n"
     ),
     "sqlite": (
         "SQLITE DIALECT — `strftime('%Y', col)` for a year, `IIF(a,b,c)` or\n"
         "`CASE WHEN`, and a comparison yields 0/1 so `SUM(col = 'x')` is valid.\n"
         "Integer division truncates, so keep `CAST(... AS REAL)` on every ratio.\n"
+        "- SUPERLATIVES: NEVER write `NULLS FIRST` or `NULLS LAST`. SQLite already\n"
+        "  sorts NULLs LAST on DESC and FIRST on ASC, which is the behaviour these\n"
+        "  questions expect; adding the clause usually INVERTS it and returns the\n"
+        "  NULL row instead of the answer. Plain `ORDER BY col DESC LIMIT 1`.\n"
+        "- Get a superlative with `ORDER BY col DESC LIMIT 1`, NOT with\n"
+        "  `WHERE col = (SELECT MAX(col) ...)`: the subquery returns EVERY tied row\n"
+        "  where the sort returns one.\n"
     ),
 }
 
