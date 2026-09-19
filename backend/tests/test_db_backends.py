@@ -340,3 +340,98 @@ class TestGoldDialectPreflight:
         ok = [{"question_id": 1, "db_id": "d",
                "SQL": "SELECT strftime_result FROM t"}]
         assert gold_dialect_problems(ok, "postgres") == []
+
+
+# ── GH#133: superlatives and NULL ordering ────────────────────────────────────
+
+class TestSuperlativeRules:
+    """
+    Measured, not assumed. In the SQLite benchmark runs 18-25% of predictions
+    emitted `NULLS FIRST` and 44% of those scored 0: DESC already sorts NULLs
+    last in SQLite, so the clause inverted the intent and returned the NULL row.
+
+    The direction is DIALECT-SPECIFIC, which is the part that is easy to get
+    backwards. BIRD's PostgreSQL gold explicitly pins PostgreSQL back to SQLite
+    ordering — `DESC NULLS LAST` 21x and `ASC NULLS FIRST` 14x across the gold
+    in outputs/ — so matching gold means WRITING the clause on PostgreSQL and
+    OMITTING it on SQLite.
+    """
+
+    def test_sqlite_is_told_never_to_write_the_clause(self):
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        notes = DIALECT_NOTES["sqlite"]
+        assert "NEVER write `NULLS FIRST`" in notes
+        assert "INVERTS" in notes
+
+    def test_postgres_is_told_to_write_it_in_both_directions(self):
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        notes = DIALECT_NOTES["postgres"]
+        assert "DESC NULLS LAST" in notes
+        assert "ASC NULLS FIRST" in notes
+
+    def test_the_two_dialects_give_OPPOSITE_advice(self):
+        """The whole point. Identical advice would be wrong for one of them."""
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        assert "NEVER write `NULLS FIRST`" not in DIALECT_NOTES["postgres"]
+        assert "DESC NULLS LAST" not in DIALECT_NOTES["sqlite"]
+
+    def test_both_warn_against_the_MIN_MAX_subquery(self):
+        """Gold uses ORDER BY ... LIMIT; a `WHERE col = (SELECT MAX(col))`
+        returns every tied row instead of one, and those golds already score
+        30% against 52% for the rest on the challenging tier."""
+        from backend.agents.sql_code_agent import DIALECT_NOTES
+        for dialect in ("postgres", "sqlite"):
+            notes = DIALECT_NOTES[dialect]
+            assert "SELECT MAX(col)" in notes
+            assert "LIMIT 1" in notes
+
+    def test_the_rules_reach_the_generation_prompt(self):
+        from unittest.mock import MagicMock
+        from backend.agents.sql_code_agent import SQLCodeAgent
+        for dialect, expect in (("postgres", "DESC NULLS LAST"),
+                                ("sqlite", "NEVER write `NULLS FIRST`")):
+            llm = MagicMock()
+            llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
+            agent = SQLCodeAgent({"db": {"dialect": dialect},
+                                  "logging": {"pipeline_trace": False}}, llm)
+            agent.generate(query="q", schema_context="s", few_shots=[], history=[])
+            assert expect in llm.invoke.call_args[0][0][1].content
+
+
+class TestNullOrderingIsReallyInverted:
+    """
+    The advice above is only correct if the engines really do differ. Asserted
+    against real engines so a future edit cannot quietly flip the guidance.
+    """
+
+    def test_sqlite_sorts_nulls_last_on_desc_and_first_on_asc(self, tmp_path):
+        conn = sqlite3.connect(tmp_path / "n.db")
+        conn.execute("CREATE TABLE t (id INT, v INT)")
+        conn.executemany("INSERT INTO t VALUES (?,?)", [(1, 10), (2, None), (3, 30)])
+        conn.commit()
+        assert conn.execute("SELECT id FROM t ORDER BY v DESC LIMIT 1").fetchone() == (3,)
+        assert conn.execute("SELECT id FROM t ORDER BY v ASC LIMIT 1").fetchone() == (2,)
+        conn.close()
+
+    @pg
+    def test_postgres_sorts_nulls_first_on_desc_and_last_on_asc(self, pg_backend):
+        t = f"{TEST_SCHEMA}.nullorder"
+        pg_backend.execute(f"DROP TABLE IF EXISTS {t}", "", 30)
+        import psycopg2
+        conn = psycopg2.connect(**_dsn())
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"CREATE TABLE {t} (id INT, v INT)")
+        cur.execute(f"INSERT INTO {t} VALUES (1,10),(2,NULL),(3,30)")
+        conn.close()
+
+        desc, err, _ = pg_backend.execute(
+            f"SELECT id FROM {t} ORDER BY v DESC LIMIT 1", "", 30)
+        asc, _, _ = pg_backend.execute(
+            f"SELECT id FROM {t} ORDER BY v ASC LIMIT 1", "", 30)
+        fixed, _, _ = pg_backend.execute(
+            f"SELECT id FROM {t} ORDER BY v DESC NULLS LAST LIMIT 1", "", 30)
+        assert err is None
+        assert desc == [(2,)], "PostgreSQL DESC must put the NULL first"
+        assert asc == [(1,)], "PostgreSQL ASC must put the NULL last"
+        assert fixed == [(3,)], "NULLS LAST must recover the real maximum"
