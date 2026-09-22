@@ -1182,3 +1182,76 @@ class TestExecuteSqliteReallyTimesOut:
         execute_sqlite(self.SLOW, slow_db, timeout=1.0)
         rows, err, _ = execute_sqlite("SELECT COUNT(*) FROM t", slow_db, timeout=30.0)
         assert err is None and rows == [(3000,)]
+
+
+# ── GH#135: unfenced CTEs ──────────────────────────────────────────────────────
+
+class TestUnfencedCteExtraction:
+    """
+    The challenging-tier strategy block tells the model CTEs are permitted, so
+    unfenced answers often begin `WITH x AS (...)`. The last-resort pattern
+    anchored on SELECT only, which was WORSE than missing them: it found the
+    CTE's trailing SELECT and returned it without the WITH clause, producing
+    SQL that references a CTE which no longer exists. That surfaced downstream
+    as "no such table", not as a parse failure — a silent corruption.
+
+    Measured motivation: no_pred rose to 13.9% of challenging predictions
+    (28 of 40 for qwen3.8-flash), with output tokens present and no SQL.
+    """
+
+    @staticmethod
+    def _agent():
+        from backend.agents.sql_code_agent import SQLCodeAgent
+        return SQLCodeAgent({"db": {"dialect": "sqlite"},
+                             "logging": {"pipeline_trace": False}}, MagicMock())
+
+    def test_an_unfenced_cte_keeps_its_WITH_clause(self):
+        """The regression that mattered: the prefix must not be dropped."""
+        got = self._agent()._extract_sqls(
+            "Here is the query:\nWITH x AS (SELECT a FROM t)\nSELECT a FROM x;")
+        assert got, "nothing extracted"
+        assert got[0].upper().startswith("WITH"), got[0]
+        assert "SELECT a FROM x" in got[0]
+
+    def test_a_cte_without_a_trailing_semicolon_is_found(self):
+        got = self._agent()._extract_sqls("WITH x AS (SELECT a FROM t) SELECT a FROM x")
+        assert got and got[0].upper().startswith("WITH")
+
+    def test_a_cte_after_a_reasoning_block_is_found(self):
+        got = self._agent()._extract_sqls(
+            "<think>I need a CTE.</think>\nWITH x AS (SELECT a FROM t)\nSELECT a FROM x;")
+        assert got and got[0].upper().startswith("WITH")
+
+    def test_several_unfenced_ctes_are_all_returned(self):
+        """Candidates are generated in batches; keeping only the first would
+        silently reduce the vote."""
+        got = self._agent()._extract_sqls(
+            "WITH a AS (SELECT 1) SELECT * FROM a;\n\n"
+            "WITH b AS (SELECT 2) SELECT * FROM b;")
+        assert len(got) == 2
+        assert all(s.upper().startswith("WITH") for s in got)
+
+    def test_the_extracted_cte_actually_parses(self):
+        """A prefix-stripped CTE parses too — so the real check is that the
+        statement is COMPLETE, not merely that something came back."""
+        got = self._agent()._extract_sqls(
+            "WITH x AS (SELECT a FROM t)\nSELECT a FROM x;")
+        import sqlglot
+        parsed = sqlglot.parse_one(got[0], dialect="sqlite")
+        assert parsed.find(sqlglot.exp.CTE) is not None, "the WITH clause was lost"
+
+    def test_fenced_forms_are_unchanged(self):
+        agent = self._agent()
+        assert agent._extract_sqls("```sql\nSELECT a FROM t;\n```") == ["SELECT a FROM t;"]
+        fenced_cte = agent._extract_sqls("```sql\nWITH x AS (SELECT 1) SELECT * FROM x;\n```")
+        assert fenced_cte[0].upper().startswith("WITH")
+
+    def test_plain_unfenced_select_is_unchanged(self):
+        got = self._agent()._extract_sqls("Here is the query:\nSELECT a FROM t;")
+        assert got == ["SELECT a FROM t"]
+
+    def test_prose_alone_still_yields_nothing(self):
+        """A response with no SQL must stay empty — inventing a candidate from
+        prose would send garbage to the validator."""
+        assert self._agent()._extract_sqls("<think>Let me work through this...") == []
+        assert self._agent()._extract_sqls("I cannot answer that question.") == []

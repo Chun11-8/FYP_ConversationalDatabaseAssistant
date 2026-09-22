@@ -1217,7 +1217,8 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
         """Extract SQL blocks from an LLM reply.
 
         Tries ```sql ... ``` (preferred), then bare ``` ... ``` containing a
-        SELECT, then an unfenced SELECT (GH#65).
+        SELECT, then an unfenced statement beginning WITH or SELECT
+        (GH#65, GH#135).
         """
         # GH#65: strip a reasoning model's think block first, or we'd collect
         # candidate SQL the model was only considering, not proposing.
@@ -1235,5 +1236,15 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             # to fallback_handler for two wasted rounds. Anchored at a line
             # start and terminated by a blank line or `;` so surrounding prose
             # ("Here is the query:") isn't swallowed.
-            blocks = re.findall(r"(?im)^[ \t]*(SELECT\b[\s\S]*?)(?:;|\n[ \t]*\n|\Z)", raw)
+            #
+            # GH#135: WITH is in the alternation, not just SELECT. The
+            # challenging-tier strategy block tells the model CTEs are
+            # permitted, so unfenced answers often start `WITH x AS (...)`.
+            # Matching only SELECT was worse than missing them: the pattern
+            # found the CTE's inner or trailing SELECT and returned it WITHOUT
+            # the WITH clause, yielding SQL that references a CTE which no
+            # longer exists — a silent corruption that surfaced downstream as
+            # "no such table", not as a parse failure.
+            blocks = re.findall(
+                r"(?im)^[ \t]*((?:WITH|SELECT)\b[\s\S]*?)(?:;|\n[ \t]*\n|\Z)", raw)
         return [b.strip() for b in blocks if b.strip()]

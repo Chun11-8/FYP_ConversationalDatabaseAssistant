@@ -29,7 +29,8 @@ def _args(**over) -> argparse.Namespace:
     base = dict(difficulty="moderate", subset=40, sample="stratified", seed=42,
                 db_id=None, question_timeout=None,
                 dev_json="dev.json", db_dir="dbs",
-                engine="postgres", pg_dbname=None, pg_schema="public")
+                engine="postgres", pg_dbname=None, pg_schema="public",
+                tag=None)
     base.update(over)
     return argparse.Namespace(**base)
 
@@ -550,3 +551,41 @@ class TestGoldFollowsTheEngine:
         main(["--difficulty", "simple", "--engine", "sqlite", "--dry-run"])
         out = capsys.readouterr().out
         assert "Engine   : sqlite" in out and "mini_dev_sqlite.json" in out
+
+
+class TestAblationTagging:
+    """
+    GH#136: an ablation runs the same models twice with one knob flipped. Both
+    arms wrote to the same path, so the second silently overwrote the first.
+    """
+
+    def test_a_tag_suffixes_the_output_file(self):
+        args = _args(difficulty="challenging")
+        args.tag = "plandiv_on"
+        cmd = build_command("gemini3.7Flash", args, [])
+        out = cmd[cmd.index("--output") + 1].replace("\\", "/")
+        assert out.endswith("challenging_v3_gemini3.7Flash_plandiv_on.json")
+
+    def test_no_tag_keeps_the_plain_name(self):
+        args = _args(difficulty="challenging")
+        args.tag = None
+        out = build_command("gemini3.7Flash", args, [])[
+            build_command("gemini3.7Flash", args, []).index("--output") + 1]
+        assert out.replace("\\", "/").endswith("challenging_v3_gemini3.7Flash.json")
+
+    def test_two_arms_never_collide(self):
+        """The property that makes an ablation possible at all."""
+        paths = set()
+        for tag in ("plandiv_on", "plandiv_off"):
+            args = _args(difficulty="moderate")
+            args.tag = tag
+            cmd = build_command("gpt4oMini", args, [])
+            paths.add(cmd[cmd.index("--output") + 1])
+        assert len(paths) == 2
+
+    def test_the_tag_survives_into_the_resume_command(self):
+        """Resuming without the tag would write the second arm over the first."""
+        args = _args()
+        args.mode, args.only, args.resume, args.tag = None, None, False, "plandiv_on"
+        cmd = resume_command(args, [])
+        assert cmd[cmd.index("--tag") + 1] == "plandiv_on"

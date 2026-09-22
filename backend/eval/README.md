@@ -14,7 +14,46 @@ Scores this text-to-SQL system against the
 > official path means re-adding a script that emits `{question_id: sql}` JSON
 > and feeding it to the cloned mini_dev repo.
 
+## Ablations — measuring one knob at a time (GH#136)
+
+Three pipeline features are off by default and can be toggled per run. Each
+arm needs its own `--tag` or the second overwrites the first:
+
+```bash
+# arm A — feature off (the configured default)
+python -m backend.eval.run_all_models --difficulty challenging --subset 40 \
+    --engine sqlite --question-timeout 300 --tag plandiv_off
+
+# arm B — feature on
+python -m backend.eval.run_all_models --difficulty challenging --subset 40 \
+    --engine sqlite --question-timeout 300 --tag plandiv_on -- --plan-diversity
+```
+
+| Flag | Config key | What it changes |
+|---|---|---|
+| `--plan-diversity` | `sql.plan_diversity` | asks the linker for a SECOND plan that disagrees on grain or aggregation, so voting tests the plan instead of confirming it |
+| `--path-diversity` / `--no-path-diversity` | `sql.path_diversity` | replaces two direct candidates with a divide-and-conquer and a query-plan-CoT one (moderate/challenging) |
+| `--n-candidates N` | `sql.candidates_by_tier` | how many candidates execution voting chooses between |
+| `--no-exec-voting` | `sql.execution_voting` | selects by text rerank instead of by executing candidates |
+| `--no-refine` | — | disables the one ReAct refine round |
+
+Unset flags keep the `config.yaml` value, so a run naming none of them
+reproduces the configured pipeline exactly.
+
+**Every arm is recorded in the results file's `run_config`** — `plan_diversity`,
+`path_diversity`, `candidates_effective`, `exec_voting`, `refine`, plus
+`engine`, `sample`, `seed` and `question_timeout`. An ablation whose arm cannot
+be read back off the file is not an ablation.
+
+Keep `--seed` and `--subset` identical across arms, or the two runs answered
+different questions and the comparison is meaningless.
+
 ## Engines
+
+> **Parser note (GH#135):** the last-resort SQL extractor accepts unfenced
+> statements beginning `WITH` as well as `SELECT`. Matching only `SELECT` was
+> worse than missing a CTE: it returned the CTE's trailing SELECT *without* the
+> `WITH` clause, yielding SQL that referenced a CTE which no longer existed.
 
 BIRD publishes the benchmark twice, and the gold dialect must match the engine:
 
