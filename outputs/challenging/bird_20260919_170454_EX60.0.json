@@ -1,0 +1,3931 @@
+{
+  "run_config": {
+    "model": "gpt-4.1-mini",
+    "base_url": "openai-default",
+    "plan_diversity": false,
+    "plan_rationale": false,
+    "trust_eval": false,
+    "judge_model": null,
+    "judge_base_url": null,
+    "engine": "sqlite",
+    "dialect": "sqlite",
+    "pg_dbname": null,
+    "pg_schema": null,
+    "schema_linking": true,
+    "exec_voting": true,
+    "refine": true,
+    "n_candidates": 5,
+    "candidates_by_tier": {
+      "simple": 2,
+      "moderate": 5,
+      "challenging": 5
+    },
+    "candidates_effective": 5,
+    "adaptive_prompting": true,
+    "subset": 40,
+    "difficulty": "challenging",
+    "db_id": null,
+    "question_timeout": 300.0,
+    "sample": "stratified",
+    "seed": 42,
+    "databases_evaluated": [
+      "california_schools",
+      "card_games",
+      "codebase_community",
+      "debit_card_specializing",
+      "european_football_2",
+      "financial",
+      "formula_1",
+      "student_club",
+      "superhero",
+      "thrombosis_prediction",
+      "toxicology"
+    ]
+  },
+  "metrics": {
+    "total": 40,
+    "EX": 60.0,
+    "F1": 62.31,
+    "VES": 55.99,
+    "gold_errors": 1,
+    "EX_winnable": 61.54,
+    "timeouts": 0,
+    "error_categories": {
+      "correct": 24,
+      "disjoint": 9,
+      "gold_error": 1,
+      "zero_rows": 1,
+      "subset": 2,
+      "arity_mismatch": 3
+    },
+    "llm_calls": 84,
+    "llm_calls_per_question": 2.1,
+    "tokens_in": 353340,
+    "tokens_out": 23337,
+    "cost_usd": 0.1787,
+    "cost_usd_per_question": 0.004467,
+    "by_difficulty": {
+      "challenging": {
+        "count": 40,
+        "EX": 60.0,
+        "F1": 62.31,
+        "VES": 55.99
+      }
+    }
+  },
+  "questions": [
+    {
+      "question_id": 249,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "What are the elements of the atoms of TR144_8_19?",
+      "evidence": "TR144_8_19 is the bond id; ",
+      "gold_sql": "SELECT T2.element FROM connected AS T1 INNER JOIN atom AS T2 ON T1.atom_id = T2.atom_id WHERE T1.bond_id = 'TR144_8_19'",
+      "pred_sql": "SELECT atom.element FROM connected INNER JOIN atom ON connected.atom_id = atom.atom_id WHERE connected.bond_id = 'TR144_8_19'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 2,
+      "pred_row_count": 2,
+      "gen_ms": 3013,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 4,
+        "groups": 1,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "atom.element",
+        "tables": [
+          "connected",
+          "atom"
+        ],
+        "join_path": [
+          "connected.atom_id = atom.atom_id"
+        ],
+        "filters": [
+          "connected.bond_id = 'TR144_8_19'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 4,
+        "agreement": 4,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6874,
+        "output_tokens": 334,
+        "est_cost_usd": 0.003284,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1339,
+            "output_tokens": 102,
+            "est_cost_usd": 0.000699
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5535,
+            "output_tokens": 232,
+            "est_cost_usd": 0.002585
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 880,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Paul di Resta was in the No. 853 race, what percent faster did he finish in the 853rd race than the next race for the fastest lap speed?",
+      "evidence": "Paul di Resta refers to the full name of the driver; Full name of the driver refers to drivers.forename ='Paul' and drivers.surname = 'di Resta'; race number refers to raceId; percentage = DIVIDE(SUBTRACT(fastestLapSpeed(raceId = 853), (fastestLapSpeed (raceId = 854)) * 100 , (fastestLapSpeed(raceId = 853))",
+      "gold_sql": "SELECT (SUM(IIF(T2.raceId = 853, T2.fastestLapSpeed, 0)) - SUM(IIF(T2.raceId = 854, T2.fastestLapSpeed, 0))) * 100 / SUM(IIF(T2.raceId = 853, T2.fastestLapSpeed, 0)) FROM drivers AS T1 INNER JOIN results AS T2 ON T2.driverId = T1.driverId WHERE T1.forename = 'Paul' AND T1.surname = 'di Resta'",
+      "pred_sql": "SELECT CAST(((SELECT fastestLapSpeed FROM results JOIN drivers ON results.driverId = drivers.driverId WHERE drivers.forename = 'Paul' AND drivers.surname = 'di Resta' AND raceId = 853) - (SELECT fastestLapSpeed FROM results JOIN drivers ON results.driverId = drivers.driverId WHERE drivers.forename = 'Paul' AND drivers.surname = 'di Resta' AND raceId = 854)) * 100.0 / (SELECT fastestLapSpeed FROM results JOIN drivers ON results.driverId = drivers.driverId WHERE drivers.forename = 'Paul' AND drivers.surname = 'di Resta' AND raceId = 853) AS REAL)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 6573,
+      "gold_elapsed_ms": 6,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "percentage",
+        "tables": [
+          "drivers",
+          "results"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "drivers.forename = 'Paul'",
+          "drivers.surname = 'di Resta'",
+          "results.raceId IN (853, 854)"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUBTRACT(fastestLapSpeed(raceId = 853), (fastestLapSpeed (raceId = 854)) * 100 , (fastestLapSpeed(raceId = 853)))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9109,
+        "output_tokens": 1036,
+        "est_cost_usd": 0.005301,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2421,
+            "output_tokens": 162,
+            "est_cost_usd": 0.001228
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6688,
+            "output_tokens": 874,
+            "est_cost_usd": 0.004074
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 219,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "What is the percentage of carcinogenic molecules in triple type bonds?",
+      "evidence": "label = '+' mean molecules are carcinogenic; triple bond refers to bond_type = '#'; percentage = DIVIDE(SUM(bond_type = '#') * 100, COUNT(bond_id)) as percent where label = '+'",
+      "gold_sql": "SELECT CAST(COUNT(DISTINCT CASE WHEN T2.label = '+' THEN T2.molecule_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T2.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN bond AS T3 ON T2.molecule_id = T3.molecule_id WHERE T3.bond_type = '#'",
+      "pred_sql": "SELECT CAST(SUM(bond_type = '#') AS REAL) * 100 / COUNT(bond_id) AS percent FROM bond INNER JOIN molecule ON bond.molecule_id = molecule.molecule_id WHERE molecule.label = '+'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2765,
+      "gold_elapsed_ms": 7,
+      "pred_elapsed_ms": 5,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(bond_type = '#') * 100, COUNT(bond_id)) as percent",
+        "tables": [
+          "bond",
+          "molecule"
+        ],
+        "join_path": [
+          "bond.molecule_id = molecule.molecule_id"
+        ],
+        "filters": [
+          "label = '+'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUM(bond_type = '#') * 100, COUNT(bond_id)) as percent",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6983,
+        "output_tokens": 428,
+        "est_cost_usd": 0.003478,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1372,
+            "output_tokens": 135,
+            "est_cost_usd": 0.000765
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5611,
+            "output_tokens": 293,
+            "est_cost_usd": 0.002713
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 701,
+      "db_id": "codebase_community",
+      "difficulty": "challenging",
+      "question": "Among all the posts posted by the most influential user, identify the percentage with a score above 50.",
+      "evidence": "The higher reputation the user has the more influence; percentage = DIVIDE(COUNT(stats_posts.Id where Score > 50 and MAX(Reputation))), COUNT(stats_posts.Id where MAX(Reputation));",
+      "gold_sql": "SELECT CAST(SUM(CASE WHEN T2.Score > 50 THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(T1.Id) FROM users T1 INNER JOIN posts T2 ON T1.Id = T2.OwnerUserId INNER JOIN ( SELECT MAX(Reputation) AS max_reputation FROM users ) T3 ON T1.Reputation = T3.max_reputation",
+      "pred_sql": "WITH max_rep_user AS (SELECT Id FROM users ORDER BY Reputation DESC NULLS FIRST LIMIT 1) SELECT CAST(COUNT(CASE WHEN p.Score > 50 THEN 1 END) AS REAL) / COUNT(p.Id) FROM posts AS p JOIN max_rep_user AS mru ON p.OwnerUserId = mru.Id",
+      "valid": true,
+      "gold_error": "Query timed out after 30.0s",
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 0,
+      "pred_row_count": 0,
+      "gen_ms": 4375,
+      "gold_elapsed_ms": 30000,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(posts.Id where Score > 50 and MAX(users.Reputation)), COUNT(posts.Id where MAX(users.Reputation)))",
+        "tables": [
+          "posts",
+          "users"
+        ],
+        "join_path": [
+          "posts.OwnerUserId = users.Id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(COUNT(stats_posts.Id where Score > 50 and MAX(Reputation)), COUNT(stats_posts.Id where MAX(Reputation)))",
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": "users.Reputation = (SELECT MAX(Reputation) FROM users)",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7954,
+        "output_tokens": 545,
+        "est_cost_usd": 0.004054,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1849,
+            "output_tokens": 151,
+            "est_cost_usd": 0.000981
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6105,
+            "output_tokens": 394,
+            "est_cost_usd": 0.003072
+          }
+        }
+      },
+      "error_category": "gold_error"
+    },
+    {
+      "question_id": 773,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "Which superhero has the same eyes, hair and skin colour? Indicate the publisher of the superhero.",
+      "evidence": "which superhero refers to superhero_name; the same eyes, hair and skin colour refers to hair_colour_id = skin_colour_id AND hair_colour_id = eye_colour_id; publisher refers to publisher_name;",
+      "gold_sql": "SELECT T1.superhero_name, T2.publisher_name FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id WHERE T1.eye_colour_id = T1.hair_colour_id AND T1.eye_colour_id = T1.skin_colour_id",
+      "pred_sql": "SELECT t1.superhero_name, t2.publisher_name FROM superhero AS t1 INNER JOIN publisher AS t2 ON t1.publisher_id = t2.id WHERE t1.hair_colour_id = t1.skin_colour_id AND t1.hair_colour_id = t1.eye_colour_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 157,
+      "pred_row_count": 157,
+      "gen_ms": 2829,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "superhero.superhero_name, publisher.publisher_name",
+        "tables": [
+          "superhero",
+          "publisher"
+        ],
+        "join_path": [
+          "superhero.publisher_id = publisher.id"
+        ],
+        "filters": [
+          "superhero.hair_colour_id = superhero.skin_colour_id",
+          "superhero.hair_colour_id = superhero.eye_colour_id"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7378,
+        "output_tokens": 407,
+        "est_cost_usd": 0.003602,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1583,
+            "output_tokens": 121,
+            "est_cost_usd": 0.000827
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5795,
+            "output_tokens": 286,
+            "est_cost_usd": 0.002776
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 724,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "Please list the superhero names of all the superheroes that have blue eyes and blond hair.",
+      "evidence": "blue eyes refers to colour = 'Blue' and eye_colour_id = colour.id; blond hair refers to colour = 'Blond' and hair_colour_id = colour.id; super power of \"Agility\" refers to power_name = 'Agility'",
+      "gold_sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN colour AS T2 ON T1.eye_colour_id = T2.id INNER JOIN colour AS T3 ON T1.hair_colour_id = T3.id WHERE T2.colour = 'Blue' AND T3.colour = 'Blond'",
+      "pred_sql": "SELECT DISTINCT s.superhero_name FROM superhero AS s JOIN colour AS c_eye ON s.eye_colour_id = c_eye.id JOIN colour AS c_hair ON s.hair_colour_id = c_hair.id WHERE c_eye.colour = 'Blue' AND c_hair.colour = 'Blond'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 90,
+      "pred_row_count": 90,
+      "gen_ms": 3068,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "superhero.superhero_name",
+        "tables": [
+          "superhero",
+          "colour"
+        ],
+        "join_path": [
+          "superhero.eye_colour_id = colour.id",
+          "superhero.hair_colour_id = colour.id"
+        ],
+        "filters": [
+          "colour.colour = 'Blue'",
+          "colour.colour = 'Blond'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7397,
+        "output_tokens": 438,
+        "est_cost_usd": 0.00366,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1592,
+            "output_tokens": 130,
+            "est_cost_usd": 0.000845
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5805,
+            "output_tokens": 308,
+            "est_cost_usd": 0.002815
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 415,
+      "db_id": "card_games",
+      "difficulty": "challenging",
+      "question": "What percentage of cards with format commander and legal status do not have a content warning?",
+      "evidence": "do not have a content warning refers to hasContentWarning = 0; percentage refers to DIVIDE(COUNT(hasContentWarning = 0),COUNT(ID))*100 where format = 'commander' AND Status = 'legal';",
+      "gold_sql": "SELECT CAST(SUM(CASE WHEN T1.hasContentWarning = 0 THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(T1.id) FROM cards AS T1 INNER JOIN legalities AS T2 ON T1.uuid = T2.uuid WHERE T2.format = 'commander' AND T2.status = 'Legal'",
+      "pred_sql": "SELECT CAST(COUNT(CASE WHEN hasContentWarning = 0 THEN 1 END) AS REAL) * 100 / COUNT(cards.id) FROM cards INNER JOIN legalities ON legalities.uuid = cards.uuid WHERE legalities.format = 'commander' AND legalities.status = 'Legal'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5301,
+      "gold_elapsed_ms": 395,
+      "pred_elapsed_ms": 398,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(CASE WHEN hasContentWarning = 0 THEN 1 END), COUNT(cards.id)) * 100",
+        "tables": [
+          "cards",
+          "legalities"
+        ],
+        "join_path": [
+          "legalities.uuid = cards.uuid"
+        ],
+        "filters": [
+          "legalities.format = 'commander'",
+          "legalities.status = 'Legal'"
+        ],
+        "evidence_predicates": [
+          "format = 'commander'",
+          "Status = 'legal'"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(hasContentWarning = 0),COUNT(ID))*100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9446,
+        "output_tokens": 490,
+        "est_cost_usd": 0.004562,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2589,
+            "output_tokens": 156,
+            "est_cost_usd": 0.001285
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6857,
+            "output_tokens": 334,
+            "est_cost_usd": 0.003277
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 94,
+      "db_id": "financial",
+      "difficulty": "challenging",
+      "question": "List out the account numbers of female clients who are oldest and has lowest average salary, calculate the gap between this lowest average salary with the highest average salary?",
+      "evidence": "Female means gender = 'F'; A11 refers to average salary; Gap = highest average salary - lowest average salary; If the person A's birthdate > B's birthdate, it means that person B is order than person A.",
+      "gold_sql": "SELECT T1.account_id , ( SELECT MAX(A11) - MIN(A11) FROM district ) FROM account AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id INNER JOIN disp AS T3 ON T1.account_id = T3.account_id INNER JOIN client AS T4 ON T3.client_id = T4.client_id WHERE T2.district_id = ( SELECT district_id FROM client WHERE gender = 'F' ORDER BY birth_date ASC LIMIT 1 ) ORDER BY T2.A11 DESC LIMIT 1",
+      "pred_sql": "WITH oldest_female AS (SELECT MIN(birth_date) AS min_birth_date FROM client WHERE gender = 'F'), female_accounts AS (SELECT a.account_id, d.A11 FROM client AS c JOIN disp AS dp ON c.client_id = dp.client_id JOIN account AS a ON dp.account_id = a.account_id JOIN district AS d ON a.district_id = d.district_id WHERE c.gender = 'F' AND c.birth_date = (SELECT min_birth_date FROM oldest_female)), min_avg_salary AS (SELECT MIN(A11) AS min_A11 FROM female_accounts), max_avg_salary AS (SELECT MAX(A11) AS max_A11 FROM female_accounts) SELECT DISTINCT (SELECT account_id FROM female_accounts WHERE A11 = (SELECT min_A11 FROM min_avg_salary)) AS account_id, (SELECT max_A11 FROM max_avg_salary) - (SELECT min_A11 FROM min_avg_salary) AS gap",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8393,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 7,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "account.account_id, district.A11, gap",
+        "tables": [
+          "client",
+          "disp",
+          "account",
+          "district"
+        ],
+        "join_path": [
+          "disp.client_id = client.client_id",
+          "disp.account_id = account.account_id",
+          "account.district_id = district.district_id"
+        ],
+        "filters": [
+          "client.gender = 'F'"
+        ],
+        "evidence_predicates": [
+          "client.birth_date = (SELECT MIN(client.birth_date) FROM client WHERE gender = 'F')"
+        ],
+        "evidence_formula": "Gap = highest average salary - lowest average salary",
+        "aggregation": null,
+        "group_by": "account.account_id, district.A11",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "plan_group_by_dropped",
+            "severity": "medium",
+            "message": "The plan groups by 'account.account_id, district.A11', but the query has no GROUP BY — it returns a single overall figure instead of one row per group.",
+            "detail": {
+              "plan_group_by": "account.account_id, district.A11"
+            }
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8550,
+        "output_tokens": 1203,
+        "est_cost_usd": 0.005345,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2134,
+            "output_tokens": 174,
+            "est_cost_usd": 0.001132
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6416,
+            "output_tokens": 1029,
+            "est_cost_usd": 0.004213
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1482,
+      "db_id": "debit_card_specializing",
+      "difficulty": "challenging",
+      "question": "Which of the three segments—SME, LAM and KAM—has the biggest and lowest percentage increases in consumption paid in EUR between 2012 and 2013?",
+      "evidence": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2013) * 100%; The first 4 strings of the Date values in the yearmonth table can represent year",
+      "gold_sql": "SELECT CAST((SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0))) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0)), CAST(SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) , CAST(SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID",
+      "pred_sql": "WITH consumption_2012 AS (SELECT CustomerID, Consumption FROM yearmonth WHERE SUBSTRING(Date, 1, 4) = '2012'), consumption_2013 AS (SELECT CustomerID, Consumption FROM yearmonth WHERE SUBSTRING(Date, 1, 4) = '2013'), consumption_diff AS (SELECT c.CustomerID, (c13.Consumption - c12.Consumption) AS IncreaseOrDecrease, c13.Consumption AS Consumption2013 FROM customers AS c LEFT JOIN consumption_2012 AS c12 ON c.CustomerID = c12.CustomerID LEFT JOIN consumption_2013 AS c13 ON c.CustomerID = c13.CustomerID WHERE c.Currency = 'EUR'), percentage_increase AS (SELECT c.Segment, CAST((IncreaseOrDecrease / NULLIF(Consumption2013, 0)) AS REAL) * 100 AS PercentageIncrease FROM consumption_diff AS cd JOIN customers AS c ON cd.CustomerID = c.CustomerID WHERE NOT Consumption2013 IS NULL AND NOT IncreaseOrDecrease IS NULL) SELECT Segment, MAX(PercentageIncrease) AS MaxPercentageIncrease, MIN(PercentageIncrease) AS MinPercentageIncrease FROM percentage_increase WHERE Segment IN ('SME', 'LAM', 'KAM') GROUP BY Segment",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 3,
+      "gen_ms": 13229,
+      "gold_elapsed_ms": 231,
+      "pred_elapsed_ms": 394,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Segment, MAX(PercentageIncrease), MIN(PercentageIncrease)",
+        "tables": [
+          "yearmonth",
+          "customers"
+        ],
+        "join_path": [
+          "yearmonth.CustomerID = customers.CustomerID"
+        ],
+        "filters": [
+          "customers.Currency = 'EUR'"
+        ],
+        "evidence_predicates": [
+          "SUBSTR(yearmonth.Date, 1, 4) IN ('2012', '2013')"
+        ],
+        "evidence_formula": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2013) * 100%",
+        "aggregation": "MAX|MIN",
+        "group_by": "customers.Segment",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7161,
+        "output_tokens": 1606,
+        "est_cost_usd": 0.005434,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1437,
+            "output_tokens": 170,
+            "est_cost_usd": 0.000847
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5724,
+            "output_tokens": 1436,
+            "est_cost_usd": 0.004587
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 220,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "Please list top three elements of the toxicology of the molecule TR000 in alphabetical order.",
+      "evidence": "TR000 is the molecule id;",
+      "gold_sql": "SELECT DISTINCT T.element FROM atom AS T WHERE T.molecule_id = 'TR000' ORDER BY T.element LIMIT 3",
+      "pred_sql": "SELECT element FROM atom WHERE molecule_id = 'TR000' GROUP BY element ORDER BY element ASC NULLS LAST LIMIT 3",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 3,
+      "pred_row_count": 3,
+      "gen_ms": 2823,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "element",
+        "tables": [
+          "atom"
+        ],
+        "join_path": [],
+        "filters": [
+          "molecule_id = 'TR000'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": [
+          "element ASC"
+        ],
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 3,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6855,
+        "output_tokens": 233,
+        "est_cost_usd": 0.003115,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1338,
+            "output_tokens": 87,
+            "est_cost_usd": 0.000674
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5517,
+            "output_tokens": 146,
+            "est_cost_usd": 0.00244
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1115,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What percentage is Landon Donovan's overall rating higher than Jordan Bowery on 2013/7/12?",
+      "evidence": "Landon Donovan's refers to player_name = 'Landon Donovan'; Jordan Bowery refers to player_name = 'Jordan Bowery'; percentage refers to DIVIDE(SUBTRACT(player_name = 'Landon Donovan' overall_rating; player_name = 'Jordan Bowery' overall_rating), player_name = 'Landon Donovan' overall_rating)*100",
+      "gold_sql": "SELECT (SUM(CASE WHEN t1.player_name = 'Landon Donovan' THEN t2.overall_rating ELSE 0 END) * 1.0 - SUM(CASE WHEN t1.player_name = 'Jordan Bowery' THEN t2.overall_rating ELSE 0 END)) * 100 / SUM(CASE WHEN t1.player_name = 'Landon Donovan' THEN t2.overall_rating ELSE 0 END) LvsJ_percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_fifa_api_id = t2.player_fifa_api_id WHERE SUBSTR(t2.`date`, 1, 10) = '2013-07-12'",
+      "pred_sql": "SELECT (CAST((SELECT overall_rating FROM Player_Attributes AS pa JOIN Player AS p ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Landon Donovan' AND pa.date = '2013-07-12') AS REAL) - CAST((SELECT overall_rating FROM Player_Attributes AS pa JOIN Player AS p ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Jordan Bowery' AND pa.date = '2013-07-12') AS REAL)) / CAST((SELECT overall_rating FROM Player_Attributes AS pa JOIN Player AS p ON pa.player_api_id = p.player_api_id WHERE p.player_name = 'Landon Donovan' AND pa.date = '2013-07-12') AS REAL) * 100",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7258,
+      "gold_elapsed_ms": 113,
+      "pred_elapsed_ms": 256,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "percentage",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "Player.player_name = 'Landon Donovan' OR Player.player_name = 'Jordan Bowery'",
+          "Player_Attributes.date = '2013-07-12'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUBTRACT(player_name = 'Landon Donovan' overall_rating; player_name = 'Jordan Bowery' overall_rating), player_name = 'Landon Donovan' overall_rating)*100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11555,
+        "output_tokens": 903,
+        "est_cost_usd": 0.006067,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3642,
+            "output_tokens": 166,
+            "est_cost_usd": 0.001722
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7913,
+            "output_tokens": 737,
+            "est_cost_usd": 0.004344
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1302,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For the patients with a normal range of creatinine phosphokinase, how many of them have a positive measure of degree of coagulation?",
+      "evidence": "normal range of creatinine phosphokinase refers to CPK < 250; positive measure of degree of coagulation refers to KCT = '+' or RVVT = '+' or LAC = '+' ;",
+      "gold_sql": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T1.ID = T3.ID WHERE T2.CPK < 250 AND (T3.KCT = '+' OR T3.RVVT = '+' OR T3.LAC = '+')",
+      "pred_sql": "SELECT COUNT(DISTINCT Examination.ID) FROM Examination INNER JOIN Laboratory ON Examination.ID = Laboratory.ID WHERE Laboratory.CPK < 250 AND (Examination.KCT = '+' OR Examination.RVVT = '+' OR Examination.LAC = '+')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2954,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Examination.ID)",
+        "tables": [
+          "Examination",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Examination.ID = Laboratory.ID"
+        ],
+        "filters": [
+          "Laboratory.CPK < 250",
+          "(Examination.KCT = '+' OR Examination.RVVT = '+' OR Examination.LAC = '+')"
+        ],
+        "evidence_predicates": [
+          "Laboratory.CPK < 250",
+          "Examination.KCT = '+' OR Examination.RVVT = '+' OR Examination.LAC = '+'"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8054,
+        "output_tokens": 438,
+        "est_cost_usd": 0.003922,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1900,
+            "output_tokens": 153,
+            "est_cost_usd": 0.001005
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6154,
+            "output_tokens": 285,
+            "est_cost_usd": 0.002918
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 87,
+      "db_id": "california_schools",
+      "difficulty": "challenging",
+      "question": "What are the valid e-mail addresses of the administrator of the school located in the San Bernardino county, City of San Bernardino City Unified that opened between 1/1/2009 to 12/31/2010 whose school types are public Intermediate/Middle Schools and Unified Schools?",
+      "evidence": "Intermediate/Middle Schools refers to SOC = 62; Unified School refers to DOC = 54; years between 2009 and 2010 can refer to 'between 1/1/2009 to 12/31/2010'",
+      "gold_sql": "SELECT T2.AdmEmail1, T2.AdmEmail2 FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'San Bernardino' AND T2.City = 'San Bernardino' AND T2.DOC = 54 AND strftime('%Y', T2.OpenDate) BETWEEN '2009' AND '2010' AND T2.SOC = 62",
+      "pred_sql": "SELECT s.AdmEmail1, s.AdmEmail2, s.AdmEmail3 FROM schools AS s JOIN frpm AS f ON f.CDSCode = s.CDSCode WHERE s.County = 'San Bernardino' AND s.City = 'San Bernardino City' AND s.DOC = '54' AND s.OpenDate BETWEEN '2009-01-01' AND '2010-12-31' AND s.SOC = '62'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 0,
+      "gen_ms": 5240,
+      "gold_elapsed_ms": 24,
+      "pred_elapsed_ms": 19,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 0,
+        "groups": 0,
+        "winner_votes": 0,
+        "fallback_reason": "no candidate executed successfully"
+      },
+      "refined": true,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AdmEmail1, AdmEmail2, AdmEmail3",
+        "tables": [
+          "schools",
+          "frpm"
+        ],
+        "join_path": [
+          "frpm.CDSCode = schools.CDSCode"
+        ],
+        "filters": [
+          "schools.County = 'San Bernardino'",
+          "schools.City = 'San Bernardino City'",
+          "schools.DOC = '54'",
+          "schools.OpenDate >= '2009-01-01'",
+          "schools.OpenDate <= '2010-12-31'",
+          "frpm.SOC = '62'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 0,
+        "agreement": 0,
+        "distinct_result_sets": 0,
+        "decided_by": "none_executed",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [
+          {
+            "code": "zero_rows",
+            "severity": "medium",
+            "message": "The query ran but matched no rows — this may mean no such data exists, or that a filter is too narrow or misspelled.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 16650,
+        "output_tokens": 1229,
+        "est_cost_usd": 0.008626,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2445,
+            "output_tokens": 170,
+            "est_cost_usd": 0.00125
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6706,
+            "output_tokens": 532,
+            "est_cost_usd": 0.003534
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 3037,
+            "output_tokens": 1,
+            "est_cost_usd": 0.001216
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4462,
+            "output_tokens": 526,
+            "est_cost_usd": 0.002626
+          }
+        }
+      },
+      "error_category": "zero_rows"
+    },
+    {
+      "question_id": 36,
+      "db_id": "california_schools",
+      "difficulty": "challenging",
+      "question": "Under whose administration is the school with the highest number of students scoring 1500 or more on the SAT? Indicate their full names.",
+      "evidence": "full name means first name, last name; There are at most 3 administrators for each school; SAT Scores are greater or equal to 1500 refers to NumGE1500",
+      "gold_sql": "SELECT T2.AdmFName1, T2.AdmLName1, T2.AdmFName2, T2.AdmLName2, T2.AdmFName3, T2.AdmLName3 FROM satscores AS T1 INNER JOIN schools AS T2 ON T1.cds = T2.CDSCode ORDER BY T1.NumGE1500 DESC LIMIT 1",
+      "pred_sql": "SELECT schools.AdmFName1, schools.AdmLName1, schools.AdmFName2, schools.AdmLName2, schools.AdmFName3, schools.AdmLName3 FROM satscores JOIN schools ON satscores.cds = schools.CDSCode ORDER BY satscores.NumGE1500 DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3917,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AdmFName1, AdmLName1, AdmFName2, AdmLName2, AdmFName3, AdmLName3",
+        "tables": [
+          "satscores",
+          "schools"
+        ],
+        "join_path": [
+          "satscores.cds = schools.CDSCode"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MAX",
+        "group_by": null,
+        "having": null,
+        "order_by": [
+          "NumGE1500 DESC"
+        ],
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9029,
+        "output_tokens": 536,
+        "est_cost_usd": 0.004469,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2403,
+            "output_tokens": 126,
+            "est_cost_usd": 0.001163
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6626,
+            "output_tokens": 410,
+            "est_cost_usd": 0.003306
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1457,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Give the full name and contact number of members who had to spend more than average on each expense.",
+      "evidence": "full name refers to first_name, last_name; contact number refers to phone; had spent more than average on each expense refers to cost > AVG(cost)",
+      "gold_sql": "SELECT DISTINCT T3.first_name, T3.last_name, T3.phone FROM expense AS T1 INNER JOIN budget AS T2 ON T1.link_to_budget = T2.budget_id INNER JOIN member AS T3 ON T3.member_id = T1.link_to_member WHERE T1.cost > ( SELECT AVG(T1.cost) FROM expense AS T1 INNER JOIN budget AS T2 ON T1.link_to_budget = T2.budget_id INNER JOIN member AS T3 ON T3.member_id = T1.link_to_member )",
+      "pred_sql": "SELECT m.first_name, m.last_name, m.phone FROM member AS m JOIN expense AS e ON e.link_to_member = m.member_id WHERE e.cost > (SELECT AVG(cost) FROM expense)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 3,
+      "pred_row_count": 11,
+      "gen_ms": 2491,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name || ' ' || member.last_name AS full_name, member.phone",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "expense.cost > AVG(expense.cost)"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [
+          {
+            "code": "missing_group_by",
+            "severity": "medium",
+            "message": "The question asks for a value per group, but the query aggregates everything into a single total.",
+            "detail": null
+          }
+        ],
+        "risk_score": 2,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8275,
+        "output_tokens": 343,
+        "est_cost_usd": 0.003859,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2033,
+            "output_tokens": 112,
+            "est_cost_usd": 0.000992
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6242,
+            "output_tokens": 231,
+            "est_cost_usd": 0.002866
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 371,
+      "db_id": "card_games",
+      "difficulty": "challenging",
+      "question": "What is the percentage of cards whose language is French among the Story Spotlight cards?",
+      "evidence": "Story Spotlight card refers to isStorySpotlight = 1; French is the language; Percentage = Divide(Count(id) where language = 'French' and isStorySpotlight = 1, Count(id) where isStorySpotlight = 1)*100",
+      "gold_sql": "SELECT CAST(SUM(CASE WHEN T2.language = 'French' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(T1.id) FROM cards AS T1 INNER JOIN foreign_data AS T2 ON T1.uuid = T2.uuid WHERE T1.isStorySpotlight = 1",
+      "pred_sql": "SELECT CAST(COUNT(cards.id) FILTER(WHERE foreign_data.language = 'French' AND cards.isStorySpotlight = 1) AS REAL) * 100 / COUNT(cards.id) FILTER(WHERE cards.isStorySpotlight = 1) FROM cards JOIN foreign_data ON foreign_data.uuid = cards.uuid WHERE cards.isStorySpotlight = 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7368,
+      "gold_elapsed_ms": 548,
+      "pred_elapsed_ms": 418,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 4,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Divide(COUNT(cards.id) FILTER (WHERE foreign_data.language = 'French' AND cards.isStorySpotlight = 1), COUNT(cards.id) FILTER (WHERE cards.isStorySpotlight = 1)) * 100",
+        "tables": [
+          "cards",
+          "foreign_data"
+        ],
+        "join_path": [
+          "foreign_data.uuid = cards.uuid"
+        ],
+        "filters": [
+          "cards.isStorySpotlight = 1"
+        ],
+        "evidence_predicates": [
+          "foreign_data.language = 'French'",
+          "cards.isStorySpotlight = 1"
+        ],
+        "evidence_formula": "Divide(Count(id) where language = 'French' and isStorySpotlight = 1, Count(id) where isStorySpotlight = 1)*100",
+        "aggregation": "null",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 4,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9493,
+        "output_tokens": 574,
+        "est_cost_usd": 0.004716,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2595,
+            "output_tokens": 191,
+            "est_cost_usd": 0.001344
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6898,
+            "output_tokens": 383,
+            "est_cost_usd": 0.003372
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1001,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "What is full name of the racer who ranked 1st in the 3rd qualifying race held in the Marina Bay Street Circuit in 2008?",
+      "evidence": "Ranked 1st in the 3rd qualifying race refer to MIN(q3); 2008 is the year of race; full name of racer = forename, surname",
+      "gold_sql": "SELECT T2.forename, T2.surname FROM qualifying AS T1 INNER JOIN drivers AS T2 on T1.driverId = T2.driverId INNER JOIN races AS T3 ON T1.raceid = T3.raceid WHERE q3 IS NOT NULL AND T3.year = 2008 AND T3.circuitId IN ( SELECT circuitId FROM circuits WHERE name = 'Marina Bay Street Circuit' ) ORDER BY CAST(SUBSTR(q3, 1, INSTR(q3, ':') - 1) AS INTEGER) * 60 + CAST(SUBSTR(q3, INSTR(q3, ':') + 1, INSTR(q3, '.') - INSTR(q3, ':') - 1) AS REAL) + CAST(SUBSTR(q3, INSTR(q3, '.') + 1) AS REAL) / 1000 ASC LIMIT 1",
+      "pred_sql": "SELECT d.forename, d.surname FROM qualifying AS q JOIN races AS r ON q.raceId = r.raceId JOIN circuits AS c ON r.circuitId = c.circuitId JOIN drivers AS d ON q.driverId = d.driverId WHERE r.year = 2008 AND c.name = 'Marina Bay Street Circuit' AND q.position = 1 AND q.q3 = (SELECT MIN(q3) FROM qualifying AS q2 WHERE q2.raceId = q.raceId AND NOT q2.q3 IS NULL)",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 5196,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 84,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "drivers.forename || ' ' || drivers.surname",
+        "tables": [
+          "qualifying",
+          "races",
+          "circuits",
+          "drivers"
+        ],
+        "join_path": [
+          "qualifying.raceId = races.raceId",
+          "races.circuitId = circuits.circuitId",
+          "qualifying.driverId = drivers.driverId"
+        ],
+        "filters": [
+          "races.year = 2008",
+          "circuits.name = 'Marina Bay Street Circuit'",
+          "qualifying.position = 1"
+        ],
+        "evidence_predicates": [
+          "MIN(q3)"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8987,
+        "output_tokens": 755,
+        "est_cost_usd": 0.004803,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2363,
+            "output_tokens": 178,
+            "est_cost_usd": 0.00123
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6624,
+            "output_tokens": 577,
+            "est_cost_usd": 0.003573
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1242,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "For laboratory examinations take in 1984, list all patients below 50 years old with normal platelet level.",
+      "evidence": "laboratory examinations take in 1984 refers to YEAR(Date) = '1984'; below 50 years old = SUBTRACT(year(current_timestamp), year(Birthday)) < 50; normal platelet level refers to PLT between 100 and 400; ",
+      "gold_sql": "SELECT DISTINCT T1.ID FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.PLT BETWEEN 100 AND 400 AND STRFTIME('%Y', T2.Date) - STRFTIME('%Y', T1.Birthday) < 50 AND STRFTIME('%Y', T2.Date) = '1984'",
+      "pred_sql": "SELECT DISTINCT Patient.ID FROM Patient INNER JOIN Laboratory ON Laboratory.ID = Patient.ID WHERE STRFTIME('%Y', Laboratory.Date) = '1984' AND Laboratory.PLT BETWEEN 100 AND 400 AND (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) < 50",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.12345679012345677,
+      "ves_reward": 0.0,
+      "gold_row_count": 76,
+      "pred_row_count": 5,
+      "gen_ms": 3597,
+      "gold_elapsed_ms": 11,
+      "pred_elapsed_ms": 14,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "strftime('%Y', Laboratory.Date) = '1984'",
+          "Laboratory.PLT >= 100",
+          "Laboratory.PLT <= 400"
+        ],
+        "evidence_predicates": [
+          "SUBTRACT(strftime('%Y', CURRENT_TIMESTAMP), strftime('%Y', Patient.Birthday)) < 50"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8052,
+        "output_tokens": 543,
+        "est_cost_usd": 0.00409,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1905,
+            "output_tokens": 141,
+            "est_cost_usd": 0.000988
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6147,
+            "output_tokens": 402,
+            "est_cost_usd": 0.003102
+          }
+        }
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 598,
+      "db_id": "codebase_community",
+      "difficulty": "challenging",
+      "question": "What is the percentage difference of student badges given during 2010 and 2011?",
+      "evidence": "student badges refers to badge's name = 'Student'; during 2010 refers to Year(Date) = 2010; during 2011 refers to Year(Date) = 2011; percentage difference = Subtract (Divide(Count(Name where Year(Date) = 2010), Count (Name)) *100, Divide(Count(Name where Year(Date) = 2011), Count(Name)) * 100)",
+      "gold_sql": "SELECT CAST(SUM(IIF(STRFTIME('%Y', Date) = '2010', 1, 0)) AS REAL) * 100 / COUNT(Id) - CAST(SUM(IIF(STRFTIME('%Y', Date) = '2011', 1, 0)) AS REAL) * 100 / COUNT(Id) FROM badges WHERE Name = 'Student'",
+      "pred_sql": "SELECT (CAST(COUNT(CASE WHEN STRFTIME('%Y', Date) = '2010' THEN Name END) AS REAL) / COUNT(Name) * 100) - (CAST(COUNT(CASE WHEN STRFTIME('%Y', Date) = '2011' THEN Name END) AS REAL) / COUNT(Name) * 100) FROM badges WHERE Name = 'Student'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4044,
+      "gold_elapsed_ms": 18,
+      "pred_elapsed_ms": 27,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "percentage difference",
+        "tables": [
+          "badges"
+        ],
+        "join_path": [],
+        "filters": [
+          "Name = 'Student'"
+        ],
+        "evidence_predicates": [
+          "Year(Date) = 2010",
+          "Year(Date) = 2011"
+        ],
+        "evidence_formula": "Subtract (Divide(Count(Name where Year(Date) = 2010), Count (Name)) *100, Divide(Count(Name where Year(Date) = 2011), Count(Name)) * 100)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8034,
+        "output_tokens": 588,
+        "est_cost_usd": 0.004154,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1893,
+            "output_tokens": 142,
+            "est_cost_usd": 0.000984
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6141,
+            "output_tokens": 446,
+            "est_cost_usd": 0.00317
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1239,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Name the ID and age of patient with two or more laboratory examinations which show their hematoclit level exceeded the normal range.",
+      "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); patient with two or more laboratory examinations refers to COUNT(ID) > 2; hematoclit level exceeded the normal range refers to HCT > = 52;",
+      "gold_sql": "SELECT DISTINCT T1.ID, STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID IN ( SELECT ID FROM Laboratory WHERE HCT >= 52 GROUP BY ID HAVING COUNT(ID) >= 2 )",
+      "pred_sql": "SELECT Patient.ID, (STRFTIME('%Y', 'now') - STRFTIME('%Y', Patient.Birthday)) AS age FROM Patient INNER JOIN Laboratory ON Patient.ID = Laboratory.ID WHERE Laboratory.HCT >= 52 GROUP BY Patient.ID HAVING COUNT(Laboratory.ID) > 2",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.8,
+      "ves_reward": 0.0,
+      "gold_row_count": 3,
+      "pred_row_count": 2,
+      "gen_ms": 3472,
+      "gold_elapsed_ms": 5,
+      "pred_elapsed_ms": 4,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID, age",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "HCT >= 52"
+        ],
+        "evidence_predicates": [
+          "COUNT(Laboratory.ID) > 2"
+        ],
+        "evidence_formula": "age = SUBTRACT(year(current_timestamp), year(Birthday))",
+        "aggregation": "COUNT",
+        "group_by": "Patient.ID, age",
+        "having": "COUNT(Laboratory.ID) > 2",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8053,
+        "output_tokens": 482,
+        "est_cost_usd": 0.003992,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1901,
+            "output_tokens": 132,
+            "est_cost_usd": 0.000972
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6152,
+            "output_tokens": 350,
+            "est_cost_usd": 0.003021
+          }
+        }
+      },
+      "error_category": "subset"
+    },
+    {
+      "question_id": 1031,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "At present, calculate for the player's age who have a sprint speed of no less than 97 between 2013 to 2015.",
+      "evidence": "players age at present = SUBTRACT((DATETIME(), birthday)); sprint speed of no less than 97 refers to sprint_speed > = 97; between 2013 to 2015 refers to YEAR(date) > = '2013' AND YEAR(date) < = '2015'; ",
+      "gold_sql": "SELECT DISTINCT DATETIME() - T2.birthday age FROM Player_Attributes AS t1 INNER JOIN Player AS t2 ON t1.player_api_id = t2.player_api_id WHERE STRFTIME('%Y',t1.`date`) >= '2013' AND STRFTIME('%Y',t1.`date`) <= '2015' AND t1.sprint_speed >= 97",
+      "pred_sql": "SELECT AVG((JULIANDAY('now') - JULIANDAY(p.birthday)) / 365.25) FROM Player AS p JOIN Player_Attributes AS pa ON p.player_api_id = pa.player_api_id WHERE pa.sprint_speed >= 97 AND CAST(STRFTIME('%Y', pa.date) AS INTEGER) BETWEEN 2013 AND 2015",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4859,
+      "gold_elapsed_ms": 257,
+      "pred_elapsed_ms": 93,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 5,
+        "winner_votes": 0,
+        "fallback_reason": "tie between distinct result sets"
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT((DATETIME()), Player.birthday)",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "Player_Attributes.sprint_speed >= 97",
+          "YEAR(Player_Attributes.date) >= '2013'",
+          "YEAR(Player_Attributes.date) <= '2015'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 0,
+        "distinct_result_sets": 5,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 14419,
+        "output_tokens": 559,
+        "est_cost_usd": 0.006662,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3638,
+            "output_tokens": 136,
+            "est_cost_usd": 0.001673
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7870,
+            "output_tokens": 422,
+            "est_cost_usd": 0.003823
+          },
+          "rerank": {
+            "calls": 1,
+            "input_tokens": 2911,
+            "output_tokens": 1,
+            "est_cost_usd": 0.001166
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 115,
+      "db_id": "financial",
+      "difficulty": "challenging",
+      "question": "For the branch which located in the south Bohemia with biggest number of inhabitants, what is the percentage of the male clients?",
+      "evidence": "Percentage of the male clients = DIVIDE(COUNT(male clients), COUNT(clients)) * 100; Male refers to gender = 'M', A3 is the region name. A4 contains the information about inhabitants.",
+      "gold_sql": "SELECT CAST(SUM(T1.gender = 'M') AS REAL) * 100 / COUNT(T1.client_id) FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T2.A3 = 'south Bohemia' GROUP BY T2.A4 ORDER BY T2.A4 DESC LIMIT 1",
+      "pred_sql": "WITH max_inhabitants_district AS (SELECT district_id FROM district WHERE A3 = 'south Bohemia' ORDER BY A4 DESC NULLS FIRST LIMIT 1) SELECT (CAST(COUNT(CASE WHEN client.gender = 'M' THEN 1 END) AS REAL) / COUNT(client.client_id)) * 100 FROM client JOIN max_inhabitants_district ON client.district_id = max_inhabitants_district.district_id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4631,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(COUNT(CASE WHEN client.gender = 'M' THEN 1 END), COUNT(client.client_id)) * 100",
+        "tables": [
+          "client",
+          "district"
+        ],
+        "join_path": [
+          "client.district_id = district.district_id"
+        ],
+        "filters": [
+          "district.A3 = 'south Bohemia'"
+        ],
+        "evidence_predicates": [
+          "district.A4 = (SELECT MAX(A4) FROM district WHERE A3 = 'south Bohemia')"
+        ],
+        "evidence_formula": "DIVIDE(COUNT(male clients), COUNT(clients)) * 100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8525,
+        "output_tokens": 691,
+        "est_cost_usd": 0.004516,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2126,
+            "output_tokens": 163,
+            "est_cost_usd": 0.001111
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6399,
+            "output_tokens": 528,
+            "est_cost_usd": 0.003404
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 743,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.",
+      "evidence": "published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)",
+      "gold_sql": "SELECT (CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero)), CAST(SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS REAL) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN alignment AS T3 ON T3.id = T1.alignment_id WHERE T3.alignment = 'Bad'",
+      "pred_sql": "SELECT ((CAST(SUM(CASE WHEN alignment.alignment = 'Bad' THEN 1 ELSE 0 END) AS REAL) / COUNT(superhero.id)) * 100) FROM superhero INNER JOIN alignment ON superhero.alignment_id = alignment.id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3046,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "percentage of superheroes with alignment = 'Bad', count of those published by 'Marvel Comics'",
+        "tables": [
+          "superhero",
+          "alignment",
+          "publisher"
+        ],
+        "join_path": [
+          "superhero.alignment_id = alignment.id",
+          "superhero.publisher_id = publisher.id"
+        ],
+        "filters": [],
+        "evidence_predicates": [
+          "alignment.alignment = 'Bad'"
+        ],
+        "evidence_formula": "MULTIPLY(DIVIDE(SUM(alignment = 'Bad'), count(id)), 100)",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7490,
+        "output_tokens": 437,
+        "est_cost_usd": 0.003695,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1620,
+            "output_tokens": 149,
+            "est_cost_usd": 0.000886
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5870,
+            "output_tokens": 288,
+            "est_cost_usd": 0.002809
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 282,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "What is the ratio of Hydrogen elements in molecule ID TR006? List the ratio with its label.",
+      "evidence": "hydrogen refers to element = 'h'; ratio = DIVIDE(SUM(element = 'h'), count(element)) where molecule_id = 'TR006' ; label = '+' mean molecules are carcinogenic; label = '-' means molecules are non-carcinogenic",
+      "gold_sql": "WITH SubQuery AS (SELECT DISTINCT T1.atom_id, T1.element, T1.molecule_id, T2.label FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.molecule_id = 'TR006') SELECT CAST(COUNT(CASE WHEN element = 'h' THEN atom_id ELSE NULL END) AS REAL) / (CASE WHEN COUNT(atom_id) = 0 THEN NULL ELSE COUNT(atom_id) END) AS ratio, label FROM SubQuery GROUP BY label",
+      "pred_sql": "SELECT (CAST(SUM(atom.element = 'h') AS REAL) / COUNT(atom.element)) AS ratio, molecule.label FROM atom JOIN molecule ON atom.molecule_id = molecule.molecule_id WHERE atom.molecule_id = 'TR006' GROUP BY molecule.label",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3047,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "ratio, label",
+        "tables": [
+          "atom",
+          "molecule"
+        ],
+        "join_path": [
+          "atom.molecule_id = molecule.molecule_id"
+        ],
+        "filters": [
+          "atom.molecule_id = 'TR006'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "DIVIDE(SUM(element = 'h'), count(element))",
+        "aggregation": null,
+        "group_by": "molecule.label",
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6994,
+        "output_tokens": 416,
+        "est_cost_usd": 0.003463,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1386,
+            "output_tokens": 117,
+            "est_cost_usd": 0.000742
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5608,
+            "output_tokens": 299,
+            "est_cost_usd": 0.002722
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 954,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Please calculate the race completion percentage of Japanese drivers from 2007 to 2009.",
+      "evidence": "from 2007 to 2009 refers to year between 2007 and 2009; race completion refers to time is not null; percentage = Divide(COUNT(DriverID where time is not null and year between 2007 and 2009),Count (DriverID where year between 2007 and 2009))*100; ",
+      "gold_sql": "SELECT CAST(SUM(IIF(T1.time IS NOT NULL, 1, 0)) AS REAL) * 100 / COUNT(T1.raceId) FROM results AS T1 INNER JOIN races AS T2 on T1.raceId = T2.raceId INNER JOIN drivers AS T3 on T1.driverId = T3.driverId WHERE T3.nationality = 'Japanese' AND T2.year BETWEEN 2007 AND 2009",
+      "pred_sql": "SELECT CAST(COUNT(CASE WHEN NOT r.time IS NULL THEN r.driverId END) AS REAL) * 100 / COUNT(r.driverId) FROM results AS r JOIN drivers AS d ON r.driverId = d.driverId JOIN races AS ra ON r.raceId = ra.raceId WHERE d.nationality = 'Japanese' AND ra.year BETWEEN 2007 AND 2009",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 4069,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 5,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "percentage",
+        "tables": [
+          "results",
+          "drivers",
+          "races"
+        ],
+        "join_path": [
+          "results.driverId = drivers.driverId",
+          "results.raceId = races.raceId"
+        ],
+        "filters": [
+          "drivers.nationality = 'Japanese'",
+          "races.year >= 2007",
+          "races.year <= 2009"
+        ],
+        "evidence_predicates": [
+          "results.time IS NOT NULL"
+        ],
+        "evidence_formula": "Divide(COUNT(DriverID where time is not null and year between 2007 and 2009),Count (DriverID where year between 2007 and 2009))*100",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 9051,
+        "output_tokens": 643,
+        "est_cost_usd": 0.004649,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2383,
+            "output_tokens": 187,
+            "est_cost_usd": 0.001252
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6668,
+            "output_tokens": 456,
+            "est_cost_usd": 0.003397
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 198,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "On average how many carcinogenic molecules are single bonded?",
+      "evidence": "carcinogenic molecules refers to label = '+'; single-bonded refers to bond_type = '-'; average = DIVIDE(SUM(bond_type = '-'), COUNT(atom_id))",
+      "gold_sql": "SELECT AVG(single_bond_count) FROM (SELECT T3.molecule_id, COUNT(T1.bond_type) AS single_bond_count FROM bond AS T1  INNER JOIN atom AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN molecule AS T3 ON T3.molecule_id = T2.molecule_id WHERE T1.bond_type = '-' AND T3.label = '+' GROUP BY T3.molecule_id) AS subquery",
+      "pred_sql": "SELECT CAST(SUM(bond.bond_type = '-') AS REAL) / COUNT(atom.atom_id) FROM molecule JOIN bond ON molecule.molecule_id = bond.molecule_id JOIN atom ON molecule.molecule_id = atom.molecule_id WHERE molecule.label = '+'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3449,
+      "gold_elapsed_ms": 205,
+      "pred_elapsed_ms": 30,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(SUM(bond_type = '-'), COUNT(atom_id))",
+        "tables": [
+          "molecule",
+          "bond",
+          "atom"
+        ],
+        "join_path": [
+          "molecule.molecule_id = bond.molecule_id",
+          "molecule.molecule_id = atom.molecule_id"
+        ],
+        "filters": [
+          "molecule.label = '+'"
+        ],
+        "evidence_predicates": [
+          "bond_type = '-'"
+        ],
+        "evidence_formula": "DIVIDE(SUM(bond_type = '-'), COUNT(atom_id))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6976,
+        "output_tokens": 474,
+        "est_cost_usd": 0.003549,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1362,
+            "output_tokens": 149,
+            "est_cost_usd": 0.000783
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5614,
+            "output_tokens": 325,
+            "est_cost_usd": 0.002766
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 231,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "Which bond type accounted for the majority of the bonds found in molecule TR010 and state whether or not this molecule is carcinogenic?",
+      "evidence": "TR010 is the molecule id; majority of the bond found refers to MAX(COUNT(bond_type)); ",
+      "gold_sql": "SELECT T.bond_type FROM ( SELECT T1.bond_type, COUNT(T1.molecule_id) FROM bond AS T1  WHERE T1.molecule_id = 'TR010' GROUP BY T1.bond_type ORDER BY COUNT(T1.molecule_id) DESC LIMIT 1 ) AS T",
+      "pred_sql": "SELECT b.bond_type, mol.label FROM bond AS b JOIN molecule AS mol ON b.molecule_id = mol.molecule_id WHERE b.molecule_id = 'TR010' GROUP BY b.bond_type, mol.label ORDER BY COUNT(b.bond_type) DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3738,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "bond.bond_type, molecule.label",
+        "tables": [
+          "bond",
+          "molecule"
+        ],
+        "join_path": [
+          "bond.molecule_id = molecule.molecule_id"
+        ],
+        "filters": [
+          "bond.molecule_id = 'TR010'"
+        ],
+        "evidence_predicates": [
+          "MAX(COUNT(bond_type))"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": "bond.bond_type, molecule.label",
+        "having": "COUNT(bond.bond_type) = (SELECT MAX(bond_count) FROM (SELECT COUNT(bond_type) AS bond_count FROM bond WHERE molecule_id = 'TR010' GROUP BY bond_type))",
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6993,
+        "output_tokens": 600,
+        "est_cost_usd": 0.003757,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1361,
+            "output_tokens": 163,
+            "est_cost_usd": 0.000805
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5632,
+            "output_tokens": 437,
+            "est_cost_usd": 0.002952
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1192,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "List all patients who were followed up at the outpatient clinic who underwent a laboratory test in October 1991 and had a total blood bilirubin level within the normal range.",
+      "evidence": "followed up at the outpatient clinic refers to Admission = '-'; laboratory test in April 1981 refers to Date like '1991-10%'; blood bilirubin level within the normal range refers to T-BIL < 2.0; ",
+      "gold_sql": "SELECT DISTINCT T1.ID FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.Admission = '-' AND T2.`T-BIL` < 2.0 AND T2.Date LIKE '1991-10-%'",
+      "pred_sql": "SELECT DISTINCT p.ID FROM Patient AS p INNER JOIN Laboratory AS l ON p.ID = l.ID WHERE p.Admission = '-' AND l.Date LIKE '1991-10%' AND l.\"T-BIL\" < 2.0",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 6,
+      "pred_row_count": 6,
+      "gen_ms": 2768,
+      "gold_elapsed_ms": 4,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Laboratory.ID = Patient.ID"
+        ],
+        "filters": [
+          "Patient.Admission = '-'",
+          "Laboratory.Date LIKE '1991-10%'",
+          "Laboratory.T-BIL < 2.0"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8040,
+        "output_tokens": 404,
+        "est_cost_usd": 0.003862,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1915,
+            "output_tokens": 118,
+            "est_cost_usd": 0.000955
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6125,
+            "output_tokens": 286,
+            "est_cost_usd": 0.002908
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 990,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "What is the constructor reference name of the champion in the 2009 Singapore Grand Prix? Please give its website.",
+      "evidence": "the time of the champion shows in the format of \"minutes: seconds.millionsecond\" in which Max(time); constructor reference name refers to constructorRef; website refers to url",
+      "gold_sql": "SELECT T3.constructorRef, T3.url FROM results AS T1 INNER JOIN races AS T2 on T1.raceId = T2.raceId INNER JOIN constructors AS T3 on T1.constructorId = T3.constructorId WHERE T2.name = 'Singapore Grand Prix' AND T2.year = 2009 AND T1.time LIKE '_:%:__.___'",
+      "pred_sql": "SELECT c.constructorRef, c.url FROM races AS r JOIN results AS res ON r.raceId = res.raceId JOIN constructors AS c ON res.constructorId = c.constructorId WHERE r.year = 2009 AND r.name = 'Singapore Grand Prix' AND res.positionOrder = 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3415,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 8,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "constructors.constructorRef, constructors.url",
+        "tables": [
+          "races",
+          "results",
+          "constructors"
+        ],
+        "join_path": [
+          "races.raceId = results.raceId",
+          "results.constructorId = constructors.constructorId"
+        ],
+        "filters": [
+          "races.year = 2009",
+          "races.name = 'Singapore Grand Prix'",
+          "results.positionOrder = 1"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8937,
+        "output_tokens": 500,
+        "est_cost_usd": 0.004375,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2354,
+            "output_tokens": 147,
+            "est_cost_usd": 0.001177
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6583,
+            "output_tokens": 353,
+            "est_cost_usd": 0.003198
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 744,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "Between DC and Marvel Comics, which publisher has published more superheroes? Find the difference in the number of superheroes they have published.",
+      "evidence": "DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; calculation = SUBTRACT(SUM(publisher_name = 'Marvel Comics'), SUM(publisher_name = 'DC Comics'))",
+      "gold_sql": "SELECT SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id",
+      "pred_sql": "SELECT SUM(p.publisher_name = 'Marvel Comics') - SUM(p.publisher_name = 'DC Comics') FROM superhero AS s JOIN publisher AS p ON s.publisher_id = p.id WHERE p.publisher_name IN ('Marvel Comics', 'DC Comics')",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3440,
+      "gold_elapsed_ms": 1,
+      "pred_elapsed_ms": 1,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(SUM(publisher_name = 'Marvel Comics'), SUM(publisher_name = 'DC Comics'))",
+        "tables": [
+          "superhero",
+          "publisher"
+        ],
+        "join_path": [
+          "superhero.publisher_id = publisher.id"
+        ],
+        "filters": [
+          "publisher_name IN ('Marvel Comics', 'DC Comics')"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": "SUBTRACT(SUM(publisher_name = 'Marvel Comics'), SUM(publisher_name = 'DC Comics'))",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7433,
+        "output_tokens": 453,
+        "est_cost_usd": 0.003698,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1594,
+            "output_tokens": 142,
+            "est_cost_usd": 0.000865
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5839,
+            "output_tokens": 311,
+            "est_cost_usd": 0.002833
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1058,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "Who has the highest average finishing rate between the highest and shortest football player?",
+      "evidence": "finishing rate refers to finishing; highest average finishing rate = MAX(AVG(finishing)); highest football player refers to MAX(height); shortest football player refers to MIN(height);",
+      "gold_sql": "SELECT A FROM ( SELECT AVG(finishing) result, 'Max' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = ( SELECT MAX(height) FROM Player ) UNION SELECT AVG(finishing) result, 'Min' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = ( SELECT MIN(height) FROM Player ) ) ORDER BY result DESC LIMIT 1",
+      "pred_sql": "WITH HeightExtremes AS (SELECT MAX(height) AS max_height, MIN(height) AS min_height FROM Player), PlayersExtremeHeight AS (SELECT p.id, p.player_api_id FROM Player AS p, HeightExtremes AS h WHERE p.height = h.max_height OR p.height = h.min_height), AvgFinishing AS (SELECT pe.id, AVG(pa.finishing) AS avg_finishing FROM PlayersExtremeHeight AS pe JOIN Player_Attributes AS pa ON pe.player_api_id = pa.player_api_id GROUP BY pe.id) SELECT id FROM AvgFinishing ORDER BY avg_finishing DESC NULLS FIRST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 8120,
+      "gold_elapsed_ms": 911,
+      "pred_elapsed_ms": 439,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "AVG(finishing)",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "AVG",
+        "group_by": "Player.id",
+        "having": "Player.height = (SELECT MAX(height) FROM Player) OR Player.height = (SELECT MIN(height) FROM Player)",
+        "order_by": "AVG(finishing) DESC",
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11430,
+        "output_tokens": 792,
+        "est_cost_usd": 0.005839,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3600,
+            "output_tokens": 125,
+            "est_cost_usd": 0.00164
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7830,
+            "output_tokens": 667,
+            "est_cost_usd": 0.004199
+          }
+        }
+      },
+      "error_category": "disjoint"
+    },
+    {
+      "question_id": 1139,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "What was the final score for the match on September 24, 2008, in the Belgian Jupiler League between the home team and the away team?",
+      "evidence": "September 24, 2008 refers to date like '2008-09-24%'; in the Belgian Jupiler League refers to League.name = 'Belgium Jupiler League'; final score for home team refers to home_team_goal; final score for away team refers to away_team_goal",
+      "gold_sql": "SELECT t2.home_team_goal, t2.away_team_goal FROM League AS t1 INNER JOIN Match AS t2 ON t1.id = t2.league_id WHERE t1.name = 'Belgium Jupiler League' AND t2.`date` LIKE '2008-09-24%'",
+      "pred_sql": "SELECT home_team_goal, away_team_goal FROM Match INNER JOIN League ON Match.league_id = League.id WHERE Match.date LIKE '2008-09-24%' AND League.name = 'Belgium Jupiler League'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3956,
+      "gold_elapsed_ms": 193,
+      "pred_elapsed_ms": 194,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "home_team_goal, away_team_goal",
+        "tables": [
+          "Match",
+          "League"
+        ],
+        "join_path": [
+          "Match.league_id = League.id"
+        ],
+        "filters": [
+          "Match.date LIKE '2008-09-24%'",
+          "League.name = 'Belgium Jupiler League'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11502,
+        "output_tokens": 380,
+        "est_cost_usd": 0.005209,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3645,
+            "output_tokens": 118,
+            "est_cost_usd": 0.001647
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7857,
+            "output_tokens": 262,
+            "est_cost_usd": 0.003562
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1011,
+      "db_id": "formula_1",
+      "difficulty": "challenging",
+      "question": "Which top 20 driver created the shortest lap time ever record in a Formula_1 race? Please give them full names.",
+      "evidence": "shortest lap time refers to MIN(time); the time format for the shortest lap time is 'MM:SS.mmm' or 'M:SS.mmm'; full name of the driver refers to forename, surname",
+      "gold_sql": "WITH lap_times_in_seconds AS (SELECT driverId, (CASE WHEN SUBSTR(time, 1, INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, 1, INSTR(time, ':') - 1) AS REAL) * 60 ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) AS REAL) ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, '.') + 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, '.') + 1) AS REAL) / 1000 ELSE 0 END) AS time_in_seconds FROM lapTimes) SELECT T2.forename, T2.surname, T1.driverId FROM (SELECT driverId, MIN(time_in_seconds) AS min_time_in_seconds FROM lap_times_in_seconds GROUP BY driverId) AS T1 INNER JOIN drivers AS T2 ON T1.driverId = T2.driverId ORDER BY T1.min_time_in_seconds ASC LIMIT 20",
+      "pred_sql": "SELECT d.forename, d.surname FROM lapTimes AS l INNER JOIN drivers AS d ON l.driverId = d.driverId INNER JOIN results AS r ON l.raceId = r.raceId AND l.driverId = r.driverId WHERE r.positionOrder <= 20 ORDER BY l.milliseconds ASC NULLS LAST LIMIT 1",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 0.0,
+      "f1": 0.0,
+      "ves_reward": 0.0,
+      "gold_row_count": 20,
+      "pred_row_count": 1,
+      "gen_ms": 5628,
+      "gold_elapsed_ms": 1570,
+      "pred_elapsed_ms": 280,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 2,
+        "winner_votes": 3,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "drivers.forename || ' ' || drivers.surname",
+        "tables": [
+          "lapTimes",
+          "drivers",
+          "results"
+        ],
+        "join_path": [
+          "lapTimes.driverId = drivers.driverId",
+          "lapTimes.raceId = results.raceId",
+          "lapTimes.driverId = results.driverId"
+        ],
+        "filters": [
+          "results.positionOrder <= 20"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": "MIN",
+        "group_by": null,
+        "having": null,
+        "order_by": [
+          "lapTimes.milliseconds ASC"
+        ],
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 3,
+        "distinct_result_sets": 2,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8972,
+        "output_tokens": 504,
+        "est_cost_usd": 0.004395,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2365,
+            "output_tokens": 142,
+            "est_cost_usd": 0.001173
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6607,
+            "output_tokens": 362,
+            "est_cost_usd": 0.003222
+          }
+        }
+      },
+      "error_category": "arity_mismatch"
+    },
+    {
+      "question_id": 1037,
+      "db_id": "european_football_2",
+      "difficulty": "challenging",
+      "question": "Calculate the percentage of players who prefer left foot, who were born between 1987 and 1992.",
+      "evidence": "players who prefer left foot refers to preferred_foot = 'left'; percentage of players who prefer left foot = DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id)); born between 1987 and 1992 refers to YEAR(birthday) BETWEEN '1987' AND '1992';",
+      "gold_sql": "SELECT CAST(COUNT(CASE WHEN t2.preferred_foot = 'left' THEN t1.id ELSE NULL END) AS REAL) * 100 / COUNT(t1.id) percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE SUBSTR(t1.birthday, 1, 4) BETWEEN '1987' AND '1992'",
+      "pred_sql": "SELECT CAST(SUM(CASE WHEN pa.preferred_foot = 'left' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(pa.player_fifa_api_id) FROM Player AS p JOIN Player_Attributes AS pa ON p.player_api_id = pa.player_api_id WHERE STRFTIME('%Y', p.birthday) BETWEEN '1987' AND '1992'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 7362,
+      "gold_elapsed_ms": 450,
+      "pred_elapsed_ms": 656,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id))",
+        "tables": [
+          "Player",
+          "Player_Attributes"
+        ],
+        "join_path": [
+          "Player.player_api_id = Player_Attributes.player_api_id"
+        ],
+        "filters": [
+          "YEAR(birthday) BETWEEN '1987' AND '1992'"
+        ],
+        "evidence_predicates": [
+          "preferred_foot = 'left'"
+        ],
+        "evidence_formula": "DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id))",
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 11567,
+        "output_tokens": 565,
+        "est_cost_usd": 0.005531,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 3646,
+            "output_tokens": 167,
+            "est_cost_usd": 0.001726
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 7921,
+            "output_tokens": 398,
+            "est_cost_usd": 0.003805
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1232,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Provide ID, sex and age of patient who has blood glucose (GLU) not within normal range but with total cholesterol(T-CHO) within normal range.",
+      "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); blood glucose (GLU) not within normal range refers to GLU > = 180; total cholesterol(T-CHO) within normal range refers to `T-CHO` < 250; ",
+      "gold_sql": "SELECT DISTINCT T1.ID, T1.SEX , STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.GLU >= 180 AND T2.`T-CHO` < 250",
+      "pred_sql": "SELECT Patient.ID, Patient.SEX, CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER) AS age FROM Patient INNER JOIN Laboratory ON Patient.ID = Laboratory.ID WHERE Laboratory.GLU >= 180 AND Laboratory.\"T-CHO\" < 250",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 13,
+      "pred_row_count": 74,
+      "gen_ms": 3808,
+      "gold_elapsed_ms": 9,
+      "pred_elapsed_ms": 14,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "Patient.ID, Patient.SEX, SUBTRACT(year(current_timestamp), year(Patient.Birthday)) AS age",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Patient.ID = Laboratory.ID"
+        ],
+        "filters": [
+          "Laboratory.GLU >= 180",
+          "Laboratory.T-CHO < 250"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8045,
+        "output_tokens": 502,
+        "est_cost_usd": 0.004021,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1914,
+            "output_tokens": 124,
+            "est_cost_usd": 0.000964
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6131,
+            "output_tokens": 378,
+            "est_cost_usd": 0.003057
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 829,
+      "db_id": "superhero",
+      "difficulty": "challenging",
+      "question": "Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.",
+      "evidence": "DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));",
+      "gold_sql": "SELECT SUM(CASE WHEN T2.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id",
+      "pred_sql": "SELECT SUM(p.publisher_name = 'DC Comics') - SUM(p.publisher_name = 'Marvel Comics') FROM superhero AS s JOIN publisher AS p ON s.publisher_id = p.id",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3087,
+      "gold_elapsed_ms": 2,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'))",
+        "tables": [
+          "superhero",
+          "publisher"
+        ],
+        "join_path": [
+          "superhero.publisher_id = publisher.id"
+        ],
+        "filters": [],
+        "evidence_predicates": [],
+        "evidence_formula": "SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'))",
+        "aggregation": "SUM",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 7408,
+        "output_tokens": 397,
+        "est_cost_usd": 0.003598,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1589,
+            "output_tokens": 130,
+            "est_cost_usd": 0.000844
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5819,
+            "output_tokens": 267,
+            "est_cost_usd": 0.002755
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1257,
+      "db_id": "thrombosis_prediction",
+      "difficulty": "challenging",
+      "question": "Among the patients whose creatinine level is abnormal, how many of them aren't 70 yet?",
+      "evidence": "creatinine level is abnormal refers to CRE >= 1.5; aren't 70 yet refers to SUBTRACT((YEAR(CURDATE()), YEAR(Birthday))) < 70; ",
+      "gold_sql": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.CRE >= 1.5 AND STRFTIME('%Y', Date('now')) - STRFTIME('%Y', T1.Birthday) < 70",
+      "pred_sql": "SELECT COUNT(DISTINCT Patient.ID) FROM Patient INNER JOIN Laboratory ON Patient.ID = Laboratory.ID WHERE Laboratory.CRE >= 1.5 AND (CAST(STRFTIME('%Y', 'now') AS INTEGER) - CAST(STRFTIME('%Y', Patient.Birthday) AS INTEGER)) < 70",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 3388,
+      "gold_elapsed_ms": 17,
+      "pred_elapsed_ms": 15,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "COUNT(DISTINCT Patient.ID)",
+        "tables": [
+          "Patient",
+          "Laboratory"
+        ],
+        "join_path": [
+          "Patient.ID = Laboratory.ID"
+        ],
+        "filters": [
+          "CRE >= 1.5",
+          "SUBTRACT((YEAR(CURDATE()), YEAR(Patient.Birthday))) < 70"
+        ],
+        "evidence_predicates": [
+          "CRE >= 1.5",
+          "SUBTRACT((YEAR(CURDATE()), YEAR(Birthday))) < 70"
+        ],
+        "evidence_formula": null,
+        "aggregation": "COUNT",
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8022,
+        "output_tokens": 466,
+        "est_cost_usd": 0.003954,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1887,
+            "output_tokens": 142,
+            "est_cost_usd": 0.000982
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6135,
+            "output_tokens": 324,
+            "est_cost_usd": 0.002972
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 149,
+      "db_id": "financial",
+      "difficulty": "challenging",
+      "question": "Please list the account types that are not eligible for loans, and the average income of residents in the district where the account is located exceeds $8000 but is no more than $9000.",
+      "evidence": "A11 represents the average salary; Salary and income share the similar meanings; when the account type = 'OWNER', it's eligible for loans",
+      "gold_sql": "SELECT T3.type FROM district AS T1 INNER JOIN account AS T2 ON T1.district_id = T2.district_id INNER JOIN disp AS T3 ON T2.account_id = T3.account_id WHERE T3.type != 'OWNER' AND T1.A11 BETWEEN 8000 AND 9000",
+      "pred_sql": "SELECT DISTINCT disp.type FROM disp JOIN account ON disp.account_id = account.account_id JOIN district ON account.district_id = district.district_id WHERE district.A11 > 8000 AND district.A11 <= 9000 AND disp.type <> 'OWNER'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.25,
+      "gold_row_count": 461,
+      "pred_row_count": 1,
+      "gen_ms": 3739,
+      "gold_elapsed_ms": 6,
+      "pred_elapsed_ms": 2,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "disp.type",
+        "tables": [
+          "account",
+          "district",
+          "disp"
+        ],
+        "join_path": [
+          "account.district_id = district.district_id",
+          "disp.account_id = account.account_id"
+        ],
+        "filters": [
+          "district.A11 > 8000",
+          "district.A11 <= 9000"
+        ],
+        "evidence_predicates": [
+          "disp.type <> 'OWNER'"
+        ],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 8472,
+        "output_tokens": 455,
+        "est_cost_usd": 0.004117,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2121,
+            "output_tokens": 126,
+            "est_cost_usd": 0.00105
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6351,
+            "output_tokens": 329,
+            "est_cost_usd": 0.003067
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 1460,
+      "db_id": "student_club",
+      "difficulty": "challenging",
+      "question": "Write the full name of the member who spent money for water, veggie tray and supplies and include the cost of it.",
+      "evidence": "full name refers to first_name, last name; spent money for refers expense description; expense_description = 'Water, Veggie tray, supplies'",
+      "gold_sql": "SELECT T2.first_name, T2.last_name, T1.cost FROM expense AS T1 INNER JOIN member AS T2 ON T1.link_to_member = T2.member_id WHERE T1.expense_description = 'Water, Veggie tray, supplies'",
+      "pred_sql": "SELECT member.first_name, member.last_name, expense.cost FROM expense JOIN member ON expense.link_to_member = member.member_id WHERE expense.expense_description = 'Water, Veggie tray, supplies'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 1.0,
+      "gold_row_count": 1,
+      "pred_row_count": 1,
+      "gen_ms": 2766,
+      "gold_elapsed_ms": 0,
+      "pred_elapsed_ms": 0,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": true,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "member.first_name, member.last_name, expense.cost",
+        "tables": [
+          "member",
+          "expense"
+        ],
+        "join_path": [
+          "expense.link_to_member = member.member_id"
+        ],
+        "filters": [
+          "expense.expense_description IN ('Water', 'Veggie tray', 'supplies')"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 1,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 12308,
+        "output_tokens": 667,
+        "est_cost_usd": 0.00599,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 2035,
+            "output_tokens": 115,
+            "est_cost_usd": 0.000998
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 6244,
+            "output_tokens": 254,
+            "est_cost_usd": 0.002904
+          },
+          "refine_sql": {
+            "calls": 1,
+            "input_tokens": 4029,
+            "output_tokens": 298,
+            "est_cost_usd": 0.002088
+          }
+        }
+      },
+      "error_category": "correct"
+    },
+    {
+      "question_id": 230,
+      "db_id": "toxicology",
+      "difficulty": "challenging",
+      "question": "What are the elements of the toxicology and label of molecule TR060?",
+      "evidence": "TR060 is the molecule id; ",
+      "gold_sql": "SELECT DISTINCT T1.element, T2.label FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.molecule_id = 'TR060'",
+      "pred_sql": "SELECT DISTINCT atom.element, molecule.label FROM atom JOIN molecule ON atom.molecule_id = molecule.molecule_id WHERE atom.molecule_id = 'TR060'",
+      "valid": true,
+      "gold_error": null,
+      "pred_error": null,
+      "ex": 1.0,
+      "f1": 1.0,
+      "ves_reward": 0.75,
+      "gold_row_count": 5,
+      "pred_row_count": 5,
+      "gen_ms": 2578,
+      "gold_elapsed_ms": 3,
+      "pred_elapsed_ms": 3,
+      "exec_vote": {
+        "candidates": 5,
+        "executed": 5,
+        "groups": 1,
+        "winner_votes": 5,
+        "fallback_reason": null
+      },
+      "refined": false,
+      "timeout_note": null,
+      "gold_transpiled": false,
+      "query_plan": {
+        "target": "atom.element, molecule.label",
+        "tables": [
+          "atom",
+          "molecule"
+        ],
+        "join_path": [
+          "atom.molecule_id = molecule.molecule_id"
+        ],
+        "filters": [
+          "atom.molecule_id = 'TR060'"
+        ],
+        "evidence_predicates": [],
+        "evidence_formula": null,
+        "aggregation": null,
+        "group_by": null,
+        "having": null,
+        "order_by": null,
+        "set_op": null
+      },
+      "verification": {
+        "candidates": 5,
+        "executed": 5,
+        "agreement": 5,
+        "distinct_result_sets": 1,
+        "decided_by": "plurality",
+        "validated": true,
+        "validation_checks": {
+          "syntax_ok": true,
+          "safety_ok": true,
+          "semantic_ok": true
+        },
+        "refine_rounds": 0,
+        "risks": [],
+        "risk_score": 0,
+        "back_translation": null
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 6867,
+        "output_tokens": 321,
+        "est_cost_usd": 0.00326,
+        "models": [
+          "gpt-4.1-mini"
+        ],
+        "cost_known": true,
+        "unpriced_models": [],
+        "by_stage": {
+          "link_schema": {
+            "calls": 1,
+            "input_tokens": 1335,
+            "output_tokens": 104,
+            "est_cost_usd": 0.0007
+          },
+          "generate_sql": {
+            "calls": 1,
+            "input_tokens": 5532,
+            "output_tokens": 217,
+            "est_cost_usd": 0.00256
+          }
+        }
+      },
+      "error_category": "correct"
+    }
+  ]
+}
