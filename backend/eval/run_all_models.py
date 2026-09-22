@@ -96,7 +96,9 @@ def build_command(short: str, args: argparse.Namespace,
                   passthrough: List[str]) -> List[str]:
     """The bird.py command for one model. Only --model and --output differ
     between models -- everything else is shared, which is the whole point."""
-    out = Path("outputs") / args.difficulty / f"{args.difficulty}_v3_{short}.json"
+    tag = f"_{args.tag}" if args.tag else ""
+    out = (Path("outputs") / args.difficulty /
+           f"{args.difficulty}_v3_{short}{tag}.json")
     cmd = [
         sys.executable, "-m", "backend.eval.bird",
         "--dev-json", args.dev_json,
@@ -142,6 +144,8 @@ def resume_command(args: argparse.Namespace,
         cmd += ["--dev-json", args.dev_json]
     if args.db_dir != DB_DIR:
         cmd += ["--db-dir", args.db_dir]
+    if args.tag:
+        cmd += ["--tag", args.tag]
     if args.only:
         cmd += ["--only"] + list(args.only)
     if passthrough:
@@ -241,6 +245,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--only", nargs="+", metavar="SHORTNAME",
                         choices=list(MODELS),
                         help=f"Run only these: {', '.join(MODELS)}")
+    parser.add_argument("--tag", default=None,
+                        help="Suffix for the output filenames, e.g. "
+                             "--tag plandiv_on. Lets the two arms of an "
+                             "ablation sit side by side instead of one "
+                             "overwriting the other.")
     parser.add_argument("--resume", action="store_true",
                         help="Skip models whose output file is already a "
                              "COMPLETE run, so a sweep interrupted partway "
@@ -266,7 +275,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def out_path(short: str) -> Path:
-        return out_dir / f"{args.difficulty}_v3_{short}.json"
+        tag = f"_{args.tag}" if args.tag else ""
+        return out_dir / f"{args.difficulty}_v3_{short}{tag}.json"
 
     skipped: List[str] = []
     if args.resume:
@@ -281,7 +291,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  Engine   : {args.engine}   gold: {Path(args.dev_json).name}")
     print(f"  subset={args.subset}  sample={args.sample}  seed={args.seed}"
           + (f"  db_id={args.db_id}" if args.db_id else ""))
-    print(f"  output -> {out_dir}/{args.difficulty}_v3_<model>.json")
+    print(f"  output -> {out_dir}/{args.difficulty}_v3_<model>"
+          f"{('_' + args.tag) if args.tag else ''}.json")
     if passthrough:
         print(f"  extra  -> {' '.join(passthrough)}")
     if skipped:

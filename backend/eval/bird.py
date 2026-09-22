@@ -1429,6 +1429,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Disable the one-round ReAct refine on failure for A/B comparison")
     parser.add_argument("--model", default=None,
                         help="Override config.yaml's llm.model for this run (any model id)")
+    # GH#136 ablation switches. Each is tri-state: unset keeps the config
+    # value, so a run that names none of them reproduces config.yaml exactly.
+    # Every one is recorded in run_config — an ablation whose arm cannot be
+    # read back off the results file is not an ablation.
+    parser.add_argument("--path-diversity", dest="path_diversity",
+                        action="store_true", default=None,
+                        help="GH#48: replace two direct candidates with a "
+                             "divide-and-conquer and a query-plan-CoT one "
+                             "(moderate/challenging). Overrides sql.path_diversity.")
+    parser.add_argument("--no-path-diversity", dest="path_diversity",
+                        action="store_false",
+                        help="Force path diversity OFF for this run.")
+    parser.add_argument("--n-candidates", type=int, default=None,
+                        help="Override the per-tier candidate count "
+                             "(sql.candidates_by_tier) for this run.")
     parser.add_argument("--plan-diversity", action="store_true",
                         help="GH#76: ask the linker for a SECOND plan that "
                              "disagrees on grain/aggregation and generate from "
@@ -1494,7 +1509,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         backend = make_backend("sqlite", db_dir=args.db_dir)
         logger.info("[EVAL] engine=sqlite db_dir=%s", args.db_dir)
 
-    bird_config = {**config,
+    sql_cfg = dict(config.get("sql", {}))
+    if args.path_diversity is not None:
+        sql_cfg["path_diversity"] = bool(args.path_diversity)
+    if args.n_candidates is not None:
+        sql_cfg["n_candidates"] = args.n_candidates
+        # candidates_by_tier overrides n_candidates when adaptive prompting is
+        # on, so a --n-candidates that did not touch it would be ignored on
+        # every tier the benchmark actually runs.
+        sql_cfg["candidates_by_tier"] = {
+            t: args.n_candidates
+            for t in (sql_cfg.get("candidates_by_tier") or
+                      {"simple": 0, "moderate": 0, "challenging": 0})}
+    bird_config = {**config, "sql": sql_cfg,
                    "db": {**db_cfg, "dialect": backend.dialect}}
 
     model_name = resolve_model(args.model, config)
@@ -1628,6 +1655,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # quantisation or sampling defaults.
         "base_url": base_url or "openai-default",
         "plan_diversity": bool(args.plan_diversity),
+        "path_diversity": getattr(sql_agent, "_path_diversity", None),
         "plan_rationale": bool(args.plan_rationale),
         "trust_eval": bool(args.trust_eval),
         "judge_model": (args.judge_model or model_name) if args.trust_eval else None,
