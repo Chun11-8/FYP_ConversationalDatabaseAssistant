@@ -82,6 +82,7 @@ function App() {
   // GH#108: {model id: provider}. One deployment now serves OpenAI models
   // directly and others through a gateway, so the picker says which.
   const [modelProviders, setModelProviders] = useState<Record<string, string>>({});
+  const [modelsUnavailable, setModelsUnavailable] = useState(false);
   const [defaultModel, setDefaultModel] = useState<string>('');
   const [model, setModel] = useState<string>(() => localStorage.getItem(LS_MODEL) ?? '');
   // GH#83 retrieval scope. '' = search every indexed database, which is also
@@ -109,8 +110,9 @@ function App() {
     }
   }, [model, defaultModel]);
 
-  // Fetch the selectable models once at startup; the picker stays hidden
-  // (ChatInput guards on models.length) if this fails — chat still works.
+  // Fetch the selectable models once at startup. GH#137: a failure no longer
+  // hides the picker — it records WHY, so the sidebar can say the list could
+  // not load instead of silently dropping the control.
   useEffect(() => {
     getModels()
       .then(({ models, default: def, providers }) => {
@@ -123,7 +125,7 @@ function App() {
         // discard every custom entry the moment the page refreshed.
         setModel((prev) => prev || def);
       })
-      .catch(() => { /* picker stays hidden; chat still works */ });
+      .catch(() => setModelsUnavailable(true));
   }, []);
 
   useEffect(() => {
@@ -335,6 +337,7 @@ function App() {
       apiKey={apiKey}
       onApiKeyChange={setApiKey}
       models={availableModels}
+      modelsUnavailable={modelsUnavailable}
       modelProviders={modelProviders}
       model={model || defaultModel}
       onModelChange={setModel}

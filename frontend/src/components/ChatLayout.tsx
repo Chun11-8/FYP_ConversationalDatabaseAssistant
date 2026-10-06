@@ -19,6 +19,9 @@ interface ChatLayoutProps {
   apiKey: string;
   onApiKeyChange: (key: string) => void;
   models: string[];
+  /** GH#137: set when GET /models failed, so the picker can say WHY the
+   *  curated list is missing instead of disappearing without explanation. */
+  modelsUnavailable?: boolean;
   /** GH#108: {model id: provider label}, shown so the user can see which
    *  endpoint a choice reaches — OpenAI directly, or a gateway. */
   modelProviders?: Record<string, string>;
@@ -44,6 +47,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   apiKey,
   onApiKeyChange,
   models,
+  modelsUnavailable = false,
   modelProviders = {},
   model,
   onModelChange,
@@ -237,7 +241,13 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             </div>
           )}
 
-          {models.length > 0 && (
+          {/* GH#137: previously `models.length > 0`, so a failed GET /models
+              removed the picker entirely — the control vanished with no
+              explanation and the user could not tell the app from a broken
+              build. The backend accepts any well-formed model id (see
+              api/main.py::_validate_model), so "Custom…" alone is still a
+              working picker; render it whenever there is a model to name. */}
+          {(models.length > 0 || model) && (
             <div className="model-section">
               <div className="sidebar-section-label">Model</div>
               <div className="model-picker" ref={pickerRef}>
@@ -286,6 +296,13 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
                       </div>
                     ) : (
                       <>
+                        {models.length === 0 && (
+                          <p className="model-picker-note">
+                            {modelsUnavailable
+                              ? 'Could not load the model list. Check the API is running, then reload — or type an id below.'
+                              : 'No models configured in llm.selectable_models.'}
+                          </p>
+                        )}
                         {models.map((m) => (
                           <button
                             key={m}
