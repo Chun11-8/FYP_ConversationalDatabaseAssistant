@@ -58,32 +58,62 @@ class TestIntentRoutingIsByPhrasing:
     "How do I add a column?" is a request for an explanation about a write.
     Routing it by the SQL verb sends it to WRITE_BLOCKED and withholds an
     answer that is safe to give; routing it by phrasing answers it.
+
+    These assert against OrchestrationAgent.INTENT_PROMPT — the string actually
+    sent to the model (db_agent.py:792) — and NOT against a helper that returns
+    the same text. GH#138 edited a `_intent_system_prompt()` method that nothing
+    called, so the tests passed while the running classifier was unchanged and
+    kept blocking how-to questions. The prompt lives in prompt.md under
+    [SECTION: ORCHESTRATION_AGENT]; that dead method has been removed.
     """
 
-    def test_the_prompt_states_the_rule_explicitly(self, agent):
-        p = agent._intent_system_prompt()
-        assert "PHRASING" in p
-        assert "not by the SQL verb" in p
+    @property
+    def prompt(self) -> str:
+        return OrchestrationAgent.INTENT_PROMPT
 
-    def test_both_sides_are_shown_as_examples(self, agent):
-        """A rule without a worked pair either way is one a model guesses at."""
-        p = agent._intent_system_prompt()
-        assert "How do I add a column to the customer table?" in p
-        assert "Add a column to the customer table." in p
+    def test_the_prompt_is_loaded_from_prompt_md(self):
+        """If PromptHarness silently returned "", every rule below would be
+        vacuously true."""
+        assert len(self.prompt) > 200
+        assert "ORCHESTRATION" not in self.prompt.split("\n")[0]
 
-    def test_general_is_described_as_covering_writes(self, agent):
-        assert "how a write or schema change would be done" in agent._intent_system_prompt()
+    def test_the_rule_is_stated_explicitly(self):
+        assert "PHRASING" in self.prompt
+        assert "not by the sql verb" in self.prompt.lower()
 
-    def test_write_blocked_is_described_as_an_instruction(self, agent):
-        """'attempts … data modification' is what made a how-to look like one."""
-        p = agent._intent_system_prompt()
-        assert "INSTRUCTS" in p
+    def test_both_sides_are_shown_as_worked_examples(self):
+        """A rule without a pair either way is one a model guesses at."""
+        assert "How do I add a column to the customer table?" in self.prompt
+        assert "Add a column to the customer table." in self.prompt
 
-    def test_the_four_labels_are_unchanged(self, agent):
+    def test_general_covers_how_an_operation_is_done(self):
+        assert "how an operation is done" in self.prompt
+
+    def test_write_blocked_is_described_as_an_instruction(self):
+        """'Any INSERT, UPDATE, DELETE, DROP, ALTER' is what made a how-to look
+        like one: the question names the verb."""
+        assert "INSTRUCTS" in self.prompt
+
+    def test_naming_a_write_verb_is_explicitly_not_enough(self):
+        assert "does NOT by itself mean WRITE_BLOCKED" in self.prompt
+
+    def test_the_safety_first_default_no_longer_points_at_write_blocked(self):
+        """'when in doubt, classify as WRITE_BLOCKED' overrode every example
+        below it. Genuine uncertainty belongs in AMBIGUOUS, which asks the user
+        rather than refusing them."""
+        assert "when in doubt, classify as WRITE_BLOCKED" not in self.prompt
+        assert "prefer AMBIGUOUS" in self.prompt
+
+    def test_the_prompt_says_blocking_a_how_to_protects_nothing(self):
+        """The reason the rule is safe, stated where the model can use it."""
+        flat = " ".join(self.prompt.split())
+        assert "read-only" in flat
+        assert "withholds an explanation that is safe to give" in flat
+
+    def test_the_four_labels_are_unchanged(self):
         """Routing elsewhere in the graph keys off these exact strings."""
-        p = agent._intent_system_prompt()
         for label in ("READ", "GENERAL", "WRITE_BLOCKED", "AMBIGUOUS"):
-            assert label in p
+            assert label in self.prompt
 
 
 class TestGeneralExplainsTheOperation:
