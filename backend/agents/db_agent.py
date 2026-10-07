@@ -2735,33 +2735,6 @@ class OrchestrationAgent:
             HumanMessage(content=prompt),
         ], "summarize_history").content.strip()
 
-    def _intent_system_prompt(self) -> str:
-        return (
-            "You are an intent classifier for a read-only database assistant.\n"
-            "Classify the user query into exactly one of:\n"
-            "  READ      — wants to query/retrieve data from the database\n"
-            "  GENERAL   — asks for help, explanations, or SQL syntax questions,\n"
-            "              INCLUDING how a write or schema change would be done\n"
-            "  WRITE_BLOCKED — INSTRUCTS the assistant to modify data or schema\n"
-            "  AMBIGUOUS — unclear, needs clarification\n\n"
-            "GENERAL vs WRITE_BLOCKED is decided by PHRASING, not by the SQL verb\n"
-            "involved (GH#138). A question seeking an explanation is GENERAL even\n"
-            "when the operation it describes is a write; only an instruction to\n"
-            "carry one out is WRITE_BLOCKED:\n"
-            "  GENERAL       'How do I add a column to the customer table?'\n"
-            "                'What is the syntax for deleting duplicate rows?'\n"
-            "                'Can you explain how to rename an index?'\n"
-            "  WRITE_BLOCKED 'Add a column to the customer table.'\n"
-            "                'Delete all players from France.'\n"
-            "                'Update the price to 20.'\n"
-            "Nothing is executed either way — the assistant is read-only and the\n"
-            "validator blocks non-SELECT regardless of this label. Routing a\n"
-            "how-to to WRITE_BLOCKED only withholds an explanation it is safe to\n"
-            "give.\n\n"
-            "Reply with ONLY the label. No explanation."
-        )
-        
-        
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
