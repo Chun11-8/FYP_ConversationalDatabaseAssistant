@@ -153,3 +153,99 @@ class TestWriteInstructionsStayBlocked:
     def test_the_refusal_records_no_sql(self, agent):
         agent.handle_write_blocked({"session_id": "s", "user_query": "drop table x"})
         assert agent.memory.add.call_args.kwargs.get("sql") is None
+
+
+class TestGeneralSeesTheSchema:
+    """
+    GH#139: "How do I add a column to the customer table?" is only answerable
+    ABOUT THIS DATABASE if the answer can see `customer`. Without it the model
+    returns correct generic DDL that may contradict the real table — proposing
+    a column that already exists, or a NOT NULL default on a populated one.
+    """
+
+    CHUNKS = [
+        {"table_name": "customer", "content": "# Table: customer\n[(id:INT, Primary Key), (name:TEXT)]"},
+        {"table_name": "orders", "content": "# Table: orders\n[(order_id:INT, Primary Key)]"},
+    ]
+
+    @staticmethod
+    def _with_lookup(agent, chunks):
+        agent._get_scope = lambda: "FYP"
+        return patch("backend.agents.db_agent.fetch_table_chunks", return_value=chunks)
+
+    def test_a_named_table_is_attached(self, agent):
+        with self._with_lookup(agent, self.CHUNKS[:1]):
+            out = agent._schema_for_question("How do I add a column to the customer table?")
+        assert "# Table: customer" in out
+
+    def test_the_lookup_is_by_name_not_by_embedding(self, agent):
+        """The question already contains the table name; an embedding call to
+        recover it would be paid for nothing."""
+        agent._get_scope = lambda: "FYP"
+        with patch("backend.agents.db_agent.fetch_table_chunks",
+                   return_value=self.CHUNKS[:1]) as fetch, \
+             patch("backend.agents.db_agent.retrieve") as retrieve:
+            agent._schema_for_question("How do I index the customer table?")
+        fetch.assert_called_once()
+        retrieve.assert_not_called()
+
+    def test_a_plural_question_finds_a_singular_table(self, agent):
+        """Schemas name tables both ways and users follow the schema's lead
+        only half the time."""
+        agent._get_scope = lambda: "FYP"
+        with patch("backend.agents.db_agent.fetch_table_chunks",
+                   return_value=self.CHUNKS[:1]) as fetch:
+            agent._schema_for_question("How do I add a column to customers?")
+        assert "customer" in fetch.call_args[0][0]
+
+    def test_generic_words_are_not_treated_as_table_names(self, agent):
+        """'add a column to the table' must not pull a table called `table`."""
+        agent._get_scope = lambda: "FYP"
+        with patch("backend.agents.db_agent.fetch_table_chunks",
+                   return_value=[]) as fetch:
+            agent._schema_for_question("How do I add a column to a table?")
+        asked = {w.casefold() for w in fetch.call_args[0][0]}
+        assert "table" not in asked and "column" not in asked
+
+    def test_the_attached_schema_is_capped(self, agent):
+        """A question full of common words must not paste the whole database
+        into the prompt."""
+        many = [{"table_name": f"t{i}", "content": f"# Table: t{i}"} for i in range(12)]
+        with self._with_lookup(agent, many):
+            out = agent._schema_for_question("How do I join alpha beta gamma delta epsilon?")
+        assert out.count("# Table:") == agent._GENERAL_MAX_TABLES
+
+    def test_an_unindexed_name_costs_nothing(self, agent):
+        with self._with_lookup(agent, []):
+            assert agent._schema_for_question("How do I alter the widgets table?") == ""
+
+    def test_a_lookup_failure_falls_back_silently(self, agent):
+        """A broken index must degrade to the generic answer, not lose the turn."""
+        agent._get_scope = lambda: "FYP"
+        with patch("backend.agents.db_agent.fetch_table_chunks",
+                   side_effect=RuntimeError("index down")):
+            assert agent._schema_for_question("How do I alter customer?") == ""
+
+    def test_the_schema_reaches_the_prompt(self, agent):
+        with self._with_lookup(agent, self.CHUNKS[:1]):
+            _, system = _run_general(agent, "How do I add a column to customer?")
+        assert "actual schema is given below" in system
+
+    def test_the_schema_is_in_the_user_message_too(self, agent):
+        llm = MagicMock()
+        llm.invoke.return_value = MagicMock(content="ALTER TABLE customer ...")
+        agent._get_llm = lambda: llm
+        with self._with_lookup(agent, self.CHUNKS[:1]), \
+             patch("backend.agents.db_agent.invoke_tracked",
+                   side_effect=lambda m, msgs, stage: m.invoke(msgs)):
+            agent.handle_general({"session_id": "s", "user_query":
+                                  "How do I add a column to customer?"})
+        user_msg = llm.invoke.call_args[0][0][1].content
+        assert "<schema_context>" in user_msg and "# Table: customer" in user_msg
+
+    def test_no_schema_means_the_prompt_says_nothing_about_one(self, agent):
+        """The schema-aware instruction must not appear when there is no schema
+        — it would tell the model to use tables it was never given."""
+        with self._with_lookup(agent, []):
+            _, system = _run_general(agent, "What is a foreign key?")
+        assert "actual schema is given below" not in system

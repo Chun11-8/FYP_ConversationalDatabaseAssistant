@@ -1858,9 +1858,68 @@ class OrchestrationAgent:
     # Search results are usable when non-empty and not an error/diagnostic string.
     _SEARCH_RESULT_PREFIXES = ("Web search results for:", "1.")
 
+    # Tokens that are never table names but often appear in how-to questions.
+    # Without this "add a column to the table" would match a table literally
+    # called `table` or `column` in some schemas and attach the wrong context.
+    _GENERAL_STOPWORDS = frozenset({
+        "table", "tables", "column", "columns", "index", "indexes", "database",
+        "databases", "row", "rows", "schema", "query", "field", "fields",
+    })
+    _GENERAL_MAX_TABLES = 4
+
+    def _schema_for_question(self, question: str) -> str:
+        """
+        Schema of any indexed tables the QUESTION names, or "" (GH#139).
+
+        "How do I add a column to the customer table?" is only answerable
+        *about this database* if the answer can see `customer`. Without it the
+        model gives correct generic DDL that may contradict the real table —
+        proposing a column that already exists, or a NOT NULL default on a
+        table with existing rows.
+
+        Name lookup, not embedding search: the question already contains the
+        table name, so a cosine query would spend an embedding call to recover
+        something plain matching finds. fetch_table_chunks resolves
+        case-insensitively against the index and returns [] on any failure, so
+        an unindexed or misspelled name costs nothing and the caller falls
+        back to the schema-free answer.
+        """
+        if not question:
+            return ""
+        words = {w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", question)}
+        # Try the plural as written and the singular — schemas name tables both
+        # ways ("members" vs "member") and the user follows the schema's lead
+        # only half the time.
+        candidates = set()
+        for w in words:
+            if w.casefold() in self._GENERAL_STOPWORDS:
+                continue
+            candidates.add(w)
+            if len(w) > 3 and w.endswith("s"):
+                candidates.add(w[:-1])
+        if not candidates:
+            return ""
+        try:
+            chunks = fetch_table_chunks(sorted(candidates), self._get_scope())
+        except Exception as exc:                        # never raises, but be sure
+            logger.warning(f"[GENERAL] schema lookup failed: {exc}")
+            return ""
+        if not chunks:
+            return ""
+        # Cap it: a question mentioning many common words should not paste the
+        # whole database into the prompt.
+        chunks = chunks[: self._GENERAL_MAX_TABLES]
+        logger.info("[GENERAL] attached schema for %d table(s): %s",
+                    len(chunks), ", ".join(c["table_name"] for c in chunks))
+        return "\n\n".join(c["content"] for c in chunks)
+
     def handle_general(self, state: AgentState) -> AgentState:
         """Handle non-SQL questions via web search + LLM synthesis."""
         query = state["user_query"]
+
+        # 0. GH#139: the schema of any table the question names, so a question
+        #    ABOUT this database is answered from it rather than generically.
+        schema_context = self._schema_for_question(query)
 
         # 1. Web search for context
         search_context = ""
@@ -1905,11 +1964,27 @@ class OrchestrationAgent:
                 if search_context
                 else ""
             )
+            + (
+                "The user's actual schema is given below. Answer against THOSE "
+                "tables and columns — use the real names, and say so when the "
+                "schema already satisfies the request or makes it unsafe (a "
+                "column that exists, a NOT NULL default on a populated table). "
+                if schema_context
+                else ""
+            )
             + "Never claim to have changed anything."
         )
         user_content = query
-        if search_context:
+        if schema_context:
             user_content = (
+                f"<schema_context>\n{schema_context}\n</schema_context>\n\n"
+                f"Question: {query}"
+            )
+        if search_context:
+            schema_block = (f"<schema_context>\n{schema_context}\n</schema_context>\n\n"
+                            if schema_context else "")
+            user_content = (
+                f"{schema_block}"
                 f"Question: {query}\n\n"
                 f"Web search results:\n{search_context}\n\n"
                 "Please synthesize the above into a clear, concise answer."
