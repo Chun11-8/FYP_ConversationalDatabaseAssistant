@@ -1878,15 +1878,34 @@ class OrchestrationAgent:
             logger.warning(f"[GENERAL] web_search failed: {exc}")
 
         # 2. LLM synthesis with search results
+        # GH#138: the old prompt ended "Do NOT generate SQL unless explicitly
+        # asked", which made the commonest question of this kind — "how do I
+        # add a column to X?" — unanswerable: the useful answer IS the
+        # statement. Showing it is safe. Nothing on this path reaches a
+        # database: handle_general never executes, and the validator rejects
+        # non-SELECT on the paths that do. So the instruction is to SHOW the
+        # statement and say plainly that it was not run.
         system_prompt = (
-            "You are a helpful database assistant. "
-            "Answer the user's question clearly and concisely. "
+            "You are a database expert answering questions ABOUT a database, "
+            "for a user of a strictly read-only assistant.\n\n"
+            "If the question asks how to perform an operation — adding a column, "
+            "creating an index, deleting rows, changing a type — explain how it "
+            "WOULD be done:\n"
+            "  1. Give the SQL statement in a ```sql fence.\n"
+            "  2. State in one line that you have NOT run it and cannot: this "
+            "assistant only reads.\n"
+            "  3. Name what the user should check before running it themselves "
+            "(locking, existing nulls, defaults, backfill, whether a rewrite is "
+            "needed) — only the points that genuinely apply.\n\n"
+            "For questions that are not about performing an operation, answer "
+            "plainly and concisely. "
             + (
-                "Use the web search results below as context. Cite sources where relevant. "
+                "Use the web search results below as context. Cite sources where "
+                "relevant. "
                 if search_context
                 else ""
             )
-            + "Do NOT generate SQL unless explicitly asked."
+            + "Never claim to have changed anything."
         )
         user_content = query
         if search_context:
@@ -1920,9 +1939,16 @@ class OrchestrationAgent:
         return {**state, "response": answer, "turn_id": turn_id}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:
+        # GH#138: still a refusal — this branch is reached by an INSTRUCTION to
+        # modify, which stays blocked. But "contact your administrator" is a
+        # dead end when the same question, asked as a how-to, is one the
+        # assistant can answer in full, so point at that instead.
         response = (
-            "⚠️ This system is read-only. Data modification queries (INSERT/UPDATE/DELETE/DROP) "
-            "are not permitted. Please contact your database administrator."
+            "This assistant is read-only, so it cannot insert, update, delete or "
+            "alter anything.\n\n"
+            "It can explain how the change would be made. Ask it as a question — "
+            "for example \"how do I add a column to the customer table?\" — and "
+            "you'll get the statement to run, along with what to check first."
         )
         turn_id = self.memory.add(
             session_id=state["session_id"],
@@ -2639,9 +2665,24 @@ class OrchestrationAgent:
             "You are an intent classifier for a read-only database assistant.\n"
             "Classify the user query into exactly one of:\n"
             "  READ      — wants to query/retrieve data from the database\n"
-            "  GENERAL   — asks for help, explanations, or SQL syntax questions\n"
-            "  WRITE_BLOCKED — attempts INSERT/UPDATE/DELETE/DROP or data modification\n"
+            "  GENERAL   — asks for help, explanations, or SQL syntax questions,\n"
+            "              INCLUDING how a write or schema change would be done\n"
+            "  WRITE_BLOCKED — INSTRUCTS the assistant to modify data or schema\n"
             "  AMBIGUOUS — unclear, needs clarification\n\n"
+            "GENERAL vs WRITE_BLOCKED is decided by PHRASING, not by the SQL verb\n"
+            "involved (GH#138). A question seeking an explanation is GENERAL even\n"
+            "when the operation it describes is a write; only an instruction to\n"
+            "carry one out is WRITE_BLOCKED:\n"
+            "  GENERAL       'How do I add a column to the customer table?'\n"
+            "                'What is the syntax for deleting duplicate rows?'\n"
+            "                'Can you explain how to rename an index?'\n"
+            "  WRITE_BLOCKED 'Add a column to the customer table.'\n"
+            "                'Delete all players from France.'\n"
+            "                'Update the price to 20.'\n"
+            "Nothing is executed either way — the assistant is read-only and the\n"
+            "validator blocks non-SELECT regardless of this label. Routing a\n"
+            "how-to to WRITE_BLOCKED only withholds an explanation it is safe to\n"
+            "give.\n\n"
             "Reply with ONLY the label. No explanation."
         )
         
