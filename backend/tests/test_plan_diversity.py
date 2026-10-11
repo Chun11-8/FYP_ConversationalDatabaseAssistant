@@ -1,5 +1,5 @@
 """
-Tests for plan diversity and plan rationale (GH#76 Fixes 1 & 2).
+Tests for plan diversity and plan rationale.
 
 Both target the finding that 74% of failures had the RIGHT tables and joins
 and differed only in projection, aggregation or grain — 52% of those picking
@@ -37,7 +37,7 @@ def _linker(reply: str, rationale: bool = False) -> SchemaLinkingAgent:
     return a
 
 
-# ── Fix 2: grain + rationale ──────────────────────────────────────────────────
+# ── grain + rationale ─────────────────────────────────────────────────────────
 
 class TestPlanRationale:
 
@@ -71,7 +71,7 @@ class TestPlanRationale:
         assert "grain" not in out and "aggregation_rationale" not in out
 
 
-# ── Fix 1: an alternative plan ────────────────────────────────────────────────
+# ── an alternative plan ───────────────────────────────────────────────────────
 
 class TestSameShape:
 

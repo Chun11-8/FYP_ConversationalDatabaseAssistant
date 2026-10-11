@@ -12,10 +12,10 @@ export interface ChatApiResponse {
   csv_path: string | null;
   turn_id: number | null;
   cache_hit?: boolean;
-  /** GH#114: endpoint that served this turn */
+  /** endpoint that served this turn */
   provider?: string | null;
   usage?: TurnUsage | null;
-  /** How the winning SQL was chosen (GH#67) — evidence, not a verdict */
+  /** How the winning SQL was chosen — evidence, not a verdict */
   verification?: TurnVerification | null;
 }
 
@@ -131,12 +131,12 @@ export async function getSchema(): Promise<SchemaInfo> {
   return request<SchemaInfo>('/schema');
 }
 
-// ── Model selector (Issue #52) ─────────────────────────────────────────────
+// ── Model selector ─────────────────────────────────────────────
 
 export interface ModelsInfo {
   models: string[];
   default: string;
-  /** GH#108: {model id: provider label} — which endpoint each choice reaches */
+  /** {model id: provider label} — which endpoint each choice reaches */
   providers?: Record<string, string>;
 }
 
@@ -144,7 +144,7 @@ export async function getModels(): Promise<ModelsInfo> {
   return request<ModelsInfo>('/models');
 }
 
-// ── Database scope (GH#81 / GH#83) ─────────────────────────────────────────
+// ── Database scope ─────────────────────────────────────────
 
 /** One logical database in the schema vector index. */
 export interface DatabaseInfo {
@@ -184,7 +184,7 @@ export function downloadUrl(filename: string): string {
   return `${API_BASE}/download/${encodeURIComponent(filename)}`;
 }
 
-// ── Schema versioning / index sync (Issue #7) ──────────────────────────────
+// ── Schema versioning / index sync ──────────────────────────────
 
 export interface SchemaChange {
   action: 'add_table' | 'drop_table' | 'add_column' | 'drop_column' | 'modify_column';
@@ -207,7 +207,7 @@ export interface SchemaSyncResult {
   changes_applied: SchemaChange[];
   reembedded_tables: string[];
   removed_tables: string[];
-  // Semantic-cache cascade (Issue #7/GH#8): {table: count of pairs affected}.
+  // Semantic-cache cascade: {table: count of pairs affected}.
   archived_pairs: Record<string, number>;
   demoted_pairs: Record<string, number>;
   full: boolean;

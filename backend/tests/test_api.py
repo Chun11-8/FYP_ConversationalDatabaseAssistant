@@ -1,5 +1,5 @@
 """
-Tests for backend/api/main.py (Issue #1 — Business Layer).
+Tests for backend/api/main.py.
 
 Run from repo root:
     pytest backend/tests/test_api.py -v

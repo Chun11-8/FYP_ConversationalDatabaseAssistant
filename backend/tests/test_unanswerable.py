@@ -1,6 +1,5 @@
 """
-Tests for the unanswerable-question path and the two defects it exposed
-(GH#75).
+Tests for the unanswerable-question path and the two defects it exposed.
 
 The reported failure: "Show me customers from the country Wakanda" against a
 schema with no country column returned 100 rows of `segment='LAM' AND
@@ -52,13 +51,13 @@ class _Index:
         return self._tables.get(table, {})
 
     def has_unindexed_values(self, tables):
-        """GH#99: this fake indexes everything it is given, so nothing is
+        """This fake indexes everything it is given, so nothing is
         unverifiable. A table whose columns exceed the cardinality cap is
         covered in test_opaque_ids_and_name_spans.py against the real index."""
         return False
 
     def nearest_values(self, span, tables, limit=6):
-        """Mirrors ValueIndex.nearest_values (GH#97): stored values ranked by
+        """Mirrors ValueIndex.nearest_values: stored values ranked by
         similarity to the span the user actually typed."""
         import difflib
         scored = []
@@ -77,7 +76,7 @@ class _Index:
         return out
 
 
-# ── Fix 1: never cache an answer the system flagged ───────────────────────────
+# ── never cache an answer the system flagged ──────────────────────────────────
 
 class TestFlaggedAnswersAreNotCached:
 
@@ -124,7 +123,7 @@ class TestFlaggedAnswersAreNotCached:
         a.semantic_cache.save_pair.assert_called_once()
 
 
-# ── Fix 2: the prose must not contradict the warning ──────────────────────────
+# ── the prose must not contradict the warning ─────────────────────────────────
 
 class TestPrependCaution:
 
@@ -158,7 +157,7 @@ class TestPrependCaution:
         assert _prepend_caution("answer", v).startswith("⚠️")
 
 
-# ── Fix 3: an unsatisfiable question exits without SQL ────────────────────────
+# ── an unsatisfiable question exits without SQL ───────────────────────────────
 
 class TestUnsatisfiableDetection:
 

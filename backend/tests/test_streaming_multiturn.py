@@ -1,5 +1,5 @@
 """
-Tests for GH#39 (SSE streaming) and GH#40 (multi-turn effectiveness).
+Tests for SSE streaming and multi-turn effectiveness.
 
 Covers: stage-event wrapper + run(stage_callback), the /chat/stream endpoint
 contract, anaphoric-follow-up detection + condensation, standalone-query
@@ -32,7 +32,7 @@ def _bare(**attrs) -> OrchestrationAgent:
     return a
 
 
-# ── GH#39: stage events ───────────────────────────────────────────────────────
+# ── stage events ──────────────────────────────────────────────────────────────
 
 class TestStageEvents:
 
@@ -111,7 +111,7 @@ class TestStreamEndpoint:
         assert "kaput" in events[-1]["message"]
 
 
-# ── GH#40: follow-up condensation ─────────────────────────────────────────────
+# ── follow-up condensation ────────────────────────────────────────────────────
 
 class TestCondense:
 
@@ -188,7 +188,7 @@ class TestCondense:
         a.semantic_cache.embed.assert_called_with("Show the top 3 players by rating")
 
 
-# ── GH#40: previous-SQL context + clarification ───────────────────────────────
+# ── previous-SQL context + clarification ──────────────────────────────────────
 
 class TestPreviousSqlAndClarify:
 

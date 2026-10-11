@@ -1,5 +1,5 @@
 """
-Tests for GH#101 — the harness that measures whether the trust detector
+Tests: the harness that measures whether the trust detector
 detects.
 
 The metrics are the deliverable, so they are tested against cases with a known
@@ -155,7 +155,7 @@ def test_evaluate_names_what_it_could_not_measure():
     assert not res["gates"]["back_translation"]["measured"]
 
 
-# ── Phase B: the block bird.py now stores (GH#103) ────────────────────────────
+# ── Phase B: the block bird.py now stores ────────────────────────────
 
 class TestStoredVerificationIsPreferred:
 

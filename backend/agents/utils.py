@@ -23,7 +23,7 @@ class PromptHarness:
     @classmethod
     @lru_cache(maxsize=1)
     def _load_all(cls) -> dict[str, str]:
-        # GH#110: prompt.md is UTF-8 and full of box-drawing characters; a
+        # prompt.md is UTF-8 and full of box-drawing characters; a
         # locale-default read silently mojibakes every one of them on Windows.
         raw = PROMPTS_PATH.read_text(encoding="utf-8")
         sections = re.split(r"##\s+\[SECTION:\s*(\w+)\]", raw)
@@ -51,10 +51,10 @@ class PromptHarness:
         path = PROMPTS_DIR / filename
         if not path.exists():
             raise FileNotFoundError(f"Prompt file not found: {path}")
-        return path.read_text(encoding="utf-8")      # GH#110
+        return path.read_text(encoding="utf-8")
 
 
-# ── reasoning-block stripping (GH#65) ─────────────────────────────────────────
+# ── reasoning-block stripping ─────────────────────────────────────────
 #
 # Open-weight reasoning models (DeepSeek-R1, QwQ, Qwen3-thinking, GPT-OSS) emit
 # their chain of thought before the answer. Every parser in this project reads
@@ -62,7 +62,7 @@ class PromptHarness:
 #
 #   * condense_query accepts the rewrite only if len < 500 — a think block
 #     blows past it, the condensation is silently dropped, and multi-turn
-#     regresses to the GH#63 symptom.
+#     the follow-up gets answered from the previous turn.
 #   * _extract_json falls back to the outermost { … } span; a brace inside the
 #     reasoning makes that span cross both regions and fail to parse.
 #   * _extract_sqls would happily pick up a ```sql fence the model was only

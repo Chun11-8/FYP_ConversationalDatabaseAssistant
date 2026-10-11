@@ -65,7 +65,7 @@ def extract_schema_pg(conn, db_name: str, catalog=None) -> list[dict]:
     """
     Introspect every user table in `public`.
 
-    GH#81: each table is tagged with the logical database that OWNS it (its
+    Each table is tagged with the logical database that OWNS it (its
     BIRD db_id) rather than with the PostgreSQL database name, so retrieval can
     be scoped to one domain. *catalog* is a DBCatalog; None loads the default.
     A table the catalog doesn't know keeps *db_name*, which reproduces the old
@@ -81,7 +81,7 @@ def extract_schema_pg(conn, db_name: str, catalog=None) -> list[dict]:
         WHERE table_schema = 'public'
         ORDER BY table_name
     """)
-    # GH#79: the assistant's own tables (sessions, cache, telemetry, and the
+    # The assistant's own tables (sessions, cache, telemetry, and the
     # schema_embeddings table itself) live in the same database. Indexing them
     # lets plumbing win a top-K slot over the tables holding the answer.
     table_names = filter_internal(row[0] for row in cursor.fetchall())
@@ -172,7 +172,7 @@ def extract_sample_rows_pg(conn, table_name: str, n: int = 3):
         return []
 
 
-# ── value grounding (Issue #19) ─────────────────────────────────────────────────
+# ── value grounding ─────────────────────────────────────────────────
 
 # Show distinct values of low-cardinality text columns so the LLM maps phrases
 # like "medium" → the exact stored value 'Medium'. Skip high-cardinality / long
@@ -331,7 +331,7 @@ def process_database(db_name: str, catalog=None) -> Optional[dict]:
     Process a single database directory.
     Returns a structured dict with all metadata, or None on failure.
 
-    *catalog* (GH#81) is a DBCatalog tagging each table with its owning db_id;
+    *catalog* is a DBCatalog tagging each table with its owning db_id;
     None loads the default. It affects the LABEL on each table only.
     """
     
@@ -360,7 +360,7 @@ def process_database(db_name: str, catalog=None) -> Optional[dict]:
             col["description"], col["value_description"] = resolve_column_meaning(
                 column_meanings, table["table_name"], col["name"]
             )
-            # Value grounding (#19): observed distinct values for low-card text cols.
+            # Value grounding: observed distinct values for low-card text cols.
             col["distinct_values"] = (
                 None if col.get("primary_key")
                 else extract_distinct_values_pg(
@@ -428,7 +428,7 @@ def get_schema_info(db_name: str | None = None) -> dict:
             "table_name": t["table_name"],
             "column_count": len(t["columns"]),
             "columns": columns,
-            # GH#83: extract_schema_pg already tagged the table with the
+            # extract_schema_pg already tagged the table with the
             # logical database that owns it — surface it so the schema browser
             # can group 75 tables from 11 domains. None when the tag is just
             # the PostgreSQL database name (no catalog configured).

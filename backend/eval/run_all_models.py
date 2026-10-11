@@ -1,6 +1,6 @@
 """
 run_all_models.py -- run the BIRD benchmark over the seven models, one at a
-time, either straight through or pausing between them (GH#124).
+time, either straight through or pausing between them.
 
 Replaces typing the same `python -m backend.eval.bird` line seven times with
 only --model and --output changed -- the edit that is easy to get wrong, and
@@ -60,7 +60,7 @@ MODELS: Dict[str, str] = {
     "deepseekV4Flash": "deepseek/deepseek-v4-flash",
 }
 
-# GH#134: the gold dialect must match the engine, so the default question file
+# The gold dialect must match the engine, so the default question file
 # follows --engine instead of being one fixed path. BIRD ships two files whose
 # `SQL` fields differ, and pairing them wrongly fails QUIETLY — gold that cannot
 # execute is recorded as gold_error and dropped from the EX denominator, so the

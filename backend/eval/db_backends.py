@@ -1,5 +1,5 @@
 """
-db_backends.py — where an evaluation run executes its SQL (GH#129).
+db_backends.py — where an evaluation run executes its SQL.
 
 BIRD publishes two shapes of the same benchmark: SQLite database files, and a
 PostgreSQL dump with `mini_dev_postgresql.json` carrying gold SQL in Postgres
@@ -160,7 +160,7 @@ def execute_sqlite_path(sql: str, db_path: str, timeout: float = 30.0,
     """
     Execute against a SQLite file, bounded by a real deadline.
 
-    GH#128: the deadline is enforced by a progress handler INSIDE SQLite.
+    The deadline is enforced by a progress handler INSIDE SQLite.
     Abandoning a worker thread only pretended to bound the query — the
     executor's shutdown joined it again, and sqlite3 cannot be interrupted
     from Python.
@@ -317,8 +317,8 @@ class PostgresBackend:
         Run one query under a server-side deadline.
 
         `statement_timeout` is enforced by PostgreSQL itself, so a runaway query
-        is cancelled rather than merely abandoned — the same property GH#128
-        established for SQLite, and the reason neither engine needs a worker
+        is cancelled rather than merely abandoned — the same property the SQLite
+        backend has, and the reason neither engine needs a worker
         thread.
         """
         import psycopg2

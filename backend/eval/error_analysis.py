@@ -1,5 +1,5 @@
 """
-error_analysis.py — automatic failure categorization for BIRD runs (Issue #27/GH#44).
+error_analysis.py — automatic failure categorization for BIRD runs.
 
 Every evaluated question gets an `error_category` tag computed WHILE the result
 rows are still in hand (the JSON only persists counts, so categories like

@@ -1,5 +1,5 @@
 """
-Tests for GH#110 — every file this project reads at runtime must be read as
+Tests: every file this project reads at runtime must be read as
 UTF-8 explicitly.
 
 Python without an explicit `encoding=` uses the LOCALE default. On a Windows
@@ -82,7 +82,7 @@ class TestConfigIsWindowsSafe:
         assert bad == [], (
             "config.yaml contains bytes undefined in cp1252 "
             f"({[hex(b) for b in bad]}) — a locale-default read on Windows "
-            "will raise UnicodeDecodeError, as GH#110 did")
+            "will raise UnicodeDecodeError, as it has before")
 
     def test_config_loads_under_a_utf8_read(self):
         import yaml

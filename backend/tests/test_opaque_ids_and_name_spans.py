@@ -1,5 +1,5 @@
 """
-Tests for GH#97 — the value index must not treat machine-generated ids as
+Tests: the value index must not treat machine-generated ids as
 values a user could have meant, and a name split across two columns must not
 be reported as absent from the database.
 
@@ -167,7 +167,7 @@ class TestRefusalUsesIt:
         assert a._nearest_values(["q"], {"retrieved_tables": ["t"]}) == ""
 
 
-# ── high-cardinality columns make absence unprovable (GH#99) ───────────────────
+# ── high-cardinality columns make absence unprovable ───────────────────
 
 class TestUnindexedValuesBlockRefusal:
     """

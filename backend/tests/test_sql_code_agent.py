@@ -1,5 +1,5 @@
 """
-Tests for backend/agents/sql_code_agent.py — Tier 1 (Issue #14/#18).
+Tests for backend/agents/sql_code_agent.py — Tier 1.
 
 Covers SQLite dialect normalization and the reranker's JOIN-quality criterion.
 All LLM calls are mocked, so these run offline.
@@ -182,7 +182,7 @@ class TestRegenerate:
                                 error="e", history=[]) == []
 
 
-# ── Evidence-first handling + conditional date rule (Issue #18) ────────────────
+# ── Evidence-first handling + conditional date rule ────────────────
 
 class TestEvidenceHandling:
 
@@ -219,7 +219,7 @@ class TestEvidenceHandling:
         assert "price / nullif" in joined
 
     def test_evidence_formula_as_target_guidance_present(self):
-        # Issue #50 step 2: "how many times more" must not be reinterpreted as
+        # "how many times more" must not be reinterpreted as
         # COUNT(*)/HAVING — the formula IS the SELECT expression.
         agent = _agent("sqlite")
         agent.llm.invoke.return_value = MagicMock(content="```sql\nSELECT 1\n```")
@@ -241,7 +241,7 @@ class TestEvidenceHandling:
         assert "VERBATIM" in sent
 
 
-# ── Compositional coverage + value grounding note (Issues #20 / #19) ───────────
+# ── Compositional coverage + value grounding note ──────────────────────────────
 
 class TestCompositionalCoverage:
 

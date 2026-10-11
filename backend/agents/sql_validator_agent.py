@@ -24,7 +24,7 @@ _TABLE_DECL = _re.compile(
 
 def schema_table_names(schema_context: str, limit: int = 40) -> List[str]:
     """
-    The table names a schema context declares, for error messages (GH#123).
+    The table names a schema context declares, for error messages.
 
     Covers both renderings in use: the BIRD harness emits ``Table: name``
     (`eval/bird.py::extract_sqlite_schema`), the live M-Schema path emits
@@ -45,7 +45,7 @@ def schema_table_names(schema_context: str, limit: int = 40) -> List[str]:
 def _boundary_pattern(name: str) -> str:
     r"""
     A regex that finds `name` in a schema string without matching it as part of
-    a longer identifier (GH#122).
+    a longer identifier.
 
     ``\b`` cannot do this job here. It asserts a word/non-word transition, so
     it only means anything next to a word character — and a quoted SQL
@@ -104,7 +104,7 @@ class SQLValidatorAgent:
 
     def __init__(self, config: dict):
         self.dialect = config.get("db", {}).get("dialect", "postgres")
-        # Strict mode (GH #19): a query referencing tables/columns absent from
+        # Strict mode: a query referencing tables/columns absent from
         # the schema context is BLOCKED (triggers regeneration) instead of
         # executing and silently returning wrong rows. CTE names and aliases
         # defined inside the query itself are always tolerated.

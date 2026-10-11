@@ -1,5 +1,5 @@
 """
-Tests for GH#81 — tag each schema chunk with the logical database (BIRD db_id)
+Tests: tag each schema chunk with the logical database (BIRD db_id)
 that owns its table, and scope retrieval to one of them. All offline: the DB
 boundary is faked and the catalog is built from a temp JSON file.
 
@@ -75,7 +75,7 @@ def test_missing_file_degrades_to_an_empty_catalog(tmp_path, monkeypatch):
     monkeypatch.setattr(catmod, "DEFAULT_CATALOG_PATHS", ())
     cat = load_catalog(str(tmp_path / "nope.json"))
     assert not cat
-    # An empty catalog must reproduce the pre-GH#81 labelling exactly.
+    # An empty catalog must reproduce the previous labelling exactly.
     assert cat.db_for_table("customers", "FYP") == "FYP"
     catmod.reset_cache()
 
@@ -192,7 +192,7 @@ def test_active_db_overrides_the_postgres_database_name():
 
 
 def test_without_active_db_every_scope_is_searched():
-    """None reproduces the pre-GH#81 behaviour: the PostgreSQL database name
+    """None reproduces the previous behaviour: the PostgreSQL database name
     was never a real filter, because every chunk carried it."""
     agent = _agent_with({})
     assert agent._db_name is None
@@ -268,7 +268,7 @@ class TestDatabasesEndpoint:
         assert r.status_code == 503
 
 
-# ── per-request scope override (GH#83) ────────────────────────────────────────
+# ── per-request scope override ────────────────────────────────────────
 
 class TestPerRequestScope:
 

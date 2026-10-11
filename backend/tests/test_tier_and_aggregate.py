@@ -1,5 +1,5 @@
 """
-Tests for the effort-budget floor and the aggregate-intent checks (GH#76).
+Tests for the effort-budget floor and the aggregate-intent checks.
 
 Attributing all 57 gpt-5-mini failures to a pipeline stage showed the received
 wisdom was wrong: joins are fine. 74% of failures had the RIGHT tables and
@@ -64,11 +64,11 @@ class TestQuestionLooksHard:
 
 class TestTierIsNoLongerInferred:
     """
-    GH#85 removed the plan-derived tier outright rather than patching the
+    The plan-derived tier was removed outright rather than patching the
     floor: the budget was read from the artefact that fails, so no floor could
     make it trustworthy. Live now runs one uniform tier, the BIRD harness
     still gets the dataset's real label, and `_question_looks_hard` survives
-    because plan diversity (GH#76) still gates on it.
+    because plan diversity still gates on it.
     """
 
     def test_the_plan_derived_tier_is_gone(self):

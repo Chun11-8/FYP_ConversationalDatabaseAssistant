@@ -45,7 +45,7 @@ from backend.config.config_loader import load_config
 from backend.pipelines.postprocessing import ResponseOptimizer
 from backend.retrieval.data_processing import get_schema_info
 
-# ── request correlation (GH#42) ───────────────────────────────────────────────
+# ── request correlation ───────────────────────────────────────────────
 _request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "request_id", default="-")
 
@@ -65,7 +65,7 @@ for _h in logging.getLogger().handlers:
     _h.addFilter(RequestIdFilter())
 logger = logging.getLogger(__name__)
 
-# ── rolling in-memory metrics (GH#42) — reset on restart, demo-grade ──────────
+# ── rolling in-memory metrics — reset on restart, demo-grade ──────────
 _METRICS_LOCK = threading.Lock()
 _METRICS = {
     "turns": 0,
@@ -74,7 +74,7 @@ _METRICS = {
     "latencies_ms": deque(maxlen=200),
     "stage_ms": defaultdict(int),
     "stage_n": defaultdict(int),
-    # GH#57 cost accounting
+    # cost accounting
     "llm_calls": 0,
     "tokens_in": 0,
     "tokens_out": 0,
@@ -187,11 +187,11 @@ def _get_agent() -> OrchestrationAgent:
     return _agent
 
 
-# GH#58: OpenAI model ids are lowercase-alnum with '.', '_', '-', ':' separators
+# OpenAI model ids are lowercase-alnum with '.', '_', '-', ':' separators
 # (e.g. "gpt-4o-mini", "ft:gpt-4o-mini-2024-07-18:org::abc123"). This is a shape
 # check, not an allow-list — it exists to reject garbage/injection attempts, not
 # to restrict which real models a user may type.
-# `/` is allowed (GH#65) because open-weight ids are vendor-namespaced —
+# `/` is allowed because open-weight ids are vendor-namespaced —
 # meta-llama/Llama-3.3-70B-Instruct, deepseek-ai/…, Qwen/…, google/… — and
 # rejecting them here blocked OpenRouter and Together entirely. Still anchored
 # and charset-limited: the id is only ever a request payload field, never a
@@ -202,7 +202,7 @@ _MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{1,79}$")
 def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Optional[str]:
     """
     Accept a model from the curated `selectable_models` list, OR any
-    well-formed model id (GH#58) — the frontend's picker offers a free-text
+    well-formed model id — the frontend's picker offers a free-text
     "Custom…" entry, matching the posture the eval CLIs already take
     (backend/eval/bird.py::resolve_model warns on an unlisted model but never
     blocks it). Reaching OrchestrationAgent.run() with an unusable model id
@@ -221,7 +221,7 @@ def _validate_model(req_model: Optional[str], agent: OrchestrationAgent) -> Opti
 
 def _indexed_scopes() -> list[str]:
     """
-    Logical databases present in the schema vector index (GH#83). [] on any
+    Logical databases present in the schema vector index. [] on any
     failure — callers treat that as "cannot verify", never as "none exist".
     """
     try:
@@ -238,7 +238,7 @@ def _indexed_scopes() -> list[str]:
 
 def _validate_scope(req_scope: Optional[str]) -> Optional[str]:
     """
-    GH#83: a per-request retrieval scope must name a database that is actually
+    A per-request retrieval scope must name a database that is actually
     indexed — unlike a model id, a typo here is not a downstream API error but
     a silent zero-table retrieval that looks like "I don't have that data".
     Empty/None = every scope. If the index can't be read we let the value
@@ -301,7 +301,7 @@ def chat(req: ChatRequest) -> ChatResponse:
 
     If ``api_key`` is supplied in the request body it overrides the system
     default OpenAI key for this request only — it is never stored server-side.
-    ``model`` (GH#52) similarly overrides the LLM model for this request only;
+    ``model`` similarly overrides the LLM model for this request only;
     it must be one of the models returned by ``GET /models``.
     """
     agent = _get_agent()
@@ -328,7 +328,7 @@ def chat(req: ChatRequest) -> ChatResponse:
 @app.post("/chat/stream", tags=["chat"])
 def chat_stream(req: ChatRequest) -> StreamingResponse:
     """
-    Streaming variant of /chat (GH#39): Server-Sent Events with live pipeline
+    Streaming variant of /chat: Server-Sent Events with live pipeline
     progress so the user isn't staring at a spinner through 4–6 LLM calls.
 
     Event stream (each line `data: <json>\\n\\n`):
@@ -339,7 +339,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
     Always ends with a terminal event — never a silently dropped connection.
     """
     agent = _get_agent()
-    # Validated before the worker thread starts (GH#52) so an unlisted model
+    # Validated before the worker thread starts so an unlisted model
     # returns a synchronous HTTP 400 rather than a mid-stream `error` event.
     model = _validate_model(req.model, agent)
     db_scope = _validate_scope(req.db_scope)
@@ -390,7 +390,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
 
 @app.get("/models", response_model=ModelsResponse, tags=["chat"])
 def list_models() -> ModelsResponse:
-    """Models the frontend's per-request picker (GH#52) may choose from."""
+    """Models the frontend's per-request picker may choose from."""
     agent = _get_agent()
     return ModelsResponse(models=agent.selectable_models,
                           default=agent.default_model,
@@ -400,7 +400,7 @@ def list_models() -> ModelsResponse:
 @app.get("/databases", response_model=DatabasesResponse, tags=["schema"])
 def list_databases() -> DatabasesResponse:
     """
-    GH#81: the retrieval scopes present in the schema vector index, and which
+    The retrieval scopes present in the schema vector index, and which
     one is in force. Several BIRD databases share one PostgreSQL schema, so
     `retrieval.active_db` decides which of them a question is answered against.
     Read-only: switching scope is a config change plus a restart.
@@ -432,7 +432,7 @@ def list_databases() -> DatabasesResponse:
 
 @app.get("/metrics-lite", tags=["ops"])
 def metrics_lite() -> Dict[str, Any]:
-    """Rolling in-memory pipeline metrics (GH#42). Reset on restart."""
+    """Rolling in-memory pipeline metrics. Reset on restart."""
     with _METRICS_LOCK:
         lats = sorted(_METRICS["latencies_ms"])
         n = len(lats)
@@ -545,7 +545,7 @@ def _versioner() -> "SchemaVersioningAgent":
 
 @app.get("/schema/diff", response_model=SchemaDiffResponse, tags=["schema"])
 def schema_diff() -> SchemaDiffResponse:
-    """Report schema changes + unindexed tables vs the last synced snapshot (Issue #7)."""
+    """Report schema changes + unindexed tables vs the last synced snapshot."""
     try:
         return SchemaDiffResponse(**_versioner().check())
     except Exception as exc:
@@ -556,9 +556,9 @@ def schema_diff() -> SchemaDiffResponse:
 @app.post("/schema/sync", response_model=SchemaSyncResponse, tags=["schema"])
 def schema_sync(req: SchemaSyncRequest) -> SchemaSyncResponse:
     """
-    Re-index the RAG store to match the live database (Issue #7). Surgical by
+    Re-index the RAG store to match the live database. Surgical by
     default (only changed/unindexed tables); `full=true` re-embeds everything —
-    the refresh for DATA changes. NOTE: no admin-auth guard yet (Issue #6/GH#7).
+    the refresh for DATA changes. NOTE: no admin-auth guard yet.
     """
     try:
         result = _versioner().sync(full=req.full, tables=req.tables)

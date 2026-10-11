@@ -1,5 +1,5 @@
 """
-Tests for the gold-free risk checks (GH#69, Phase 2).
+Tests for the gold-free risk checks.
 
 Phase 1's agreement signal has a hard ceiling: 41 of gpt-5-mini's 57 BIRD
 errors happened on turns where every candidate agreed — wrong together. These
@@ -304,7 +304,7 @@ class TestAssessRiskNode:
         assert "missing_group_by" in {r["code"] for r in out["verification"]["risks"]}
 
 
-# ── 8/9. question ↔ SQL coverage (GH#73) ──────────────────────────────────────
+# ── 8/9. question ↔ SQL coverage ──────────────────────────────────────
 
 class _FakeIndex:
     """Stands in for ValueIndex.resolve_spans: {span: matched value | None}."""

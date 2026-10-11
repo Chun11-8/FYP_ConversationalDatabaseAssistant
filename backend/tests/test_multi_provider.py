@@ -1,5 +1,5 @@
 """
-Tests for multi-provider support (GH#65).
+Tests for multi-provider support.
 
 Covers the three things that let an open-weight model from another vendor
 (Llama, DeepSeek, Qwen, Mistral, Gemma, GPT-OSS) run through this pipeline:
@@ -271,11 +271,11 @@ class TestNamespacedModelIds:
         assert not _MODEL_ID_RE.match(model)
 
 
-# ── GH#106: the key must travel with the endpoint ─────────────────────────────
+# ── the key must travel with the endpoint ─────────────────────────────────────
 
 class TestProviderApiKey:
     """
-    base_url and the API key are a pair. Until GH#106 the key was always
+    base_url and the API key are a pair. Previously the key was always
     OpenAI's, so pointing base_url at OpenRouter/Groq/DeepSeek sent an OpenAI
     key to a provider that would reject it — the documented setup did not work.
     """

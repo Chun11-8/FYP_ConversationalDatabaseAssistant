@@ -1,5 +1,5 @@
 """
-Tests for backend/config/config_loader.py (Issue #0).
+Tests for backend/config/config_loader.py.
 
 Run from repo root:
     pytest backend/tests/test_config.py -v

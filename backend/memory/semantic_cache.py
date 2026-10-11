@@ -1,7 +1,7 @@
 """
 semantic_cache.py
 -----------------
-Semantic cache of successful (user_query → SQL) pairs (Issue #4).
+Semantic cache of successful (user_query → SQL) pairs.
 
 After a query is validated and executed successfully, the orchestrator stores the
 (question, SQL) pair with an embedding of the question. On the next turn the most
@@ -47,7 +47,7 @@ def _format_few_shot(user_query: str, sql: str) -> str:
     return f"Q: {user_query}\nSQL:\n{sql.strip()}"
 
 
-# ── literal-aware cache matching (GH#63) ──────────────────────────────────────
+# ── literal-aware cache matching ──────────────────────────────────────
 #
 # Embeddings are structurally near-blind to exact numeric/date tokens: "…in
 # 2013?" and "…in 2014?" differ by one character and land well inside the 0.03
@@ -241,7 +241,7 @@ class SemanticCache:
                             created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
                         );
                     """)
-                    # GH#57 in-place migrations for installs created before
+                    # in-place migrations for installs created before
                     # cost accounting (query_interactions) and answer reuse
                     # (query_sql_pairs) existed.
                     for stmt in (
@@ -283,7 +283,7 @@ class SemanticCache:
         ``embedding`` may be supplied to reuse a vector already computed this turn
         and avoid a redundant embedding call.
 
-        ``rows_fingerprint``/``response`` back the GH#57 answer-reuse fast path:
+        ``rows_fingerprint``/``response`` back the answer-reuse fast path:
         a later hit whose re-executed rows hash identically can return the stored
         wording without an LLM call.
         """
@@ -314,7 +314,7 @@ class SemanticCache:
                         (lit, *params_filter),
                     )
                     row = cur.fetchone()
-                    # GH#63: dedup_distance (0.05) is WIDER than the read-side
+                    # dedup_distance (0.05) is WIDER than the read-side
                     # hit threshold (0.03), so without this guard saving "…in
                     # 2014?" would overwrite the near-identical "…in 2013?" row
                     # and the cache could only ever hold one of the two. Two
@@ -463,7 +463,7 @@ class SemanticCache:
         finally:
             conn2.close()
 
-    # ── schema-change cascade (Issue #7/GH#8) ────────────────────────────────
+    # ── schema-change cascade ────────────────────────────────
     #
     # A schema change affects every session's cache, not just one group, so
     # these intentionally sweep all groups rather than using _group_filter.
@@ -574,7 +574,7 @@ class SemanticCache:
 
         return [
             {"user_query": r[0], "sql": r[1], "confidence": r[2], "distance": r[3],
-             # GH#57 answer-reuse columns; tolerate short rows so tests and any
+             # answer-reuse columns; tolerate short rows so tests and any
              # pre-migration row still yield a usable pair.
              "rows_fingerprint": r[4] if len(r) > 4 else None,
              "response": r[5] if len(r) > 5 else None}
@@ -587,7 +587,7 @@ class SemanticCache:
         group_id: Optional[str] = None,
     ) -> Optional[dict]:
         """
-        Top-1 ACTIVE cached pair for the cache-hit shortcut (Issue #22/GH#38):
+        Top-1 ACTIVE cached pair for the cache-hit shortcut:
         {"user_query", "sql", "confidence", "distance"}. Down-voted pairs never
         surface (retrieve_pairs filters status='active'). None when the cache
         is disabled, the embedding is missing, or the cache is empty.
@@ -628,7 +628,7 @@ class SemanticCache:
         pool_multiplier: int = 3,
     ) -> List[str]:
         """
-        DAIL-SQL-style blended few-shot selection (GH#48-50 companion):
+        DAIL-SQL-style blended few-shot selection:
         rerank a wider embedding-distance candidate pool by structural-shape
         overlap (backend.memory.skeleton) against ``question_shape`` — a
         frozenset from skeleton.question_shape_signature(user_query),

@@ -1,10 +1,10 @@
 """
 Tests for the failure-cluster fixes derived from the moderate-50 analysis:
 
-  P0 — gold-dialect repair (MySQL gold on SQLite made 8/50 unwinnable)
-  P3 — evidence pseudo-function translation (SUBTRACT/DIVIDE/Total → operators)
-  P4 — identifier reconciliation (space/hyphen columns un-mangled + quoted)
-  P1/P2 — output-shape + conditional-aggregation prompt coverage
+  - gold-dialect repair (MySQL gold on SQLite made 8/50 unwinnable)
+  - evidence pseudo-function translation (SUBTRACT/DIVIDE/Total → operators)
+  - identifier reconciliation (space/hyphen columns un-mangled + quoted)
+  - output-shape + conditional-aggregation prompt coverage
 
 All LLM calls are mocked; SQLite DBs are built in tmp dirs. Runs offline.
 
@@ -33,7 +33,7 @@ from backend.agents.utils import PromptHarness
 from backend.eval.bird import gold_to_sqlite, compute_bird_metrics, run_bird_eval
 
 
-# ── P0: gold-dialect repair ───────────────────────────────────────────────────
+# ── gold-dialect repair ───────────────────────────────────────────────────────
 
 class TestGoldDialectRepair:
 
@@ -91,7 +91,7 @@ class TestGoldDialectRepair:
         assert m["EX"] == 50.0
 
 
-# ── P3: pseudo-function translation ───────────────────────────────────────────
+# ── pseudo-function translation ───────────────────────────────────────────────
 
 class TestPseudoFunctions:
 
@@ -140,7 +140,7 @@ class TestPseudoFunctions:
             assert "DIVIDE" not in out.upper()
 
 
-# ── P4: identifier reconciliation ─────────────────────────────────────────────
+# ── identifier reconciliation ─────────────────────────────────────────────────
 
 BIRD_SCHEMA = (
     "Table: Examination\n"
@@ -208,7 +208,7 @@ class TestIdentifierReconciliation:
         assert '"Examination Date"' in sqls[0]
 
 
-# ── P1/P2: prompt coverage ────────────────────────────────────────────────────
+# ── prompt coverage ───────────────────────────────────────────────────────────
 
 class TestPromptPacks:
 
@@ -238,7 +238,7 @@ class TestPromptPacks:
 
     def test_new_fewshots_present_and_valid_sqlite(self):
         joined = "\n".join(DEFAULT_FEWSHOTS)
-        # GH#123: the neutral schema renames these, but the LESSON is the same —
+        # The neutral schema renames these, but the LESSON is the same —
         # two columns selected separately, never concatenated into one.
         assert "t2.given_name, t2.family_name" in joined
         assert "CASE WHEN" in joined

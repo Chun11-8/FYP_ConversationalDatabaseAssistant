@@ -40,7 +40,7 @@ class ResponseOptimizer:
 
     RESPONSE_PROMPT = open(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_response.md"),
-        encoding="utf-8",                                # GH#110
+        encoding="utf-8",
     ).read()
     
     # Absolute default so CSVs land in the same place regardless of CWD

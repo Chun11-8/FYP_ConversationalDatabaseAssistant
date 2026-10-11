@@ -1,7 +1,7 @@
 """
-trust_eval.py — does the trust detector actually detect? (GH#101)
+trust_eval.py — does the trust detector actually detect?
 
-GH#91 ships five gates, ten gold-free checks and a verdict, none of which has a
+The pipeline ships five gates, ten gold-free checks and a verdict, none of which has a
 number attached. The selective-prediction literature measures exactly this with
 AUROC — the probability that a correct answer is ranked above an incorrect one
 — and reports ~0.61–0.68 for self-consistency signals and ~0.72–0.78 for
@@ -20,7 +20,7 @@ WHAT IS AND IS NOT MEASURED HERE
 --------------------------------
 Two kinds of run land in ``outputs/``:
 
-  * **`bird --trust-eval`** (GH#103) stored the real verification block at
+  * **`bird --trust-eval`** stored the real verification block at
     generation time — every check that needs the executed rows, plus the
     back-translation. That block is used as-is.
   * **Everything older** is reconstructed from what it kept: `exec_vote`,
@@ -191,7 +191,7 @@ def verification_from_record(rec: Dict[str, Any]) -> Dict[str, Any]:
     """
     The verification block for one record.
 
-    A run made with ``bird --trust-eval`` (GH#103) stored the real one at
+    A run made with ``bird --trust-eval`` stored the real one at
     generation time — including the checks that need the executed rows, and
     the back-translation, none of which can be recovered from disk afterwards.
     Prefer it. Older runs are reconstructed from what they did keep, which is

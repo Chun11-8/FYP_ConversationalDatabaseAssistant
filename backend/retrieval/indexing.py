@@ -81,7 +81,7 @@ def _embed_query(query: str, client: OpenAI) -> list[float]:
 
 def _print_scope_summary(chunks: list[dict]) -> None:
     """
-    GH#81: show which logical database each table was tagged with, so a build
+    Show which logical database each table was tagged with, so a build
     makes the retrieval scopes visible instead of silently labelling
     everything with the --db name.
     """
@@ -118,7 +118,7 @@ def build_index(
         force_reindex: If True, delete existing vectors before re-indexing.
         pg_config:     Optional custom PostgreSQL connection config dict.
                        If None, uses defaults from data_processing.py.
-        tables_json:   GH#81 — BIRD tables.json used to tag each table with the
+        tables_json:   BIRD tables.json used to tag each table with the
                        logical database (db_id) that owns it. None searches the
                        default locations; nothing found leaves every table
                        tagged with *db_name*.
@@ -165,11 +165,11 @@ def build_index(
             backend.delete_database(conn, db_name)
 
         backend.save_chunks(chunks, conn=conn)
-        # GH#79: drop chunks left behind by an index built before the
+        # Drop chunks left behind by an index built before the
         # assistant's own tables were excluded (save_chunks upserts, so a
         # plain rebuild would never remove them).
         backend.purge_internal_chunks(conn, db_name)
-        # GH#81: same for tables that have just moved to their real db_id.
+        # Same for tables that have just moved to their real db_id.
         backend.prune_relabelled_chunks(conn, chunks)
         stats = backend.get_stats(conn)
         conn.close()
@@ -224,7 +224,7 @@ def retrieve(
         oai_client:    Reuse an existing OpenAI client (avoids re-init cost).
         store_conn:    Reuse an existing store connection (pgvector conn or
                        Pinecone index). If None, a new one is created.
-        embedding:     Reuse a vector already computed for this query (GH#57) —
+        embedding:     Reuse a vector already computed for this query —
                        the caller must have produced it with the same
                        EMBED_MODEL. None → embed here.
 
@@ -318,7 +318,7 @@ def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
     """
     Execute a USER SQL query against PostgreSQL and return results.
 
-    Issue #25/GH#41 hardening: runs on the read-only app connection when
+    Hardening: runs on the read-only app connection when
     PG_APP_USER is configured, and under a statement timeout (default 15 s)
     so a pathological query cannot hang the request thread.
     """
@@ -339,7 +339,7 @@ def execute_query(sql: str, timeout_ms: int | None = 15000) -> list[dict]:
         except Exception:
             pass
 
-# ── Full-schema retrieval (GH#85) ─────────────────────────────────────────────
+# ── Full-schema retrieval ─────────────────────────────────────────────
 
 def fetch_full_schema(
     db_name: str, store: str = "pgvector", store_conn=None,
@@ -404,7 +404,7 @@ def fetch_full_schema(
     }
 
 
-# ── Backward schema linking (GH#49 P4) ────────────────────────────────────────
+# ── Backward schema linking ─────────────────────────────────────────────
 
 def fetch_table_chunks(
     table_names: list[str], db_name: Optional[str] = None,
@@ -414,7 +414,7 @@ def fetch_table_chunks(
     Direct name lookup of schema chunks (no embedding search) — used to recover
     tables the linker plan names but forward retrieval missed (RSL-SQL-style
     backward linking). Table names are matched case-insensitively against the
-    indexed names. *db_name* None (GH#81) spans every retrieval scope.
+    indexed names. *db_name* None spans every retrieval scope.
     Returns [] on any failure — never raises.
     """
     if not table_names:
@@ -466,7 +466,7 @@ def expand_fk_tables(
     Args:
         retrieve_result:   Output from retrieve() — must contain "tables" list.
         db_name:           Retrieval scope for schema_embeddings lookups;
-                           None (GH#81) spans every logical database.
+                           None spans every logical database.
         max_hops:          FK traversal depth (default 2 so a middle "bridge"
                            table pulls in its far side, e.g. players→stats→teams).
         store_conn:        Reuse an existing pgvector connection (None = create one).
@@ -644,7 +644,7 @@ def main():
     )
     build_parser.add_argument(
         "--tables-json", default=None,
-        help="BIRD tables.json mapping each table to its owning db_id (GH#81).\n"
+        help="BIRD tables.json mapping each table to its owning db_id.\n"
              "Default: $BIRD_TABLES_JSON, then outputs/dev_tables.json."
     )
 

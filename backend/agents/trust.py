@@ -1,7 +1,7 @@
 """
 trust.py — turn the evidence for one answer into a verdict a user can act on.
 
-GH#67 and GH#69 put real evidence on screen; GH#91 makes it mean something.
+Showing the evidence is not enough on its own.
 "3 of 5 candidates agreed" does not tell a person whether to use the number in
 front of them.
 

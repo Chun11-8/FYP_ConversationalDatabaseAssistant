@@ -1,5 +1,5 @@
 """
-Tests for GH#85 — make the live pipeline retrieve schema the way the BIRD
+Tests: make the live pipeline retrieve schema the way the BIRD
 harness does, and stop guessing an effort tier. All offline: the vector store
 and the LLM boundaries are mocked.
 
@@ -170,7 +170,7 @@ def test_the_broaden_fallback_uses_the_same_schema_strategy():
     assert "retrieve(" not in src
 
 
-# ── automatic domain routing (GH#95) ──────────────────────────────────────────
+# ── automatic domain routing ──────────────────────────────────────────
 
 def _ranking(*db_names):
     return [{"chunk_id": f"c{i}", "db_name": d, "table_name": f"t{i}",

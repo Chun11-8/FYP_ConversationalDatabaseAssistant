@@ -1,5 +1,5 @@
 """
-Tests for graceful degradation (Issue #13).
+Tests for graceful degradation.
 
 All tests run offline. They confirm the system stays usable — no 500s, no
 exceptions — when optional components (DB, vector index, LLM, cache) are absent.

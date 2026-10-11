@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = Field(None, description="Override the default LLM model for this request")
     db_scope: Optional[str] = Field(
         None,
-        description="GH#83: answer this question against ONE logical database "
+        description="Answer this question against ONE logical database "
                     "(a name from GET /databases). Omitted/empty searches "
                     "every indexed scope.",
     )
@@ -27,7 +27,7 @@ class ChatRequest(BaseModel):
 class ModelsResponse(BaseModel):
     models: List[str]
     default: str
-    # GH#108: {model id: provider label}. The picker shows which endpoint a
+    # {model id: provider label}. The picker shows which endpoint a
     # choice actually reaches, since one deployment now serves OpenAI models
     # directly and others through a gateway.
     providers: Dict[str, str] = Field(default_factory=dict)
@@ -41,7 +41,7 @@ class DatabaseInfo(BaseModel):
 
 
 class DatabasesResponse(BaseModel):
-    """GH#81: retrieval scopes available, and which one is in force."""
+    """Retrieval scopes available, and which one is in force."""
     databases: List[DatabaseInfo]
     active: str
 
@@ -56,20 +56,20 @@ class ChatResponse(BaseModel):
     csv_path: Optional[str] = None
     turn_id: Optional[int] = None
     cache_hit: bool = False   # answered from the semantic cache (no generation)
-    # GH#114: the endpoint that served this turn ("openai", "openrouter", …),
+    # The endpoint that served this turn ("openai", "openrouter", …),
     # shown beside the model so a routed answer is identifiable at a glance.
     provider: Optional[str] = None
-    # GH#67: how this answer was arrived at — candidate agreement, how the
+    # How this answer was arrived at — candidate agreement, how the
     # winner was decided, refine rounds, validation flags. Facts only; no
     # confidence verdict until the calibration study establishes one.
     verification: Optional[Dict[str, Any]] = None
-    # The follow-up rewritten as a standalone question (GH#40), surfaced so a
-    # bad condensation is visible instead of silent (GH#63). None on a first
+    # The follow-up rewritten as a standalone question, surfaced so a
+    # bad condensation is visible instead of silent. None on a first
     # turn or any question that needed no context.
     standalone_query: Optional[str] = None
-    latency_ms: Optional[int] = None            # total turn wall-clock (GH#42)
-    timings: Optional[Dict[str, int]] = None    # per-stage ms (GH#42)
-    usage: Optional[Dict[str, Any]] = None      # tokens + est. cost (GH#57)
+    latency_ms: Optional[int] = None            # total turn wall-clock
+    timings: Optional[Dict[str, int]] = None    # per-stage ms
+    usage: Optional[Dict[str, Any]] = None      # tokens + est. cost
 
 
 class FeedbackRequest(BaseModel):
@@ -110,7 +110,7 @@ class SchemaTable(BaseModel):
     table_name: str
     column_count: int
     columns: List[SchemaColumn]
-    # GH#83: the logical database (BIRD db_id) this table belongs to, so the
+    # The logical database (BIRD db_id) this table belongs to, so the
     # schema browser can group 75 tables from 11 domains instead of listing
     # them flat. None when no table catalog is configured.
     domain: Optional[str] = None
@@ -122,7 +122,7 @@ class SchemaResponse(BaseModel):
     tables: List[SchemaTable]
 
 
-# ── Schema versioning / index sync (Issue #7) ──────────────────────────────
+# ── Schema versioning / index sync ──────────────────────────────
 
 class SchemaChange(BaseModel):
     action: str            # add_table|drop_table|add_column|drop_column|modify_column
@@ -150,7 +150,7 @@ class SchemaSyncResponse(BaseModel):
     changes_applied: List[SchemaChange] = Field(default_factory=list)
     reembedded_tables: List[str] = Field(default_factory=list)
     removed_tables: List[str] = Field(default_factory=list)
-    # Semantic-cache cascade (Issue #7/GH#8): dropped tables archive their
+    # Semantic-cache cascade: dropped tables archive their
     # cached pairs, modified columns demote confidence — {table: count}.
     archived_pairs: Dict[str, int] = Field(default_factory=dict)
     demoted_pairs: Dict[str, int] = Field(default_factory=dict)

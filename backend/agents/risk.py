@@ -1,5 +1,5 @@
 """
-risk.py — gold-free risk checks for a query that ran but may be wrong (GH#69).
+risk.py — gold-free risk checks for a query that ran but may be wrong.
 
 A text-to-SQL system gets no natural signal telling it whether its answer is
 right. Syntax errors are self-reporting and safety violations are matchable,
@@ -8,7 +8,7 @@ plausible rows. On the 150-question BIRD runs in ``outputs/`` this is not the
 long tail, it IS the failure mode: gpt-5-mini had 0 validation failures and 0
 execution failures, and 57 semantically wrong answers.
 
-Phase 1 (GH#67) surfaced candidate agreement, which catches ~28 % of those at
+Phase 1 surfaced candidate agreement, which catches ~28 % of those at
 76 % precision. Its ceiling is that 41 of the 57 errors occurred on turns where
 every candidate agreed — the candidates are wrong *together*. This module
 supplies signals that do not depend on agreement, and (critically) do not
@@ -86,7 +86,7 @@ def check_ungrounded_literals(
     ``disjoint`` — the wrong-rows category — was 25 of those 41 errors, and a
     literal that matches nothing is a direct, checkable cause.
 
-    Uses the existing GH#49 value index, so it costs nothing extra. Stays
+    Uses the existing value index, so it costs nothing extra. Stays
     silent whenever the index cannot answer (column not indexed, non-text
     column, index unavailable) rather than guessing.
     """
@@ -115,7 +115,7 @@ def check_ungrounded_literals(
     return out[:3]
 
 
-# ── 2b. question ↔ SQL coverage (GH#73) ───────────────────────────────────────
+# ── 2b. question ↔ SQL coverage ───────────────────────────────────────
 
 # Spans that routinely appear in the SQL in a DIFFERENT form, so their textual
 # absence proves nothing. Dates are the big one: "between August and November
@@ -123,7 +123,7 @@ def check_ungrounded_literals(
 # labelled data every one of these produced a false alarm.
 # \b on the bare-year alternative is load-bearing: unanchored `\d{4}` matches
 # "3850" inside the customer id 38508, so an entity id was silently skipped as
-# "date-shaped" and a dropped-constraint went unflagged (GH#76).
+# "date-shaped" and a dropped-constraint went unflagged.
 _DATE_SHAPED_RE = re.compile(r"\d{1,4}\s*[/-]\s*\d{1,2}|\b\d{4}\b|\b\d{1,2}:\d{2}")
 _SENTENCE_STARTERS = {
     "is", "if", "in", "on", "at", "what", "which", "who", "how", "the", "a",
@@ -160,7 +160,7 @@ def check_question_coverage(
     the schema. This one reads the QUESTION and asks whether the SQL actually
     used it.
 
-    The failure it exists for (GH#73): asked for "customers from the country
+    The failure it exists for: asked for "customers from the country
     Wakanda" against a schema with no country column, the model dropped the
     constraint entirely and substituted `segment = 'LAM' AND currency = 'EUR'`
     — real columns, real values, internally consistent, and an answer to a
@@ -298,7 +298,7 @@ def check_aggregate_grain(sql: str, question: str) -> List[Dict[str, Any]]:
                   "aggregates everything into a single total.")]
 
 
-# ── 4b. aggregate function vs the question's verb (GH#76) ─────────────────────
+# ── 4b. aggregate function vs the question's verb ─────────────────────
 #
 # The largest single failure mode: of the 33 gpt-5-mini failures that had the
 # RIGHT tables and joins, 17 (52 %) differed from gold only in which aggregate
@@ -483,7 +483,7 @@ def check_plan_conformance(
     sql: str, query_plan: Optional[dict],
 ) -> List[Dict[str, Any]]:
     """
-    GH#91: did the SQL actually implement the plan the linker produced?
+    Did the SQL actually implement the plan the linker produced?
 
     SQLCodeAgent._plan_penalty already diffs tables and join paths, but only
     to RANK candidates — the winner's own discrepancies are then discarded.
@@ -523,13 +523,13 @@ def check_plan_conformance(
                 f"one row per group.",
                 plan_group_by=plan_group))
 
-    # ── grain (GH#76 emits it when plan_rationale is on) ──
+    # ── grain (emits it when plan_rationale is on) ──
     #
     # An ungrouped query is only WRONG for a per-group grain when it also
     # AGGREGATES — that is what collapses many rows into one. A plain
     # `SELECT name FROM player WHERE ...` already returns one row per player
     # with no GROUP BY, because each source row IS a player; flagging it was a
-    # false positive on every "list the X" question (GH#93). DISTINCT groups
+    # false positive on every "list the X" question. DISTINCT groups
     # too. Same guard check_aggregate_grain has always used.
     grain = str(query_plan.get("grain") or "").strip()
     if (grain

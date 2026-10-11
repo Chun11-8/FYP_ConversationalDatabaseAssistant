@@ -1,5 +1,5 @@
 """
-usage.py — per-request LLM token & cost accounting (GH#57).
+usage.py — per-request LLM token & cost accounting.
 
 Every LLM call in the pipeline used to do ``llm.invoke(...).content`` and throw
 away ``usage_metadata``, so the system could not report what a turn cost — only
@@ -56,7 +56,7 @@ def set_pricing(table: Optional[Dict[str, Any]]) -> None:
 
 
 def is_priced(model: Optional[str]) -> bool:
-    """GH#114: is a rate known for *model*?
+    """Is a rate known for *model*?
 
     Without this the UI cannot tell "this turn cost nothing" from "nobody told
     us what this model costs" — both arrive as 0.0, and $0.0000 next to an
@@ -85,8 +85,8 @@ class UsageTracker:
         self.output_tokens = 0
         self.est_cost_usd = 0.0
         self.by_stage: Dict[str, Dict[str, Any]] = {}
-        # GH#114: which model(s) this turn actually billed against, in call
-        # order. Usually one; two when a stage is routed elsewhere (GH#38) or
+        # Which model(s) this turn actually billed against, in call
+        # order. Usually one; two when a stage is routed elsewhere or
         # the judge runs on another provider.
         self.models: list[str] = []
         self._unpriced: set[str] = set()
@@ -118,7 +118,7 @@ class UsageTracker:
                 "input_tokens": self.input_tokens,
                 "output_tokens": self.output_tokens,
                 "est_cost_usd": round(self.est_cost_usd, 6),
-                # GH#114: what was actually billed, and whether the figure
+                # What was actually billed, and whether the figure
                 # above means anything. `cost_known` False = a rate is missing
                 # for at least one model, so est_cost_usd UNDERSTATES the turn
                 # and must not be rendered as a dollar amount.

@@ -1,5 +1,5 @@
 """
-db_catalog.py — which logical database does each table belong to? (GH#81)
+db_catalog.py — which logical database does each table belong to?
 
 Every BIRD mini-dev database was loaded into ONE PostgreSQL schema (`public`),
 so 75 tables from 11 unrelated domains — customers, Patient, superhero,
@@ -148,7 +148,7 @@ _cached: Dict[str, DBCatalog] = {}
 def load_catalog(path: Optional[str] = None) -> DBCatalog:
     """
     Load (and memoise) the catalog. Never raises: a missing or malformed file
-    yields an empty catalog, which reproduces the pre-GH#81 behaviour of
+    yields an empty catalog, which reproduces the previous behaviour of
     tagging everything with the build's `--db` name.
     """
     resolved = resolve_catalog_path(path)

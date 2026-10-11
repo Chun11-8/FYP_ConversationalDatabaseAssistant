@@ -1,5 +1,5 @@
 """
-Tests for GH#113 — an executed query's results are never withheld by the trust
+Tests: an executed query's results are never withheld by the trust
 verdict.
 
 The verdict is an OPINION about an answer, not a gate on it. If the SQL ran,
@@ -83,8 +83,8 @@ class TestFrontendRendersResultsRegardlessOfVerdict:
         condition = src[max(0, idx - 300):idx]
         for gate in ("trust", "risk_score", "untrusted", "verdict"):
             assert gate not in condition, (
-                f"RecordsPanel appears gated on {gate!r}; GH#113 requires an "
-                f"executed query's rows to render whatever the verdict says")
+                f"RecordsPanel appears gated on {gate!r}; an executed query's "
+                f"rows must render whatever the verdict says")
 
     def test_a_zero_row_result_renders_its_own_panel(self, src):
         assert "EmptyResultPanel" in src

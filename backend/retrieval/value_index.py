@@ -1,5 +1,5 @@
 """
-value_index.py — CHESS-style database-value grounding (GH#49 P3).
+value_index.py — CHESS-style database-value grounding.
 
 The generation prompt already shows `values: {…}` for LOW-cardinality TEXT
 columns; misses like `'usa'` vs `'USA'` in higher-cardinality columns survive
@@ -34,7 +34,7 @@ _SPAN_RES = (
     re.compile(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b"),
     re.compile(r"\b([A-Z0-9][A-Z0-9\-/]{1,15})\b"),
 )
-# GH#97: opaque identifiers — Airtable record ids ("recmbOVHSyzXQZpQr"),
+# Opaque identifiers — Airtable record ids ("recmbOVHSyzXQZpQr"),
 # UUIDs, hashes. A user never *means* one of these, so a column full of them
 # is dead weight in the index: it cannot correct a literal the user wrote, it
 # can fuzzy-match one spuriously, and it was being offered as "the closest
@@ -98,7 +98,7 @@ class ValueIndex:
         self._conn_factory = conn_factory
         # table -> {column: [values]} (loaded once per table, thread-safe)
         self._by_table: Dict[str, Dict[str, List[str]]] = {}
-        # GH#99: columns skipped for exceeding MAX_DISTINCT_PER_COLUMN. Their
+        # Columns skipped for exceeding MAX_DISTINCT_PER_COLUMN. Their
         # absence from the index means "not checked", NOT "value not present",
         # and only a record of them keeps those two apart.
         self._overflow: Dict[str, List[str]] = {}
@@ -107,7 +107,7 @@ class ValueIndex:
     # ── loading ────────────────────────────────────────────────────────────
 
     def _load_table(self, table: str) -> Dict[str, List[str]]:
-        # GH#79: never scan the assistant's own tables for data values — the
+        # Never scan the assistant's own tables for data values — the
         # cache holds past SQL text, which fuzzy-matches user spans and yields
         # "closest actual value" hints pointing at the plumbing.
         if is_internal_table(table):
@@ -144,7 +144,7 @@ class ValueIndex:
                         continue
                     if not values:
                         continue
-                    # GH#97: a column of record ids / UUIDs / hashes holds
+                    # A column of record ids / UUIDs / hashes holds
                     # nothing a user could have meant.
                     if _column_is_opaque(values):
                         logger.debug(
@@ -172,7 +172,7 @@ class ValueIndex:
 
     def has_unindexed_values(self, tables: List[str]) -> bool:
         """
-        GH#99: does any of *tables* hold a text column too high-cardinality to
+        Does any of *tables* hold a text column too high-cardinality to
         index?
 
         If so, this index cannot prove a value is absent from those tables — a
@@ -205,7 +205,7 @@ class ValueIndex:
     def resolve_spans(self, text: str, tables: List[str]) -> Dict[str, Optional[str]]:
         """
         Every value-like span in *text* mapped to the closest real value in
-        *tables*, or to None when nothing in the data comes close (GH#73).
+        *tables*, or to None when nothing in the data comes close.
 
         ``ground()`` deliberately returns nothing for a span that matches
         nothing — there is no casing to correct — but "this value does not
@@ -240,7 +240,7 @@ class ValueIndex:
                     if out[span] is not None:
                         break
                 if out[span] is None and self._parts_all_match(span, loaded):
-                    # GH#97: a person's name is stored across two columns, so
+                    # A person's name is stored across two columns, so
                     # no single column contains "Elijah Allen" — reporting it
                     # absent refused a question about a member who exists.
                     out[span] = span
@@ -253,7 +253,7 @@ class ValueIndex:
         self, span: str, loaded: Dict[str, Dict[str, List[str]]]
     ) -> bool:
         """
-        GH#97: does every word of a multi-word span exist as a stored value?
+        Does every word of a multi-word span exist as a stored value?
 
         "Elijah Allen" appears in no column — the database holds `first_name`
         = 'Elijah' and `last_name` = 'Allen' — so a whole-span lookup reports
@@ -281,7 +281,7 @@ class ValueIndex:
     ) -> List[str]:
         """
         The stored values most similar to *span*, for a refusal that names
-        real alternatives (GH#97).
+        real alternatives.
 
         Previously the caller took the first few values of whatever column
         came first, which — with identifier columns still indexed — offered

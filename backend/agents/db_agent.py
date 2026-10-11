@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 _tls: threading.local = threading.local()
 
 # Small pool for prefetching the query embedding concurrently with the intent
-# LLM call (GH#38): both are I/O-bound and independent.
+# LLM call: both are I/O-bound and independent.
 from concurrent.futures import ThreadPoolExecutor
 _PREFETCH_POOL = ThreadPoolExecutor(max_workers=4)
 
@@ -64,7 +64,7 @@ def _intent_pattern(intent: str) -> str:
     return intent.replace("_", r"[\s_-]")
 
 
-# GH#76: markers that a question is harder than a one-table plan suggests.
+# Markers that a question is harder than a one-table plan suggests.
 # Deliberately narrow — this can only ever RAISE the effort budget, but a
 # marker on every question would erase the simple tier's cost saving.
 _HARD_QUESTION_RE = re.compile(
@@ -94,7 +94,7 @@ def _question_looks_hard(question: Optional[str]) -> bool:
 
 def _prepend_caution(response: str, verification: Optional[Dict[str, Any]]) -> str:
     """
-    Lead a doubtful answer with the doubt (GH#75).
+    Lead a doubtful answer with the doubt.
 
     Only HIGH-severity flags qualify. A caveat on every zero-row or
     arity-mismatch turn would appear on roughly a fifth of all answers and be
@@ -122,7 +122,7 @@ def _normalize_intent(raw: str) -> str:
     Unrecognized text → AMBIGUOUS, matching the prompt's own safety-first rule
     (better to ask than to guess).
     """
-    # GH#65: a reasoning model weighs several labels aloud before deciding —
+    # A reasoning model weighs several labels aloud before deciding —
     # strip the chain of thought so only the verdict is scanned.
     stripped = strip_reasoning(raw or "").strip()
     text = stripped.upper()
@@ -200,7 +200,7 @@ def rows_fingerprint(rows: List[Dict[str, Any]]) -> frozenset:
 def rows_digest(rows: Any) -> Optional[str]:
     """
     Same identity as ``rows_fingerprint`` but as a stable hex string, so it can be
-    stored alongside a cached answer and compared on a later run (GH#57).
+    stored alongside a cached answer and compared on a later run.
     None for anything that isn't a row list.
     """
     if not isinstance(rows, list):
@@ -213,7 +213,7 @@ def rows_digest(rows: Any) -> Optional[str]:
 
 
 def _emit(event: str, payload: Any) -> None:
-    """Send a pipeline event to the per-request stage callback (GH#39 SSE)."""
+    """Send a pipeline event to the per-request stage callback (SSE)."""
     cb = getattr(_tls, "stage_cb", None)
     if cb:
         try:
@@ -224,8 +224,8 @@ def _emit(event: str, payload: Any) -> None:
 
 def _staged(name: str, fn):
     """
-    Wrap a graph node: its entry (and the selected SQL) stream as events
-    (GH#39), and its wall-clock duration lands in state["timings"] (GH#42) so
+    Wrap a graph node: its entry (and the selected SQL) stream as events,
+    and its wall-clock duration lands in state["timings"] so
     a slow turn can be attributed to a specific stage.
     """
     def inner(state):
@@ -244,10 +244,10 @@ def _staged(name: str, fn):
     return inner
 
 
-# Follow-ups that need condensation before retrieval (GH#40): pronouns /
+# Follow-ups that need condensation before retrieval: pronouns /
 # comparative refs / short continuations embed to garbage on their own.
 #
-# GH#87: `that` was here and is now gone. In a question it is overwhelmingly a
+# `that` was here and is now gone. In a question it is overwhelmingly a
 # RELATIVE pronoun, not a referential one — "schools THAT are among the top 5"
 # is self-contained — so it fired on any question carrying a relative clause,
 # and the condenser then merged the previous turn's filters into an unrelated
@@ -259,7 +259,7 @@ _ANAPHORIC_RE = re.compile(
     re.IGNORECASE,
 )
 
-# GH#87: the length rule is a heuristic for "too terse to stand alone", not a
+# The length rule is a heuristic for "too terse to stand alone", not a
 # statement that short questions are dependent. "Which customers pay in EUR?"
 # (27 chars) is complete. A genuine elliptical follow-up — "And CZK?", "what
 # about 2014?" — is far shorter than a well-formed question, so the threshold
@@ -289,10 +289,10 @@ class AgentState(TypedDict):
     session_id: str
     user_query: str
     conversation_history: List[Dict[str, str]]
-    topic_switch: bool               # GH#89: this turn is unrelated to the last
+    topic_switch: bool               # this turn is unrelated to the last
     intent: str                      # READ | GENERAL | WRITE_BLOCKED | AMBIGUOUS
     schema_context: str
-    query_plan: Optional[Dict[str, Any]]   # structured plan from SchemaLinkingAgent (#17)
+    query_plan: Optional[Dict[str, Any]]   # structured plan from SchemaLinkingAgent
     few_shot_examples: List[str]
     query_embedding: Optional[List[float]]   # cached once per turn, reused for cache R/W
     generated_sqls: List[str]
@@ -302,34 +302,34 @@ class AgentState(TypedDict):
     response: str
     turn_id: Optional[int]           # DB id of the assistant turn (for feedback)
     csv_path: Optional[str]          # set when results exceed TABLE_LIMIT
-    standalone_query: Optional[str]  # condensed follow-up (GH#40); None = use user_query
-    previous_sql: Optional[str]      # last validated SQL for this session (GH#40)
-    cache_hit: bool                  # answered via semantic-cache shortcut (GH#38)
-    cached_response: Optional[str]      # GH#57 answer reuse
-    cached_fingerprint: Optional[str]   # GH#57 answer reuse
-    rows_fingerprint: Optional[str]     # GH#57 hash of THIS turn's result rows
+    standalone_query: Optional[str]  # condensed follow-up; None = use user_query
+    previous_sql: Optional[str]      # last validated SQL for this session
+    cache_hit: bool                  # answered via semantic-cache shortcut
+    cached_response: Optional[str]      # answer reuse
+    cached_fingerprint: Optional[str]   # answer reuse
+    rows_fingerprint: Optional[str]     # hash of THIS turn's result rows
     cache_rejected: bool                # cached SQL failed validation this turn
     cache_probed: bool                  # run() already searched the cache
     cache_pair: Optional[dict]          # what that search found (None = miss)
     vote_rows: Optional[List[Dict[str, Any]]]   # winner rows from execution voting
     vote_rows_sql: Optional[str]                # the exact SQL those rows came from
-    # GH#67: how the winning SQL was chosen — the system's own evidence about
+    # How the winning SQL was chosen — the system's own evidence about
     # its answer. {candidates, executed, agreement, distinct_result_sets,
     # decided_by}; assembled for the response in run().
     verification: Optional[Dict[str, Any]]
-    # GH#75: question spans that match nothing in the retrieved tables — the
+    # Question spans that match nothing in the retrieved tables — the
     # question asks about data that does not exist, so no SQL can answer it.
     unsatisfiable: List[str]
     # Tables actually retrieved this turn — used to suggest real values when a
     # question names one that does not exist.
     retrieved_tables: List[str]
-    # GH#76: a second plan disagreeing on grain/aggregation, so voting
+    # A second plan disagreeing on grain/aggregation, so voting
     # sees decorrelated candidates instead of N copies of one guess.
     query_plan_alt: Optional[Dict[str, Any]]
     fallback_level: int              # 0=normal, 1=broader_search, 2=clarification
     refine_level: int                # ReAct execute→refine rounds taken (0=none)
-    tier: Optional[str]              # inferred difficulty tier (GH#49 refine depth)
-    timings: Dict[str, int]          # per-stage wall-clock ms (GH#42)
+    tier: Optional[str]              # inferred difficulty tier (refine depth)
+    timings: Dict[str, int]          # per-stage wall-clock ms
     error: Optional[str]
 
 
@@ -351,13 +351,13 @@ class OrchestrationAgent:
     def __init__(self, config: dict):
         self._config = config
         self._model = config["llm"]["model"]
-        # GH#106: the key for the QUERY-STAGE provider, which is not
+        # The key for the QUERY-STAGE provider, which is not
         # necessarily OpenAI's. Falls back to OPENAI_API_KEY when no
         # LLM_API_KEY is set, so the default path is unchanged.
         self._default_api_key = resolve_api_key(config)
-        # GH#52: models the frontend's per-request picker may choose from.
+        # Models the frontend's per-request picker may choose from.
         # The configured default is always present, even if omitted from the list.
-        # GH#108: an entry may be a bare id (the original format) or a mapping
+        # An entry may be a bare id (the original format) or a mapping
         # carrying `provider` / `temperature`. Flattened to ids here so every
         # consumer — the picker, /models, _validate_model — keeps seeing the
         # list of strings it always has.
@@ -368,7 +368,7 @@ class OrchestrationAgent:
         ] or [self._model]
         if self._model not in self._selectable_models:
             self._selectable_models.insert(0, self._model)
-        # GH#65: optional OpenAI-COMPATIBLE endpoint (OpenRouter, Groq,
+        # Optional OpenAI-COMPATIBLE endpoint (OpenRouter, Groq,
         # DeepSeek, Together, Ollama…), which is what makes open-weight models
         # from other vendors usable. Absent → OpenAI, unchanged. Query stage
         # only: embeddings stay on OpenAI (pgvector columns are 1536-dim).
@@ -376,7 +376,7 @@ class OrchestrationAgent:
         if self._base_url:
             logger.info("[LLM] query stage → %s",
                         describe_target(self._model, self._base_url))
-        # GH#112: no key argument — the model resolves its own. Passing
+        # No key argument — the model resolves its own. Passing
         # the process default here would override a provider key and
         # send, say, an OpenAI credential to OpenRouter.
         self.llm = self._chat_llm(self._model, None)
@@ -395,10 +395,10 @@ class OrchestrationAgent:
         # candidates against the DB and plurality-vote on result fingerprints;
         # the text reranker only breaks ties (config `sql.execution_voting`).
         self._exec_voting = bool(config.get("sql", {}).get("execution_voting", True))
-        # GH#69: gold-free risk checks on the executed result. On by default;
+        # Gold-free risk checks on the executed result. On by default;
         # off gives a clean A/B against the labelled benchmark data.
         self._risk_checks = bool(config.get("sql", {}).get("risk_checks", True))
-        # GH#76 Fixes 1 & 2 — default OFF. Both change what the model is asked
+        # Default OFF. Both change what the model is asked
         # to produce, so their effect on accuracy is a hypothesis until the
         # BIRD ablation runs. Enabling them costs one extra LLM call per hard
         # question (plan_diversity) and a longer planner prompt (plan_rationale).
@@ -409,42 +409,42 @@ class OrchestrationAgent:
         self._fk_max_hops = int(_r.get("fk_max_hops", 2))
         self._fk_max_expansion = int(_r.get("fk_max_expansion", 5))
         self._max_schema_tokens = int(_r.get("max_schema_tokens", 12000))
-        # Cosine top-k, used only when the full-schema path (GH#85) is not
+        # Cosine top-k, used only when the full-schema path is not
         # available — no scope, nothing indexed for it, or over the budget.
         self._top_k_tables = int(_r.get("top_k_tables", 5))
-        # GH#85: prefer the BIRD harness's complete-schema-per-database
+        # Prefer the BIRD harness's complete-schema-per-database
         # strategy over cosine top-k when retrieval is scoped. False restores
         # pure top-k retrieval for an A/B.
         self._full_schema = bool(_r.get("full_schema_when_scoped", True))
-        # GH#95: with no scope configured, infer the question's database from
+        # With no scope configured, infer the question's database from
         # the retrieval ranking and use that domain's full schema.
         self._auto_scope = bool(_r.get("auto_scope", True))
-        # GH#89: drop conversation history for a turn whose tables are
+        # Drop conversation history for a turn whose tables are
         # disjoint from the previous answer's. False keeps history always.
         self._topic_switch_detection = bool(
             config.get("sql", {}).get("topic_switch_detection", True))
-        # GH#91 gate 5: SQL → plain English → compare with the question. Two
+        # SQL → plain English → compare with the question. Two
         # LLM calls (the comparison on the cheap intent model). Annotates only.
         self._back_translation = bool(
             config.get("sql", {}).get("back_translation", True))
-        # GH#85: the effort tier every live question gets. The BIRD harness
+        # The effort tier every live question gets. The BIRD harness
         # reads the real label from the dataset; live has none, so one uniform
         # tier replaces a guess that could only under-resource a hard question.
         self._live_tier = str(
             config.get("sql", {}).get("live_tier", "moderate")).strip().lower()
-        # GH#49 P3: deterministic WHERE-literal grounding against real values.
+        # Deterministic WHERE-literal grounding against real values.
         self._value_grounding = bool(_r.get("value_grounding", True))
         if self._value_grounding:
             from backend.retrieval.pgvector_store import get_query_conn
             self.value_index = ValueIndex(get_query_conn)
         else:
             self.value_index = None
-        # GH#49 P4: RSL-SQL-style backward linking — recover tables the plan
+        # RSL-SQL-style backward linking — recover tables the plan
         # names but forward retrieval missed.
         self._backward_linking = bool(_r.get("backward_linking", True))
-        # GH#38 latency + GH#41 hardening knobs.
+        # Latency and hardening knobs.
         _sql = config.get("sql", {}) or {}
-        # GH#81: the RETRIEVAL scope — the db_name label a schema chunk must
+        # The RETRIEVAL scope — the db_name label a schema chunk must
         # carry to be searchable. `retrieval.active_db` narrows it to ONE
         # logical database (e.g. "debit_card_specializing") when several were
         # loaded into the same PostgreSQL schema, which is the condition the
@@ -457,12 +457,12 @@ class OrchestrationAgent:
         self.active_db = self._db_name
         self._stmt_timeout_ms = int(config.get("db", {}).get("statement_timeout_ms", 15000))
         self._vote_max = max(1, int(_sql.get("vote_max_candidates", 5)))
-        # GH#48: when execution voting is inconclusive, resolve with a
+        # When execution voting is inconclusive, resolve with a
         # unit-test screen + pairwise LLM comparison instead of the text
         # reranker ("pairwise"); "reranker" restores the old behavior.
         self._selection = str(_sql.get("selection", "pairwise")).lower()
         self._unit_tests = bool(_sql.get("unit_tests", True))
-        # GH#49 quick win: ReAct refine depth, deeper for the challenging tier
+        # ReAct refine depth, deeper for the challenging tier
         # (RSL-SQL/CHESS both use multi-turn correction).
         self._max_refine = int(_sql.get("max_refine_rounds", self.MAX_REFINE_ROUNDS))
         self._max_refine_challenging = int(
@@ -473,19 +473,19 @@ class OrchestrationAgent:
         # into embedding-distance ranking (see backend.memory.skeleton).
         self._fewshot_skeleton_blend = bool(_sql.get("fewshot_skeleton_blend", True))
         self._fewshot_skeleton_weight = float(_sql.get("fewshot_skeleton_weight", 0.3))
-        # GH#40 multi-turn: condense anaphoric follow-ups before retrieval, and
+        # Multi-turn: condense anaphoric follow-ups before retrieval, and
         # ask ONE clarifying question on AMBIGUOUS instead of burning the full
         # generation pipeline first.
         self._condense = bool(_sql.get("condense_followups", True))
         self._clarify = bool(_sql.get("clarify_on_ambiguous", True))
-        # GH#42: console banner tracing is config-gated (default on).
+        # Console banner tracing is config-gated (default on).
         set_pipeline_trace(config.get("logging", {}).get("pipeline_trace", True))
         self._dialect = config.get("db", {}).get("dialect", "postgres")
-        # GH#57: repeat-query fast path + reuse of a stored answer when the
-        # re-executed rows are unchanged. Both false → pre-GH#57 behavior.
+        # Repeat-query fast path + reuse of a stored answer when the
+        # re-executed rows are unchanged. Both false → the previous behavior.
         self._fast_path = bool(_sql.get("fast_path", True))
         self._answer_reuse = bool(_sql.get("answer_reuse", True))
-        # GH#57: per-1M-token prices for cost accounting.
+        # Per-1M-token prices for cost accounting.
         usage_tracking.set_pricing(config["llm"].get("pricing"))
         # Model routing: intent classification is a one-token decision — allow a
         # cheaper/faster model; same for the response formatter. Absent → the
@@ -510,11 +510,11 @@ class OrchestrationAgent:
         self.tool_registry.register(WebSearchTool())
         self.graph = self._build_graph()
 
-    # ── Public read-only config surface for the API layer (GH#52) ──────────
+    # ── Public read-only config surface for the API layer ──────────
 
     @property
     def model_providers(self) -> Dict[str, str]:
-        """{model id: provider label} for the picker (GH#108), so a user can
+        """{model id: provider label} for the picker, so a user can
         see which endpoint a choice will actually reach."""
         cfg = getattr(self, "_config", None)
         return {m: resolve_model_target(m, cfg).provider
@@ -540,11 +540,11 @@ class OrchestrationAgent:
         """
         A query-stage client for *model*.
 
-        GH#108: the endpoint, key and call kwargs are resolved from the MODEL,
+        The endpoint, key and call kwargs are resolved from the MODEL,
         not from the process, so one deployment serves OpenAI and OpenRouter
         models side by side and the sidebar picker changes provider implicitly.
         A model with no `provider` tag resolves to the process-wide base_url
-        and query-stage key — byte-identical to GH#65's behaviour, which is
+        and query-stage key — byte-identical to the original behaviour, which is
         what keeps an OpenAI-only install unaffected.
         """
         target = resolve_model_target(
@@ -572,10 +572,10 @@ class OrchestrationAgent:
     @staticmethod
     def _infer_scope(tables: List[Dict[str, Any]]) -> Optional[str]:
         """
-        GH#95: which logical database is this question about?
+        Which logical database is this question about?
 
         Read off the cosine result that has already been fetched: each chunk
-        carries the db_id that owns its table (GH#81), so the ranking IS a
+        carries the db_id that owns its table, so the ranking IS a
         vote. Chunks are weighted by rank — the nearest match counts most —
         and a scope is returned only when one database wins outright, so an
         evenly split ranking falls back to plain top-k rather than guessing.
@@ -644,11 +644,11 @@ class OrchestrationAgent:
     ) -> Dict[str, Any]:
         """
         Schema context for one question, FK-expanded and within the token
-        budget (GH#85, GH#95). Three strategies, in order:
+        budget. Three strategies, in order:
 
         1. **Configured scope.** `retrieval.active_db`, or the UI's per-request
            picker: the complete schema of that database.
-        2. **Inferred scope** (GH#95). With no scope configured, cosine
+        2. **Inferred scope**. With no scope configured, cosine
            retrieval runs first and its ranking is used to identify the
            database the question is about; that database's complete schema is
            then fetched. This is what the BIRD harness gets for free from the
@@ -696,7 +696,7 @@ class OrchestrationAgent:
     def _detect_topic_switch(self, state: AgentState,
                              tables: List[str]) -> bool:
         """
-        GH#89: is this turn about something else entirely?
+        Is this turn about something else entirely?
 
         Compares the tables this question retrieved with the tables the
         PREVIOUS answer actually queried (parsed from `previous_sql`, which
@@ -705,11 +705,11 @@ class OrchestrationAgent:
         conversation moved, and carrying six turns of the old subject into
         classification, planning and generation can only mislead them.
 
-        Under GH#85's full-schema mode the retrieved set is every table of the
+        Under full-schema mode the retrieved set is every table of the
         active scope, so within one database this is always False and the
         signal degenerates to "the scope changed". That is deliberate: a
-        same-database change of subject is handled by the condenser's own gate
-        (GH#87), and same-domain history is not what corrupted a turn.
+        same-database change of subject is handled by the condenser's own gate,
+        and same-domain history is not what corrupted a turn.
         """
         prev_sql = state.get("previous_sql")
         if not prev_sql or not tables:
@@ -728,7 +728,7 @@ class OrchestrationAgent:
     def _history_for(state: AgentState, limit: int = 4) -> List[Dict[str, str]]:
         """
         The conversation history a downstream stage should see. Empty on a
-        topic switch (GH#89) — the whole point is that the previous turns are
+        topic switch — the whole point is that the previous turns are
         about something else.
         """
         if state.get("topic_switch"):
@@ -737,7 +737,7 @@ class OrchestrationAgent:
 
     def _get_scope(self) -> Optional[str]:
         """
-        The retrieval scope for THIS request (GH#83): the per-request
+        The retrieval scope for THIS request: the per-request
         `db_scope` when the caller picked one, else the configured
         `retrieval.active_db`, else None = every indexed database.
         """
@@ -753,7 +753,7 @@ class OrchestrationAgent:
     def classify_intent(self, state: AgentState) -> AgentState:
         """Classify query as READ / GENERAL / WRITE_BLOCKED / AMBIGUOUS."""
         history = state.get("conversation_history", [])
-        # GH#89: this node runs BEFORE retrieval, so the table-overlap signal
+        # This node runs BEFORE retrieval, so the table-overlap signal
         # does not exist yet — but a question that carries no referential
         # marker and is not terse can be classified on its own, and six turns
         # about another subject can only push it toward a wrong AMBIGUOUS.
@@ -805,7 +805,7 @@ class OrchestrationAgent:
                 # A call failure (invalid model, auth, rate limit, network) is
                 # NOT the same as a genuinely ambiguous question — surface it
                 # as a real error instead of a misleading "your question is
-                # ambiguous" clarification prompt (GH#58: a broken custom
+                # ambiguous" clarification prompt (a broken custom
                 # model id should fail loudly, not masquerade as normal flow).
                 logger.warning(f"[INTENT] LLM call failed: {e}")
                 result = "AMBIGUOUS"
@@ -828,7 +828,7 @@ class OrchestrationAgent:
         Cheap pre-filter for "this turn may depend on the last one". Recall
         matters more than precision here — a missed follow-up embeds to
         garbage — but a false positive is no longer free-of-charge either:
-        see condense_query's merge veto (GH#87).
+        see condense_query's merge veto.
         """
         if not history:
             return False
@@ -838,7 +838,7 @@ class OrchestrationAgent:
     @staticmethod
     def _rewrite_merges_topics(raw: str, rewritten: str) -> Optional[str]:
         """
-        GH#87: veto a rewrite that MERGED two questions instead of resolving a
+        Veto a rewrite that MERGED two questions instead of resolving a
         reference. Returns a reason string when the rewrite must be discarded,
         None when it is safe to use.
 
@@ -884,7 +884,7 @@ class OrchestrationAgent:
 
     def condense_query(self, state: AgentState) -> AgentState:
         """
-        GH#40: rewrite an anaphoric follow-up ("what about 2013?") into a
+        Rewrite an anaphoric follow-up ("what about 2013?") into a
         standalone question BEFORE retrieval — embedding the raw follow-up
         retrieves garbage. Cheap gate: first questions pay nothing.
         """
@@ -921,9 +921,9 @@ class OrchestrationAgent:
         try:
             raw = invoke_tracked(self._get_intent_llm(), messages,
                                  "condense_query").content
-            # GH#65: without stripping, a reasoning model's think block pushes
+            # Without stripping, a reasoning model's think block pushes
             # the reply past the 500-char guard below, the rewrite is silently
-            # dropped, and multi-turn regresses to the GH#63 symptom.
+            # dropped, and the follow-up gets answered from the previous turn.
             standalone = strip_reasoning(raw or "").strip()
         except Exception as exc:
             logger.warning(f"[CONDENSE] failed: {exc}")
@@ -931,8 +931,8 @@ class OrchestrationAgent:
         if not standalone or len(standalone) >= 500:
             return state
 
-        # GH#87: the LLM is now allowed to decline (see condense_query.md), but
-        # a judgment needs a guard — an over-eager rewrite reinstates GH#63,
+        # The LLM is now allowed to decline (see condense_query.md), but
+        # a judgment needs a guard — an over-eager rewrite reinstates the stale-follow-up bug,
         # which returns a confident wrong ANSWER rather than a refusal.
         veto = self._rewrite_merges_topics(q, standalone)
         if veto:
@@ -947,7 +947,7 @@ class OrchestrationAgent:
 
     def ask_clarification(self, state: AgentState) -> AgentState:
         """
-        GH#40: AMBIGUOUS questions get ONE targeted clarifying question up
+        AMBIGUOUS questions get ONE targeted clarifying question up
         front instead of burning the full generation pipeline + two fallback
         rounds before asking.
         """
@@ -985,7 +985,7 @@ class OrchestrationAgent:
 
         # Embed the query once and reuse it for both cache read (now) and cache
         # write (after execution). run() prefetches it concurrently with the
-        # intent LLM call (GH#38) and hands it over in state — but only the RAW
+        # intent LLM call and hands it over in state — but only the RAW
         # query was embedded, so a condensed follow-up still needs its own.
         if state.get("cache_rejected"):
             # Re-entered after a stale cached SQL failed validation: drop the
@@ -998,7 +998,7 @@ class OrchestrationAgent:
         if query_embedding is None or search_q != state["user_query"]:
             query_embedding = self.semantic_cache.embed(search_q)
 
-        # GH#57: look for the cache hit BEFORE the RAG stage. Validation only
+        # Look for the cache hit BEFORE the RAG stage. Validation only
         # needs the schema of the tables the cached SQL actually reads, and
         # those can be fetched by name — no embedding search, no FK expansion,
         # no value grounding, no few-shot query. If the by-name fetch comes back
@@ -1039,7 +1039,7 @@ class OrchestrationAgent:
             if fk_extra:
                 trace(f"  🔗 FK-expanded     : {fk_extra}")
 
-            # GH#49 P3: ground literal-looking spans against ACTUAL stored
+            # Ground literal-looking spans against ACTUAL stored
             # values; a hint block tells the generator the exact casing/format.
             unsatisfiable: List[str] = []
             if getattr(self, "value_index", None) is not None:
@@ -1049,7 +1049,7 @@ class OrchestrationAgent:
                     schema_context = (
                         schema_context + "\n\n" + render_value_hints(hints)
                     )
-                # GH#75: ground() is silent for a span that matches NOTHING —
+                # ground() is silent for a span that matches NOTHING —
                 # there is no casing to correct — so the strongest signal
                 # available was computed here and thrown away. Asked for
                 # "customers from the country Wakanda", the pipeline knew
@@ -1077,7 +1077,7 @@ class OrchestrationAgent:
                 + (f" | FK-expanded: {fk_extra}" if fk_extra else "")
             )
 
-            # Cache-hit shortcut (GH#38): a near-identical past question with a
+            # Cache-hit shortcut: a near-identical past question with a
             # validated SQL skips linking + generation entirely. The cached SQL
             # still re-validates against the CURRENT schema (drift-safe), and a
             # validation failure falls back to normal generation. Reached only
@@ -1093,7 +1093,7 @@ class OrchestrationAgent:
                         "cached_response": hit.get("response"),
                         "cached_fingerprint": hit.get("rows_fingerprint")}
 
-            # GH#89: decide here, where the retrieved set is already known,
+            # Decide here, where the retrieved set is already known,
             # so no stage downstream pays for a second lookup.
             switched = (self._detect_topic_switch(state, primary)
                         if getattr(self, "_topic_switch_detection", True)
@@ -1116,7 +1116,7 @@ class OrchestrationAgent:
     def _unsatisfiable_spans(self, question: str, tables: List[str]) -> List[str]:
         """
         Value-like spans in the question that match NOTHING in the retrieved
-        tables (GH#75) — i.e. the question asks about data that does not exist.
+        tables — i.e. the question asks about data that does not exist.
 
         Conservative by construction, because a wrong refusal is worse than a
         wrong answer: it needs the value index to have actually loaded
@@ -1131,7 +1131,7 @@ class OrchestrationAgent:
             return []
         try:
             from backend.agents.risk import _span_is_untestable
-            # GH#99: a table with a column above the index's cardinality cap
+            # A table with a column above the index's cardinality cap
             # has values that were never loaded — a real name in a 50 000-row
             # `customers.full_name` matches nothing for exactly the same
             # reason a fictional one does. Absence from the index is then no
@@ -1151,7 +1151,7 @@ class OrchestrationAgent:
 
     def handle_unanswerable(self, state: AgentState) -> AgentState:
         """
-        Terminal node for a question naming data that does not exist (GH#75).
+        Terminal node for a question naming data that does not exist.
 
         Before this, the graph had no exit for a READ question that could not
         be answered: WRITE_BLOCKED, GENERAL, AMBIGUOUS and intent-error all
@@ -1189,7 +1189,7 @@ class OrchestrationAgent:
     def _nearest_values(self, spans: List[str], state: AgentState) -> str:
         """
         Real values CLOSEST to what the user typed, so the refusal names
-        alternatives they might have meant (GH#97).
+        alternatives they might have meant.
 
         This used to take the first few values of whatever column came first,
         which offered a list of Airtable record ids against a question about a
@@ -1211,8 +1211,7 @@ class OrchestrationAgent:
         """
         Turn a pre-graph cache hit into seed state that enters at validate_sql,
         skipping intent classification and follow-up condensation on top of the
-        linking and generation the in-graph cache shortcut already skipped
-        (GH#57).
+        linking and generation the in-graph cache shortcut already skipped.
 
         Skipping classification is safe because pairs are only ever stored for
         successful, validated READ turns (see _update_cache) — a near-exact
@@ -1270,7 +1269,7 @@ class OrchestrationAgent:
         The cached pair for this query, or None when the shortcut is disabled,
         the cache is empty, or nothing is close enough. Never raises.
 
-        ``query_text`` enables the GH#63 literal guard: a pair that is close in
+        ``query_text`` enables the literal guard: a pair that is close in
         vector space but names DIFFERENT concrete values (2013 vs 2014,
         customer 6 vs 7, August vs September) is rejected. Without it a
         follow-up would be answered from the previous turn's SQL — the bug that
@@ -1326,7 +1325,7 @@ class OrchestrationAgent:
 
         When ``sql.fewshot_skeleton_blend`` is on (default), candidates are
         reranked by structural-shape overlap against the question in
-        addition to embedding distance (GH#48-50 companion — see
+        addition to embedding distance (see
         backend.memory.skeleton / SemanticCache.retrieve_few_shots_blended).
         """
         try:
@@ -1350,7 +1349,7 @@ class OrchestrationAgent:
 
     def link_schema(self, state: AgentState) -> AgentState:
         """
-        Schema-Linking & Question-Understanding (Issue #17). Produces a structured
+        Schema-Linking & Question-Understanding. Produces a structured
         query plan (entities→columns, FK join-path, filters, aggregation/exclusion)
         that generate_sql follows. Degrades to query_plan=None on any failure.
         """
@@ -1390,7 +1389,7 @@ class OrchestrationAgent:
             if val not in (None, "", [], {}, "null", "none"):
                 trace(f"     {key}: {val}")
 
-        # GH#49 P4 (backward linking): the plan may name tables forward
+        # Backward linking: the plan may name tables forward
         # retrieval missed — fetch their chunks by name and append, so the
         # generator can actually join them.
         schema_context = state["schema_context"]
@@ -1411,7 +1410,7 @@ class OrchestrationAgent:
                         + "\n\n".join(c["content"] for c in chunks)
                     )
 
-        # GH#76 Fix 1: a second reading that disagrees on grain/aggregation, so
+        # A second reading that disagrees on grain/aggregation, so
         # execution voting has decorrelated candidates. Every candidate today
         # is built from this single plan, which is why 41 of 57 errors had
         # unanimous agreement — the candidates cannot disagree about a decision
@@ -1458,7 +1457,7 @@ class OrchestrationAgent:
         # the graceful fallback path instead of bubbling up a 500. An empty
         # best_sql is treated as invalid by validate_sql → fallback_handler.
         try:
-            # GH#85: no tier inference. The BIRD harness is handed the real
+            # No tier inference. The BIRD harness is handed the real
             # difficulty label; live has no such label, and guessing it from
             # the linker plan actively hurt — a plan that collapsed a hard
             # question to one table produced "simple", which meant 2
@@ -1483,7 +1482,7 @@ class OrchestrationAgent:
             alt_plan = state.get("query_plan_alt")
             sqls = _gen(state.get("query_plan"))
             if alt_plan:
-                # GH#76 Fix 1: candidates from a plan that DISAGREES on grain or
+                # Candidates from a plan that DISAGREES on grain or
                 # aggregation. Concatenated, not merged — execution voting then
                 # decides between two genuine readings instead of confirming
                 # one. Failure here costs nothing: the first batch still stands.
@@ -1504,7 +1503,7 @@ class OrchestrationAgent:
             # Execution-guided selection first (plurality over result sets);
             # the text reranker only decides when voting is inconclusive.
             best, vote_rows, vote_rows_sql = "", None, None
-            # GH#67: how the winner was chosen is the system's own evidence
+            # How the winner was chosen is the system's own evidence
             # about its answer — recorded here rather than only traced, so the
             # API and UI can show it alongside the result.
             ev: Dict[str, Any] = {
@@ -1556,10 +1555,10 @@ class OrchestrationAgent:
         on an order-insensitive fingerprint of their result sets.
 
         Returns (winner_sql, winner_rows, executed_sql) — winner rows are reused by
-        execute_sql so the winner runs ONCE per turn (GH#38). ("", None, None)
+        execute_sql so the winner runs ONCE per turn. ("", None, None)
         when inconclusive (caller falls back to the reranker). Never raises.
 
-        GH#67: when an ``evidence`` dict is passed it is filled in place with
+        When an ``evidence`` dict is passed it is filled in place with
         how the winner was chosen (agreement, distinct result sets, decided_by)
         so the answer can be shown with the reasoning behind it. An out-param
         rather than a fourth return value purely to leave the existing
@@ -1590,7 +1589,7 @@ class OrchestrationAgent:
                 groups.setdefault(fp, []).append(sql)
                 if fp not in group_rows:
                     group_rows[fp], group_run[fp] = rows, run_sql
-                # Early plurality (GH#41 cost bound): stop ONLY when the current
+                # Early plurality (cost bound): stop ONLY when the current
                 # leader's lead is mathematically unassailable. Each remaining
                 # candidate can add at most one vote, and in the worst case they
                 # all pile onto the current runner-up, so a competitor can reach
@@ -1634,7 +1633,7 @@ class OrchestrationAgent:
                     agreement=len(groups[non_empty[0]]))
             return _win(non_empty[0])
 
-        # GH#48: genuinely inconclusive — unit-test screen + pairwise
+        # Genuinely inconclusive — unit-test screen + pairwise
         # comparison beat both plurality and a rows-blind text reranker
         # (CHASE-SQL ablation: pairwise > self-consistency by ~4 EX).
         if query and getattr(self, "_selection", "pairwise") == "pairwise" and len(groups) >= 2:
@@ -1658,7 +1657,7 @@ class OrchestrationAgent:
         _record(decided_by="inconclusive")
         return "", None, None
 
-    # ── GH#48: unit-test screen + pairwise selection ───────────────────────
+    # ── unit-test screen + pairwise selection ──────────────────────────────
 
     @staticmethod
     def _describe_group(idx: int, fp, groups: Dict, group_rows: Dict) -> str:
@@ -1869,7 +1868,7 @@ class OrchestrationAgent:
 
     def _schema_for_question(self, question: str) -> str:
         """
-        Schema of any indexed tables the QUESTION names, or "" (GH#139).
+        Schema of any indexed tables the QUESTION names, or "".
 
         "How do I add a column to the customer table?" is only answerable
         *about this database* if the answer can see `customer`. Without it the
@@ -1917,7 +1916,7 @@ class OrchestrationAgent:
         """Handle non-SQL questions via web search + LLM synthesis."""
         query = state["user_query"]
 
-        # 0. GH#139: the schema of any table the question names, so a question
+        # 0. the schema of any table the question names, so a question
         #    ABOUT this database is answered from it rather than generically.
         schema_context = self._schema_for_question(query)
 
@@ -1937,7 +1936,7 @@ class OrchestrationAgent:
             logger.warning(f"[GENERAL] web_search failed: {exc}")
 
         # 2. LLM synthesis with search results
-        # GH#138: the old prompt ended "Do NOT generate SQL unless explicitly
+        # The old prompt ended "Do NOT generate SQL unless explicitly
         # asked", which made the commonest question of this kind — "how do I
         # add a column to X?" — unanswerable: the useful answer IS the
         # statement. Showing it is safe. Nothing on this path reaches a
@@ -2014,7 +2013,7 @@ class OrchestrationAgent:
         return {**state, "response": answer, "turn_id": turn_id}
 
     def handle_write_blocked(self, state: AgentState) -> AgentState:
-        # GH#138: still a refusal — this branch is reached by an INSTRUCTION to
+        # Still a refusal — this branch is reached by an INSTRUCTION to
         # modify, which stays blocked. But "contact your administrator" is a
         # dead end when the same question, asked as a how-to, is one the
         # assistant can answer in full, so point at that instead.
@@ -2057,7 +2056,7 @@ class OrchestrationAgent:
 
     def assess_risk(self, state: AgentState) -> AgentState:
         """
-        GH#69: gold-free checks on the executed result — the signals that do
+        Gold-free checks on the executed result — the signals that do
         NOT depend on candidate agreement.
 
         Phase 1's agreement signal cannot see the dominant failure: 41 of
@@ -2100,7 +2099,7 @@ class OrchestrationAgent:
         ev["risks"] = risks
         ev["risk_score"] = out.get("risk_score", 0)
 
-        # GH#91 gate 5: every check above reads the SQL against the schema, the
+        # Every check above reads the SQL against the schema, the
         # plan, or itself — and all of them pass on a query that is valid,
         # grounded, consistent and answers a DIFFERENT question. The round trip
         # is the only one that can see that.
@@ -2110,7 +2109,7 @@ class OrchestrationAgent:
 
     def _round_trip(self, state: AgentState, sql: str) -> Dict[str, Any]:
         """
-        GH#91: describe the SQL blind, then compare with the question.
+        Describe the SQL blind, then compare with the question.
 
         The description is produced WITHOUT the question in the prompt — shown
         it, the model paraphrases the question back instead of reading the
@@ -2150,7 +2149,7 @@ class OrchestrationAgent:
             response = f"I encountered an error executing the query: {state['error']}"
             csv_path = None
         elif self._can_reuse_answer(state, rows_hash):
-            # GH#57: the cached SQL was re-validated and re-executed above and
+            # The cached SQL was re-validated and re-executed above and
             # returned exactly the same rows, so the stored wording still holds
             # — the whole turn costs zero LLM calls.
             trace("  ♻️  Rows unchanged since the cached answer — reusing it")
@@ -2162,7 +2161,7 @@ class OrchestrationAgent:
                 sql=state["best_sql"],
                 results=state["execution_result"],
             )
-            # GH#75: the formatter is given the rows but not the doubts, so it
+            # The formatter is given the rows but not the doubts, so it
             # wrote "Here are the customers from Wakanda:" directly above a
             # warning saying Wakanda does not exist. Prepending the caveat
             # deterministically rather than asking the LLM to hedge — a model
@@ -2187,7 +2186,7 @@ class OrchestrationAgent:
     @staticmethod
     def _verification_block(final: Dict[str, Any]) -> Dict[str, Any]:
         """
-        GH#67: the evidence behind this turn's answer, assembled for the API.
+        The evidence behind this turn's answer, assembled for the API.
 
         Always returns a well-formed block so no consumer has to special-case a
         missing one. Turns that never generate — a cache hit, a blocked write,
@@ -2197,7 +2196,7 @@ class OrchestrationAgent:
         """
         stored = final.get("verification")
         # Defaults are merged UNDER whatever was recorded, per key rather than
-        # all-or-nothing: assess_risk (GH#69) writes risks into this block on
+        # all-or-nothing: assess_risk writes risks into this block on
         # paths where generate_sql never ran — a cache hit — leaving it a
         # partial dict that consumers would otherwise find missing the Phase 1
         # counts entirely.
@@ -2220,10 +2219,10 @@ class OrchestrationAgent:
             k: bool(v) for k, v in validation.items()
             if k in ("syntax_ok", "safety_ok", "semantic_ok")
         }
-        # GH#89: dropping the conversation changes what the model was asked,
+        # Dropping the conversation changes what the model was asked,
         # so it belongs in the evidence rather than only in the server log.
         ev["topic_switch"] = bool(final.get("topic_switch"))
-        # GH#91: the verdict is derived from the block above, so it is computed
+        # The verdict is derived from the block above, so it is computed
         # LAST and is always consistent with the evidence shown beside it.
         from backend.agents.trust import grade
         ev["trust"] = grade(ev)
@@ -2297,7 +2296,7 @@ class OrchestrationAgent:
         if intent == "GENERAL":
             return "handle_general"
         if intent == "AMBIGUOUS" and getattr(self, "_clarify", True):
-            return "ask_clarification"   # GH#40: ask first, don't burn the pipeline
+            return "ask_clarification"   # ask first, don't burn the pipeline
         return "retrieve_schema"  # READ (and AMBIGUOUS when clarification is off)
 
     def route_after_validation(self, state: AgentState) -> str:
@@ -2312,10 +2311,10 @@ class OrchestrationAgent:
 
     def route_after_retrieval(self, state: AgentState) -> str:
         if state.get("cache_hit") and state.get("best_sql"):
-            return "validate_sql"     # GH#38 shortcut: skip linking + generation
+            return "validate_sql"     # shortcut: skip linking + generation
         if not state.get("schema_context") and state.get("fallback_level", 0) == 0:
             return "fallback_handler"
-        # GH#75: the question names a value that does not exist. Generating
+        # The question names a value that does not exist. Generating
         # here is what produced the substituted filter — the model cannot
         # satisfy the request, so it satisfies a different one.
         if state.get("unsatisfiable"):
@@ -2323,7 +2322,7 @@ class OrchestrationAgent:
         return "generate_sql"
 
     def _refine_limit(self, state: AgentState) -> int:
-        """Max ReAct refine rounds — deeper for the challenging tier (GH#49)."""
+        """Max ReAct refine rounds — deeper for the challenging tier."""
         if state.get("tier") == "challenging":
             return getattr(self, "_max_refine_challenging", 2)
         return getattr(self, "_max_refine", self.MAX_REFINE_ROUNDS)
@@ -2367,7 +2366,7 @@ class OrchestrationAgent:
         g.add_node("handle_intent_error", _staged("handle_intent_error", self.handle_intent_error))
         g.add_node("fallback_handler", _staged("fallback_handler", self.fallback_handler))
 
-        # GH#57: run() pre-resolves a repeat question against the semantic cache
+        # run() pre-resolves a repeat question against the semantic cache
         # and marks the state; that skips intent classification and condensation
         # on top of the linking/generation the cache shortcut already skipped.
         g.set_conditional_entry_point(self.route_entry, {
@@ -2386,8 +2385,8 @@ class OrchestrationAgent:
         g.add_edge("ask_clarification", END)
         g.add_edge("handle_intent_error", END)
 
-        # Happy path routes through schema-linking (#17) before generation;
-        # a cache hit (GH#38) jumps straight to validation.
+        # Happy path routes through schema-linking before generation;
+        # a cache hit jumps straight to validation.
         g.add_conditional_edges("retrieve_schema", self.route_after_retrieval, {
             "generate_sql": "link_schema",
             "fallback_handler": "fallback_handler",
@@ -2407,7 +2406,7 @@ class OrchestrationAgent:
         })
 
         # ReAct: after execution, refine once on error/empty result, else format.
-        # GH#69: risk assessment sits on the answer path, AFTER any refine
+        # Risk assessment sits on the answer path, AFTER any refine
         # rounds, so it judges the result the user will actually be shown.
         g.add_conditional_edges("execute_sql", self.route_after_execution, {
             "refine_sql": "refine_sql",
@@ -2463,8 +2462,8 @@ class OrchestrationAgent:
 
         If ``api_key`` is provided it is used in place of the system default
         OpenAI key for all LLM calls in this request (thread-safe). If
-        ``model`` is provided and differs from the configured default
-        (GH#52), it overrides the model used for all LLM calls in this
+        ``model`` is provided and differs from the configured default,
+        it overrides the model used for all LLM calls in this
         request the same way. Selecting the already-default model is a no-op
         (no extra ``ChatOpenAI`` construction).
 
@@ -2481,7 +2480,7 @@ class OrchestrationAgent:
         # Set up per-request LLM overrides in thread-local storage.
         # Only branch when a custom key/model is actually provided; otherwise
         # leave _tls untouched and read via getattr(..., self.attr) fallback.
-        # Selecting the already-default model is treated as no override (GH#52)
+        # Selecting the already-default model is treated as no override
         # so the common case never pays for an extra ChatOpenAI construction.
         has_override = bool(
             (api_key and api_key.strip())
@@ -2494,10 +2493,10 @@ class OrchestrationAgent:
         # tokens/cost in that same row were actually billed against.
         effective_model = model.strip() if (model and model.strip()) else self._model
         if has_override:
-            # Must go through _chat_llm too (GH#65): a bare ChatOpenAI here
+            # Must go through _chat_llm too: a bare ChatOpenAI here
             # would silently send a bring-your-own-key request to OpenAI while
             # every other stage talks to the configured provider.
-            # GH#112: `api_key` is the USER's key or nothing. The
+            # `api_key` is the USER's key or nothing. The
             # process default must not be passed as an override, or a
             # provider-tagged model picked in the sidebar is called with the
             # wrong credential — the reported OpenRouter 401.
@@ -2568,7 +2567,7 @@ class OrchestrationAgent:
             "error": None,
         }
         _tls.stage_cb = stage_callback
-        # GH#83: retrieval scope for this request only. Set unconditionally
+        # Retrieval scope for this request only. Set unconditionally
         # (not just when non-empty) so a thread reused from a previous scoped
         # request cannot leak that scope into an unscoped one.
         _tls.db_scope = db_scope.strip() if (db_scope and db_scope.strip()) else None
@@ -2611,16 +2610,16 @@ class OrchestrationAgent:
             "csv_path":   final.get("csv_path"),
             "turn_id":    final.get("turn_id"),
             "cache_hit":  bool(final.get("cache_hit")),
-            # GH#114: which endpoint served this turn. The agent knows it
+            # Which endpoint served this turn. The agent knows it
             # definitively (it resolved the target to build the client); the
             # frontend would have to guess from a stale /models map.
             "provider":   resolve_model_target(
                 effective_model, getattr(self, "_config", None),
                 default_base_url=getattr(self, "_base_url", None)).provider,
-            # GH#63: what the follow-up was condensed into, so a bad rewrite is
+            # What the follow-up was condensed into, so a bad rewrite is
             # visible rather than silently producing a confusing answer.
             "standalone_query": final.get("standalone_query"),
-            # GH#67: the evidence behind this answer, not just the answer.
+            # The evidence behind this answer, not just the answer.
             "verification": self._verification_block(final),
             "latency_ms": latency_ms,
             "timings":    final.get("timings") or {},
@@ -2656,14 +2655,14 @@ class OrchestrationAgent:
             # reuse the fresh wording instead of re-formatting forever.
             and (not final.get("cache_hit")
                  or fingerprint != final.get("cached_fingerprint"))
-            # GH#75: never memorise an answer the system itself flagged. Without
+            # Never memorise an answer the system itself flagged. Without
             # this the "customers from Wakanda" answer was stored and replayed
             # from cache with zero LLM calls — the pipeline detected its own
             # error and then learned it, so every later ask got the same wrong
             # rows faster and the model never got another chance to do better.
             and not (final.get("verification") or {}).get("risk_score")
         )
-        # GH#63: store the CONDENSED question when there is one. The embedding
+        # Store the CONDENSED question when there is one. The embedding
         # written alongside it is the condensed text's (retrieve_schema
         # re-embeds after condense_query), so storing the raw follow-up here
         # left text and vector describing different questions — and made the
@@ -2716,7 +2715,7 @@ class OrchestrationAgent:
     def _summarize_history(self, evicted_text: str, prior_summary: Optional[str]) -> str:
         """LLM summarizer injected into SessionMemory for rolling context.
 
-        Known limitation (GH#52, pre-existing for api_key too): this calls
+        Known limitation: this calls
         self.llm directly rather than self._get_llm(), so a per-request
         api_key/model override never reaches the rolling summarizer — it
         always runs on the configured default. Accepted, not fixed here: this

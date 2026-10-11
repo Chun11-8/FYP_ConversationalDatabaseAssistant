@@ -1,5 +1,5 @@
 """
-schema_versioning_agent.py — Schema Versioning Layer (Issue #7 / GH#8).
+schema_versioning_agent.py — Schema Versioning Layer.
 
 Detects live-database schema changes (new/dropped tables, added/removed/
 retyped columns) against the last synced snapshot, and SURGICALLY updates the
@@ -10,7 +10,7 @@ DATA changes (sample rows and `values: {…}` lists refresh on re-embed; row-lev
 change detection would require hashing all data).
 
 Replaces the previous non-functional stub. NOTE: the admin-auth guard
-(Issue #6/GH#7) does not exist yet — the sync endpoint is currently open.
+does not exist yet — the sync endpoint is currently open.
 """
 
 from __future__ import annotations
@@ -88,8 +88,8 @@ class SchemaVersioningAgent:
         return conn
 
     def _semantic_cache(self):
-        """Lazily build the SemanticCache used for the drop/modify cascade
-        (Issue #7/GH#8). Reuses db_config if the caller already loaded one
+        """Lazily build the SemanticCache used for the drop/modify cascade.
+        Reuses db_config if the caller already loaded one
         (e.g. the API's shared config); otherwise loads it once."""
         if self._cache is None:
             from backend.memory.semantic_cache import SemanticCache
@@ -209,8 +209,8 @@ class SchemaVersioningAgent:
 
     def _cascade_cache(self, changes: List[dict]) -> tuple:
         """
-        Best-effort semantic-cache impact of a schema change (Issue #7/GH#8,
-        Change Classifier): a DROPPED table's cached pairs are archived, not
+        Best-effort semantic-cache impact of a schema change (Change
+        Classifier): a DROPPED table's cached pairs are archived, not
         deleted; a MODIFIED/dropped column's cached pairs are demoted in
         confidence, not removed. Returns ({table: archived_count}, {table:
         demoted_count}) — empty dicts if nothing applies or the cache is

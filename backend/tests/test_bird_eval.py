@@ -562,7 +562,7 @@ class TestErrorRecord:
         assert r["gold_error"] == "some error"
 
 
-# ── GH#116: restrict a run to one database ────────────────────────────────────
+# ── restrict a run to one database ────────────────────────────────────────────
 
 class TestDbIdFilter:
     """
@@ -629,7 +629,7 @@ class TestDbIdFilter:
         assert len(dbs) == 6
 
 
-# ── GH#119: per-question wall-clock budget ──────────────────────────────────────
+# ── per-question wall-clock budget ──────────────────────────────────────────────
 
 class TestQuestionBudget:
     """
@@ -720,7 +720,7 @@ class TestQuestionBudget:
 
     def test_zero_disables_the_budget(
             self, dev_json: str, db_dir_with_test_db: str):
-        """Off must mean off — the pre-GH#119 behaviour, for a reproduction
+        """Off must mean off — the previous behaviour, for a reproduction
         run that must not have questions abandoned under it."""
         sql_agent, validator = self._slow_agents(delay=0.4)
         results = run_bird_eval(
@@ -816,7 +816,7 @@ class TestQuestionBudget:
         assert b.expired() is True
 
 
-# ── GH#120: cross-domain question selection ─────────────────────────────────────
+# ── cross-domain question selection ─────────────────────────────────────────────
 
 class TestSelectQuestions:
     """
@@ -906,7 +906,7 @@ class TestSelectQuestions:
             assert len(ids) == len(set(ids))
 
     def test_filters_still_run_before_subset(self):
-        """GH#116's ordering must survive the new sampling — the other order
+        """Database ordering must survive the new sampling — the other order
         would narrow whatever the sample happened to pick."""
         corpus = self._corpus()
         picked = select_questions(corpus, db_filter="db05", subset=5,
@@ -951,7 +951,7 @@ class TestSelectQuestions:
         assert len(results) == 1
 
 
-# ── GH#126: schema caching and progress visibility ──────────────────────────────
+# ── schema caching and progress visibility ──────────────────────────────────────
 
 class TestSchemaCacheAndProgress:
     """
@@ -1068,7 +1068,7 @@ class TestSchemaCacheAndProgress:
         assert "budget=90s" in caplog.text
 
 
-# ── GH#127: the candidate count that actually ran must be recorded ─────────────
+# ── the candidate count that actually ran must be recorded ─────────────────────
 
 class TestEffectiveCandidateCount:
     """
@@ -1087,7 +1087,7 @@ class TestEffectiveCandidateCount:
         assert agent._tier_candidates == cfg["sql"]["candidates_by_tier"]
 
     def test_challenging_is_no_longer_more_expensive_than_moderate(self):
-        """GH#127 lowered challenging from 7 to 5. Output tokens are generated
+        """Challenging was lowered from 7 to 5. Output tokens are generated
         serially, so the candidate count is where the wall-clock goes."""
         import yaml
         cfg = yaml.safe_load(open("backend/config/config.yaml", encoding="utf-8"))
@@ -1100,7 +1100,7 @@ class TestEffectiveCandidateCount:
         assert all(n >= 1 for n in cfg["sql"]["candidates_by_tier"].values())
 
 
-# ── GH#128: the SQLite timeout must actually stop the query ────────────────────
+# ── the SQLite timeout must actually stop the query ────────────────────────────
 
 @pytest.fixture(scope="module")
 def slow_db(tmp_path_factory) -> str:
@@ -1184,7 +1184,7 @@ class TestExecuteSqliteReallyTimesOut:
         assert err is None and rows == [(3000,)]
 
 
-# ── GH#135: unfenced CTEs ──────────────────────────────────────────────────────
+# ── unfenced CTEs ──────────────────────────────────────────────────────────────
 
 class TestUnfencedCteExtraction:
     """

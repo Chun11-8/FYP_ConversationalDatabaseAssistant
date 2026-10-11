@@ -72,7 +72,7 @@ function RecordsPanel({ rows, total }: { rows: Record<string, unknown>[]; total:
 }
 
 /**
- * The query ran and matched nothing (GH#113).
+ * The query ran and matched nothing.
  *
  * Rendering nothing here was wrong: an empty result is a FACT about the data,
  * and `zero_rows` raises a risk flag, so the user saw a warning with no table
@@ -148,12 +148,12 @@ function CacheChip() {
 }
 
 /**
- * Token/cost chip (GH#57). Zero LLM calls is the interesting case — it means the
+ * Token/cost chip. Zero LLM calls is the interesting case — it means the
  * cached answer was reused because the rows hadn't changed — so it gets its own
  * label rather than reading as a suspicious "$0.000000".
  */
 /**
- * Which model answered, and what it cost (GH#114).
+ * Which model answered, and what it cost.
  *
  * `cost_known: false` renders "cost n/a" rather than "$0.0000": a missing rate
  * is not a zero bill, and showing one would quietly tell the user an
@@ -233,7 +233,7 @@ const DECIDED_BY_LABEL: Record<string, string> = {
 };
 
 /**
- * Agreement chip (GH#67). Reports what happened — "4/5 agreed" — and
+ * Agreement chip. Reports what happened — "4/5 agreed" — and
  * deliberately NOT a High/Medium/Low verdict: whether agreement predicts
  * correctness is exactly what the calibration study has yet to measure, and a
  * miscalibrated badge would teach the user to trust the wrong answers.
@@ -267,7 +267,7 @@ function AgreementChip({ v }: { v: TurnVerification }) {
 }
 
 /**
- * Risk flags (GH#69). Shown OUTSIDE the collapsed panel, unlike the rest of
+ * Risk flags. Shown OUTSIDE the collapsed panel, unlike the rest of
  * the evidence: a specific, checkable objection to the answer the user is
  * reading is worth interrupting for, where "5/5 agreed" is not.
  *
@@ -300,7 +300,7 @@ const GATE_MARK: Record<TrustGate['status'], string> = {
 };
 
 /**
- * The verdict (GH#91). The one thing on screen that answers "can I use this?".
+ * The verdict. The one thing on screen that answers "can I use this?".
  *
  * Deliberately carries no percentage: every signal behind it is a check on
  * THIS query, and a hit-rate measured on benchmark databases would say nothing
@@ -330,7 +330,7 @@ function TrustVerdict({ trust, executed }: { trust: TurnTrust; executed: boolean
 
       <p className="trust-statement">{trust.statement}</p>
 
-      {/* GH#113: the verdict is an opinion, not a gate. When the query ran,
+      {/* the verdict is an opinion, not a gate. When the query ran,
           say plainly that the data is still there — otherwise a red banner
           reads as "your results were withheld". */}
       {executed && trust.level !== 'passed' && (
@@ -361,7 +361,7 @@ function TrustVerdict({ trust, executed }: { trust: TurnTrust; executed: boolean
 }
 
 /**
- * The SQL read back into plain English (GH#91), generated without showing the
+ * The SQL read back into plain English, generated without showing the
  * model the question. Shown whether or not the comparison reached a verdict:
  * a user who reads "the lowest single monthly reading" against a question
  * that meant "the lowest yearly total" needs no verdict at all.
@@ -523,7 +523,7 @@ function AssistantMessage({
             </ReactMarkdown>
           </div>
 
-          {/* 1b. The verdict (GH#91) — before the rows it judges, because
+          {/* 1b. The verdict — before the rows it judges, because
                  "can I use this?" is the first question a reader has. */}
           {message.verification?.trust && (
             <TrustVerdict
@@ -532,14 +532,14 @@ function AssistantMessage({
             />
           )}
 
-          {/* 1c. Risk flags (GH#69) — the specific objections behind a
+          {/* 1c. Risk flags — the specific objections behind a
                  non-passing verdict, each one checkable on its own. */}
           {message.verification?.risks?.length ? (
             <RiskNotes risks={message.verification.risks} />
           ) : null}
 
           {/* 2. Fetched records — first 10 visible, rest behind toggle.
-                 GH#113: deliberately NOT gated on the trust verdict. If the
+                 Deliberately NOT gated on the trust verdict. If the
                  query executed, the user gets the data and judges it against
                  the checks above; withholding results would make the verdict
                  a gatekeeper rather than an opinion. */}
@@ -562,14 +562,14 @@ function AssistantMessage({
             </a>
           )}
 
-          {/* 4. Toggleable SQL Used, with its plain-English read-back (GH#91)
+          {/* 4. Toggleable SQL Used, with its plain-English read-back
                  directly beneath — the two belong together. */}
           {message.sql && <SqlPanel sql={message.sql} />}
           {message.sql && message.verification?.back_translation?.description && (
             <ReadsAs text={message.verification.back_translation.description} />
           )}
 
-          {/* 5. Why this answer (GH#67) — sits under the SQL, since it explains
+          {/* 5. Why this answer — sits under the SQL, since it explains
                  how that particular query came to be chosen. */}
           {message.verification && <EvidencePanel v={message.verification} />}
 

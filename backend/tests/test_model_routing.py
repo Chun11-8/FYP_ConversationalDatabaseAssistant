@@ -1,5 +1,5 @@
 """
-Tests for GH#108 — per-model provider routing.
+Tests: per-model provider routing.
 
 The governing constraint: adding OpenRouter models must leave the OpenAI path
 BYTE-IDENTICAL. Several tests exist only to hold that line, because the whole
@@ -124,7 +124,7 @@ class TestProviderRouting:
         assert t.api_key == "sk-user"
 
     def test_an_untagged_model_uses_the_callers_process_wide_endpoint(self):
-        """GH#65's behaviour: an agent that cached a base_url keeps applying it
+        """An agent that cached a base_url keeps applying it
         to models that name no provider."""
         t = resolve_model_target("gpt-4o-mini", CONFIG,
                                  default_base_url="http://localhost:11434/v1")
@@ -250,7 +250,7 @@ class TestCheckModels:
         assert fails == 0 and rows[0]["status"] == C.OK
 
     def test_an_openai_model_the_key_cannot_reach_warns_but_does_not_fail(self):
-        """GH#115: /models lists exactly what THIS key can reach, so absence
+        """/models lists exactly what THIS key can reach, so absence
         does mean "not usable here" — worth surfacing for a model the account
         may not be enabled for. A warning, not a failure: a very new model can
         be callable before it appears in the listing."""
@@ -271,14 +271,14 @@ class TestCheckModels:
         assert "not checked" in rows[0]["note"]
 
 
-# ── GH#111: the picker list is not the whole pipeline ─────────────────────────
+# ── the picker list is not the whole pipeline ─────────────────────────────────
 
 class TestPipelineModelsCoverage:
     """
     A 401 on intent classification got past a green `check_models` because the
     checker only walked `selectable_models`. `llm.model` is the default for
     every stage and `intent_model` / `format_model` route the cheap stages
-    elsewhere (GH#38) — none of them has to be in the picker list.
+    elsewhere — none of them has to be in the picker list.
     """
 
     def test_the_default_model_is_checked_even_if_not_in_the_picker(self):
@@ -339,7 +339,7 @@ class TestPipelineModelsCoverage:
         assert _mask("short") == "…5ch"
 
 
-# ── GH#112: the process default must never override a provider key ────────────
+# ── the process default must never override a provider key ────────────────────
 
 class TestDefaultKeyIsAFallbackNotAnOverride:
     """
@@ -380,7 +380,7 @@ class TestDefaultKeyIsAFallbackNotAnOverride:
         assert kw["api_key"] == "sk-openai-default"
 
     def test_a_user_supplied_key_still_wins(self, monkeypatch):
-        """Bring-your-own-key is a real feature (GH#52) and must survive: a
+        """Bring-your-own-key is a real feature and must survive: a
         user handing over their own credential means it."""
         kw = self._built(self._agent(monkeypatch),
                          "qwen/qwen3.5-122b-a10b", "sk-user-byo")
@@ -424,7 +424,7 @@ class TestDefaultKeyIsAFallbackNotAnOverride:
         assert mc.call_args.kwargs["api_key"] == "sk-cached"
 
 
-# ── GH#114: show which model answered, and never fake a cost ──────────────────
+# ── show which model answered, and never fake a cost ──────────────────────────
 
 class TestUsageReportsModelAndCostHonestly:
     """
@@ -453,7 +453,7 @@ class TestUsageReportsModelAndCostHonestly:
         assert d["est_cost_usd"] == 0.0        # present, but not to be shown
 
     def test_several_models_in_one_turn_are_all_listed(self):
-        """GH#38 routes intent/format elsewhere, so a turn can bill two."""
+        """Intent/format are routed to another model, so a turn can bill two."""
         from backend.agents import usage as U
         t = U.UsageTracker()
         t.record("classify_intent", "gpt-4o-mini", 50, 5)
@@ -504,7 +504,7 @@ class TestPriceSync:
             assert C._prices("https://x/v1", "k") == {}
 
 
-# ── GH#117: a gateway id must never quietly reach OpenAI ──────────────────────
+# ── a gateway id must never quietly reach OpenAI ──────────────────────────────
 
 class TestNamespacedIdGuard:
     """

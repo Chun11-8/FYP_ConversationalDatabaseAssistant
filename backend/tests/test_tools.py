@@ -1,5 +1,5 @@
 """
-Tests for backend/tools/ (Issue #9) and backend/agents/safety.py (Issue #10).
+Tests for backend/tools/ and backend/agents/safety.py.
 
 All tests run offline (no network calls, no DB, no LLM). Web search is tested
 with a monkey-patched DDGS so the network is never touched.

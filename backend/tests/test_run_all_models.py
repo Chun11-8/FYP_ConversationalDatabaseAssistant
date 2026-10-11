@@ -1,5 +1,5 @@
 """
-Tests for backend/eval/run_all_models.py (GH#124).
+Tests for backend/eval/run_all_models.py.
 
 Offline: no subprocess is really launched, no LLM, no BIRD data.
 
@@ -469,7 +469,7 @@ class TestResumeCommand:
 
 
 class TestEngineWiring:
-    """GH#129/131: the gold dialect and the engine must agree, so the sweep
+    """The gold dialect and the engine must agree, so the sweep
     defaults to the pair that works together."""
 
     def test_postgres_is_the_default_and_matches_the_dev_file(self):
@@ -505,7 +505,7 @@ class TestEngineWiring:
 
 class TestGoldFollowsTheEngine:
     """
-    GH#134. The gold dialect and the engine must agree, and a mismatch fails
+    The gold dialect and the engine must agree, and a mismatch fails
     QUIETLY: gold that cannot execute is recorded as gold_error, and those
     questions are dropped from the EX denominator — so the run reports a
     plausible score over whatever survived.
@@ -555,7 +555,7 @@ class TestGoldFollowsTheEngine:
 
 class TestAblationTagging:
     """
-    GH#136: an ablation runs the same models twice with one knob flipped. Both
+    An ablation runs the same models twice with one knob flipped. Both
     arms wrote to the same path, so the second silently overwrote the first.
     """
 

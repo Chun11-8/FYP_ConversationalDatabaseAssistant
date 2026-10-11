@@ -19,15 +19,15 @@ interface ChatLayoutProps {
   apiKey: string;
   onApiKeyChange: (key: string) => void;
   models: string[];
-  /** GH#137: set when GET /models failed, so the picker can say WHY the
+  /** set when GET /models failed, so the picker can say WHY the
    *  curated list is missing instead of disappearing without explanation. */
   modelsUnavailable?: boolean;
-  /** GH#108: {model id: provider label}, shown so the user can see which
+  /** {model id: provider label}, shown so the user can see which
    *  endpoint a choice reaches — OpenAI directly, or a gateway. */
   modelProviders?: Record<string, string>;
   model: string;
   onModelChange: (model: string) => void;
-  /** Logical databases in the schema index (GH#81) */
+  /** Logical databases in the schema index */
   databases: DatabaseInfo[];
   /** Active retrieval scope; '' = search every database */
   dbScope: string;
@@ -60,7 +60,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile());
   const [showKey, setShowKey] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // GH#58: a free-text entry alongside the curated list — the backend accepts
+  // A free-text entry alongside the curated list — the backend accepts
   // any well-formed OpenAI model id, not just the ones in `models`.
   const [customEntry, setCustomEntry] = useState(false);
   const [customValue, setCustomValue] = useState('');
@@ -112,7 +112,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
     if (customEntry) customInputRef.current?.focus();
   }, [customEntry]);
 
-  // GH#58 finding #6: isMobile() was only read at render/click time, so
+  // isMobile() used to be read only at render/click time, so
   // resizing across the 768px breakpoint without a click left sidebarOpen
   // stale — a desktop-open sidebar became an unclosable mobile overlay, or a
   // mobile-closed sidebar stayed collapsed after growing to desktop width.
@@ -183,7 +183,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           {/* Database scope + Model + API Key — pinned to bottom */}
           <div className="sidebar-spacer" />
 
-          {/* GH#81: several logical databases share one PostgreSQL schema.
+          {/* several logical databases share one PostgreSQL schema.
               Hidden when there is only one — nothing to choose. */}
           {databases.length > 1 && (
             <div className="db-scope-section">
@@ -241,7 +241,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             </div>
           )}
 
-          {/* GH#137: previously `models.length > 0`, so a failed GET /models
+          {/* previously `models.length > 0`, so a failed GET /models
               removed the picker entirely — the control vanished with no
               explanation and the user could not tell the app from a broken
               build. The backend accepts any well-formed model id (see
