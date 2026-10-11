@@ -1,8 +1,8 @@
 """
-Tests for GH#89 — a topic switch drops conversation history everywhere, not
+Tests: a topic switch drops conversation history everywhere, not
 just in the condenser.
 
-GH#87 stopped the condenser MERGING an unrelated question into the previous
+The condenser no longer MERGES an unrelated question into the previous
 turn's constraints. History still reached classify_intent, the planner and
 generation, where it degrades a turn silently — no refusal, just a worse plan.
 

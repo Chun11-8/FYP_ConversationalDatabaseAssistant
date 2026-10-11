@@ -1,5 +1,5 @@
 """
-Tests for the history-injection fix in db_agent.py (Issue #3).
+Tests for the history-injection fix in db_agent.py.
 
 Verifies the bug where the literal string "history_str" was sent to the LLM is
 fixed, and that formatted prior context (including rolling summaries) is injected
@@ -59,7 +59,7 @@ class TestClassifyIntentHistoryInjection:
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = MagicMock(content="READ")
         agent.llm = mock_llm
-        agent.intent_llm = mock_llm  # classify_intent routes via _get_intent_llm (GH#38)
+        agent.intent_llm = mock_llm  # classify_intent routes via _get_intent_llm
         dbmod._tls.__dict__.clear()  # force _get_llm() → agent.llm
 
         state = {

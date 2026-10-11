@@ -1,6 +1,6 @@
 """
 internal_tables.py — the assistant's OWN tables, and why they must never be
-indexed as user data (GH#79).
+indexed as user data.
 
 The assistant stores its memory, semantic cache, telemetry and — recursively —
 its schema vectors in the SAME PostgreSQL database it answers questions about.

@@ -187,7 +187,7 @@ def run_eval(
 
     ``model``, when given, overrides the agent's configured default LLM model
     for every turn — reuses OrchestrationAgent.run()'s existing per-request
-    override (GH#52), no extra plumbing needed.
+    override, no extra plumbing needed.
     """
     results: List[Dict] = []
 

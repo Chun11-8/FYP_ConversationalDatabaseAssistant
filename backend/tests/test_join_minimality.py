@@ -1,5 +1,5 @@
 """
-Tests for SQLCodeAgent._join_penalty (Issue #50) — a deterministic candidate
+Tests for SQLCodeAgent._join_penalty — a deterministic candidate
 demotion for spurious joins: a joined table contributing no column anywhere
 outside its own ON clause is pure risk (an INNER JOIN can silently drop rows
 via referential gaps, corrupting aggregates for no logical reason; BIRD

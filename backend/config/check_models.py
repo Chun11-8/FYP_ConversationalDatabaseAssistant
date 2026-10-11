@@ -56,7 +56,7 @@ def _catalogue_raw(base_url: str, api_key: Optional[str]) -> Optional[list]:
 def _prices(base_url: str, api_key: Optional[str]) -> Dict[str, Dict[str, float]]:
     """
     {model id: {input, output}} in USD per MILLION tokens, from the provider's
-    catalogue (GH#114).
+    catalogue.
 
     OpenRouter quotes per-token strings ("0.00000015"); config.yaml and
     usage.py both work in per-million, so convert once here rather than
@@ -114,9 +114,9 @@ def pipeline_models(config: dict) -> List[Tuple[str, str]]:
     Every model the app will actually construct a client for, as
     (role, model id) — deduped, first role wins.
 
-    GH#111: the picker list is NOT the whole story. `llm.model` is the default
+    The picker list is NOT the whole story. `llm.model` is the default
     for every stage, and `llm.intent_model` / `llm.format_model` route the
-    cheap stages elsewhere (GH#38); none of them has to appear in
+    cheap stages elsewhere; none of them has to appear in
     `selectable_models`. Checking only the picker list let a broken default or
     intent model pass here and fail on the first question — which is exactly
     how a 401 on intent classification got past a green check.
@@ -174,7 +174,7 @@ def check(config: dict, do_call: bool = False) -> Tuple[List[dict], int]:
                 row["status"], row["note"] = FAIL, "id not served by provider"
                 failures += 1
         else:
-            # GH#115: OpenAI's /models lists exactly what THIS key can reach,
+            # OpenAI's /models lists exactly what THIS key can reach,
             # so absence does mean "not usable here" — worth surfacing for a
             # model the account may not be enabled for (gpt-5-nano and the
             # like). Reported as a WARNING rather than a failure: a very new
@@ -282,7 +282,7 @@ def main() -> None:
         print(f"{r['status']:<2}{r['model']:<{width}}  {r['role']:<9}"
               f"{r['provider']:<{pw}}{r['key_hint']:<{kw}}{r['note']}")
 
-    # GH#111: a process-wide endpoint sends EVERY untagged model — including
+    # A process-wide endpoint sends EVERY untagged model — including
     # the default and the intent model — to that provider. It is the usual
     # cause of "the picker looks right but the first question 401s".
     process_wide = resolve_base_url(config)

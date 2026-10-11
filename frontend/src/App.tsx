@@ -18,7 +18,7 @@ const LS_MESSAGES = 'db_assistant_messages';
 const LS_MODEL = 'db_assistant_model';
 const LS_DB_SCOPE = 'db_assistant_db_scope';
 
-/** Human labels for pipeline stage events (GH#39). */
+/** Human labels for pipeline stage events. */
 const STAGE_LABELS: Record<string, string> = {
   classify_intent: 'Understanding the question…',
   condense_query: 'Resolving follow-up…',
@@ -79,13 +79,13 @@ function App() {
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(LS_API_KEY) ?? '');
   const [stage, setStage] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  // GH#108: {model id: provider}. One deployment now serves OpenAI models
+  // {model id: provider}. One deployment now serves OpenAI models
   // directly and others through a gateway, so the picker says which.
   const [modelProviders, setModelProviders] = useState<Record<string, string>>({});
   const [modelsUnavailable, setModelsUnavailable] = useState(false);
   const [defaultModel, setDefaultModel] = useState<string>('');
   const [model, setModel] = useState<string>(() => localStorage.getItem(LS_MODEL) ?? '');
-  // GH#83 retrieval scope. '' = search every indexed database, which is also
+  // Retrieval scope. '' = search every indexed database, which is also
   // what the backend does when no scope is sent.
   const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
   const [dbScope, setDbScope] = useState<string>(() => localStorage.getItem(LS_DB_SCOPE) ?? '');
@@ -101,7 +101,7 @@ function App() {
   }, [apiKey]);
 
   // Persist the model choice only when it diverges from the fetched default —
-  // an untouched selection sends no override (GH#52), matching the api_key idiom.
+  // an untouched selection sends no override, matching the api_key idiom.
   useEffect(() => {
     if (model && model !== defaultModel) {
       localStorage.setItem(LS_MODEL, model);
@@ -110,7 +110,7 @@ function App() {
     }
   }, [model, defaultModel]);
 
-  // Fetch the selectable models once at startup. GH#137: a failure no longer
+  // Fetch the selectable models once at startup. A failure no longer
   // hides the picker — it records WHY, so the sidebar can say the list could
   // not load instead of silently dropping the control.
   useEffect(() => {
@@ -119,7 +119,7 @@ function App() {
         setAvailableModels(models);
         setModelProviders(providers ?? {});
         setDefaultModel(def);
-        // GH#58: a persisted custom model (not in the curated `models` list)
+        // A persisted custom model (not in the curated `models` list)
         // must survive a reload — only fall back to the default when nothing
         // was chosen at all. `models.includes(prev)` here would silently
         // discard every custom entry the moment the page refreshed.
@@ -133,7 +133,7 @@ function App() {
     else localStorage.removeItem(LS_DB_SCOPE);
   }, [dbScope]);
 
-  // Fetch the indexed database scopes once at startup (GH#81). The picker
+  // Fetch the indexed database scopes once at startup. The picker
   // stays hidden when the index holds a single scope — there is nothing to
   // choose — or when the call fails; chat works either way.
   useEffect(() => {
@@ -193,11 +193,11 @@ function App() {
     setError(null);
 
     // Only send a model override when it diverges from the fetched default
-    // (GH#52) — an untouched selection keeps the backend's fast path.
+    // — an untouched selection keeps the backend's fast path.
     const modelOverride = model && model !== defaultModel ? model : undefined;
 
     try {
-      // Streaming first (live stage progress); plain POST as fallback (GH#39).
+      // Streaming first (live stage progress); plain POST as fallback.
       // The fallback is only safe when the stream never actually started: the
       // backend records the turn (and bills the LLM calls) BEFORE it queues
       // the terminal `done` event, so once a `stage` event has been seen the
@@ -371,7 +371,7 @@ function App() {
               <p className="welcome-subtitle">
                 Ask questions about your data in plain English.
               </p>
-              {/* GH#81: name the domain the answer will come from, so a
+              {/* name the domain the answer will come from, so a
                   question against the wrong database is obvious up front. */}
               {databases.length > 1 && (
                 <p className="welcome-scope">

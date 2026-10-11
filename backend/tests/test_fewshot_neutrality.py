@@ -1,5 +1,5 @@
 """
-Tests for GH#123 — few-shot examples must not name a real evaluation database.
+Tests: few-shot examples must not name a real evaluation database.
 
 `generate()` substitutes DEFAULT_FEWSHOTS whenever the caller passes no
 few-shots, and the BIRD harness always passes `few_shots=[]`. So these examples

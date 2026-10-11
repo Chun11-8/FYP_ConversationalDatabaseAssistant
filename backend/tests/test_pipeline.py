@@ -1,5 +1,5 @@
 """
-Tests for backend/pipelines/postprocessing.py (Issue #10).
+Tests for backend/pipelines/postprocessing.py.
 
 All tests mock the LLM so no real API calls are made.
 

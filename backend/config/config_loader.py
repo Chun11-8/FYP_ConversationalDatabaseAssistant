@@ -68,7 +68,7 @@ def load_config() -> dict:
     if not _CONFIG_YAML_PATH.exists():
         raise FileNotFoundError(f"config.yaml not found at {_CONFIG_YAML_PATH}")
 
-    # GH#110: explicit encoding. Without it Python uses the LOCALE default,
+    # Explicit encoding. Without it Python uses the LOCALE default,
     # which on a Windows machine is cp1252 — and this file is UTF-8. Most
     # UTF-8 bytes decode as mojibake under cp1252 rather than raising, so the
     # failure is silent until a byte lands on one of the five undefined

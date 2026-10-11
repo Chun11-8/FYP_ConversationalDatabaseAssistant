@@ -249,7 +249,7 @@ def reconcile_identifiers(sql: str, schema_context: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# String-literal apostrophe escaping (Issue #21)
+# String-literal apostrophe escaping
 # ─────────────────────────────────────────────
 # Grounded values with apostrophes (e.g. Women's Soccer, O'Brien) are frequently
 # emitted as raw literals — `'Women's Soccer'` — which close the string early and
@@ -315,7 +315,7 @@ def _double_interior_apostrophes(sql: str) -> str:
 #      not a year-only SUBSTR) and a FORMULA used in WHERE (Price / Amount > 29).
 # Kept in sync with prompt.md [SECTION: FEW_SHOT_TEMPLATE].
 
-# GH#130: what actually differs between the dialects we target.
+# What actually differs between the dialects we target.
 #
 # "Target SQL dialect: POSTGRES" was the only dialect signal in a ~4,000-token
 # prompt, and it is not enough. BIRD is overwhelmingly a SQLite benchmark in
@@ -327,7 +327,7 @@ def _double_interior_apostrophes(sql: str) -> str:
 # Kept to constructs that actually appear in this workload: date extraction,
 # the boolean-as-integer idiom, identifier quoting, and NULL ordering.
 #
-# GH#133 added the superlative rules, measured rather than assumed. In the
+# The superlative rules were measured rather than assumed. In the
 # SQLite runs 18-25% of predictions emitted `NULLS FIRST`, and 44% of those
 # scored 0 — DESC already sorts NULLs last there, so the clause inverted it.
 # The direction is dialect-specific because BIRD's PostgreSQL gold explicitly
@@ -376,7 +376,7 @@ DIALECT_NOTES: Dict[str, str] = {
 }
 
 
-# GH#123: these examples teach JOIN/grain/evidence PATTERNS, and they are shown
+# These examples teach JOIN/grain/evidence PATTERNS, and they are shown
 # to every question in every database — the BIRD harness passes few_shots=[], so
 # generate() substitutes this list unconditionally. They were previously written
 # over two REAL BIRD databases (debit_card_specializing and student_club), which
@@ -511,7 +511,7 @@ DEFAULT_FEWSHOTS: List[str] = [
 
 
 # ─────────────────────────────────────────────
-# Difficulty-adaptive strategy blocks (Issue #27/GH#44)
+# Difficulty-adaptive strategy blocks
 # ─────────────────────────────────────────────
 # One prompt for all difficulties wastes effort on simple questions and gives
 # challenging ones no decomposition scaffold. The BIRD path passes the real
@@ -538,7 +538,7 @@ TIER_STRATEGIES: Dict[str, str] = {
 }
 
 # ─────────────────────────────────────────────
-# Reasoning-path diversity (GH#48, CHASE-SQL)
+# Reasoning-path diversity
 # ─────────────────────────────────────────────
 # Temperature resamples of ONE prompt produce correlated errors — execution
 # voting then confidently agrees on the same wrong answer. Distinct reasoning
@@ -593,7 +593,7 @@ class SQLCodeAgent:
             self.top_k = self.TOP_K
         self._distinct_postpass = bool(
             config.get("sql", {}).get("distinct_postpass", True))
-        # Difficulty-adaptive prompting (Issue #27): per-tier candidate counts.
+        # Difficulty-adaptive prompting: per-tier candidate counts.
         self._adaptive = bool(config.get("sql", {}).get("adaptive_prompting", True))
         tiers = config.get("sql", {}).get("candidates_by_tier") or {}
         self._tier_candidates = {
@@ -601,7 +601,7 @@ class SQLCodeAgent:
             "moderate": int(tiers.get("moderate", self.top_k)),
             "challenging": int(tiers.get("challenging", 7)),
         }
-        # GH#48: reasoning-path-diverse candidates for moderate/challenging.
+        # Reasoning-path-diverse candidates for moderate/challenging.
         self._path_diversity = bool(
             config.get("sql", {}).get("path_diversity", True))
 
@@ -619,8 +619,8 @@ class SQLCodeAgent:
     ) -> List[str]:
         """Generate top-k SQL candidates.
 
-        ``query_plan`` is the optional structured plan from SchemaLinkingAgent
-        (Issue #17). ``tier`` ("simple"/"moderate"/"challenging", Issue #27)
+        ``query_plan`` is the optional structured plan from SchemaLinkingAgent.
+        ``tier`` ("simple"/"moderate"/"challenging")
         selects a strategy block and per-tier candidate count; None or adaptive
         prompting disabled → today's default behavior exactly.
         """
@@ -634,7 +634,7 @@ class SQLCodeAgent:
         if not few_shots:
             few_shots = DEFAULT_FEWSHOTS
 
-        # GH#48: for moderate/challenging, replace two direct candidates with one
+        # For moderate/challenging, replace two direct candidates with one
         # divide-and-conquer and one query-plan-CoT candidate — decorrelated
         # errors give execution voting real signal. Simple tier keeps the single
         # cheap direct call.
@@ -703,7 +703,7 @@ class SQLCodeAgent:
             trace("  └───────────────────────────────────────────────────────────")
             sqls = self._extract_sqls(raw)
         # Deterministic repairs BEFORE dialect normalization: fix unescaped
-        # apostrophes (Issue #21) and mangled space/hyphen column names, so the
+        # apostrophes and mangled space/hyphen column names, so the
         # sqlite transpile step receives parseable, schema-true SQL.
         sqls = [
             self.normalize_dialect(
@@ -794,7 +794,7 @@ class SQLCodeAgent:
             return sqls
         return sorted(sqls, key=lambda s: self._grain_penalty(s, schema_context))
 
-    # ── Plan-conformance demotion (closes the #17 loop) ──────────────────────
+    # ── Plan-conformance demotion ────────────────────────────────────────────
     # The SchemaLinkingAgent resolves tables + the FK join path, but nothing
     # verified the generated SQL actually followed it. Candidates that use a
     # different table set, or miss a join condition the plan resolved, are
@@ -850,7 +850,7 @@ class SQLCodeAgent:
                 penalty += 1
         return penalty
 
-    # ── Join-minimality demotion (Issue #50) ──────────────────────────────────
+    # ── Join-minimality demotion ──────────────────────────────────
     # A join that contributes no column anywhere OUTSIDE its own ON clause is
     # pure risk: if the join key isn't fully referentially covered, an INNER
     # JOIN silently drops otherwise-valid rows for no logical reason (BIRD
@@ -920,7 +920,7 @@ class SQLCodeAgent:
             ),
         )
 
-    # ── DISTINCT post-pass (Issue #28/GH#45 step 4) ──────────────────────────
+    # ── DISTINCT post-pass ─────────────────────────────────
     # "List …" questions over joins keep leaking duplicate rows (q1239 failed
     # at F1 0.80 missing ONLY a DISTINCT). Deterministic, conservative injection:
     # only for "list" questions, only when the query joins, has no GROUP BY, no
@@ -946,7 +946,7 @@ class SQLCodeAgent:
         except Exception:
             return sql
 
-    # ── Apostrophe repair (Issue #21) ───────────
+    # ── Apostrophe repair ───────────
 
     def _parses(self, sql: str) -> bool:
         try:
@@ -970,7 +970,7 @@ class SQLCodeAgent:
             return repaired
         return sql
 
-    # NOTE (Issue #50): the "CAST the numerator AS REAL" rule below is a known,
+    # NOTE: the "CAST the numerator AS REAL" rule below is a known,
     # accepted source of a small number of BIRD gold mismatches — some gold SQL
     # divides two integer aggregates with NO cast at all, which under SQLite
     # truncates to integer division; our REAL cast produces the mathematically
@@ -996,18 +996,18 @@ class SQLCodeAgent:
         ) or "No prior context."
         n = n_candidates or self.top_k
 
-        # Optional structured plan from SchemaLinkingAgent (Issue #17).
+        # Optional structured plan from SchemaLinkingAgent.
         plan_block = render_query_plan(query_plan)
         plan_section = f"\n{plan_block}\n" if plan_block else ""
-        # Difficulty-adaptive strategy block (Issue #27); moderate/None → none.
-        # A reasoning-path override (GH#48) replaces the tier block entirely.
+        # Difficulty-adaptive strategy block; moderate/None → none.
+        # A reasoning-path override replaces the tier block entirely.
         strategy = strategy_override or TIER_STRATEGIES.get(tier or "")
         strategy_section = f"\n{strategy}\n" if strategy else ""
-        # GH#130: an unknown dialect contributes nothing rather than
+        # An unknown dialect contributes nothing rather than
         # guessing — wrong dialect advice is worse than none.
         notes = DIALECT_NOTES.get((self.dialect or "").lower(), "")
         dialect_notes = f"\n{notes}" if notes else ""
-        # GH#40: the session's last validated SQL — follow-ups usually REFINE it.
+        # The session's last validated SQL — follow-ups usually REFINE it.
         prev_section = (
             f"\n<previous_sql>\n{previous_sql.strip()}\n</previous_sql>\n"
             "If the question is a follow-up that refines the previous request "
@@ -1217,10 +1217,9 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
         """Extract SQL blocks from an LLM reply.
 
         Tries ```sql ... ``` (preferred), then bare ``` ... ``` containing a
-        SELECT, then an unfenced statement beginning WITH or SELECT
-        (GH#65, GH#135).
+        SELECT, then an unfenced statement beginning WITH or SELECT.
         """
-        # GH#65: strip a reasoning model's think block first, or we'd collect
+        # Strip a reasoning model's think block first, or we'd collect
         # candidate SQL the model was only considering, not proposing.
         raw = strip_reasoning(raw or "")
 
@@ -1230,14 +1229,14 @@ Return ONLY SQL blocks, each wrapped in ```sql ... ``` fences.
             # Fallback: bare ``` fences that contain a SELECT statement
             blocks = re.findall(r"```\s*(SELECT[\s\S]*?)```", raw, re.DOTALL | re.IGNORECASE)
         if not blocks:
-            # GH#65 last resort: unfenced SQL. Open-weight models honour the
+            # Last resort: unfenced SQL. Open-weight models honour the
             # "wrap in ```sql fences" instruction far less reliably than
             # gpt-4o-mini, and returning [] here sends a perfectly good query
             # to fallback_handler for two wasted rounds. Anchored at a line
             # start and terminated by a blank line or `;` so surrounding prose
             # ("Here is the query:") isn't swallowed.
             #
-            # GH#135: WITH is in the alternation, not just SELECT. The
+            # WITH is in the alternation, not just SELECT. The
             # challenging-tier strategy block tells the model CTEs are
             # permitted, so unfenced answers often start `WITH x AS (...)`.
             # Matching only SELECT was worse than missing them: the pattern

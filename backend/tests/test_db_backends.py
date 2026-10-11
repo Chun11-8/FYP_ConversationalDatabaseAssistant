@@ -1,5 +1,5 @@
 """
-Tests for backend/eval/db_backends.py (GH#129).
+Tests for backend/eval/db_backends.py.
 
 BIRD publishes the same benchmark twice: SQLite files, and a PostgreSQL dump
 with gold SQL in Postgres dialect. The harness now runs either.
@@ -225,7 +225,7 @@ class TestPostgresBackend:
         assert problems and "absent_table" in problems[0]
 
 
-# ── GH#130/131: dialect correctness ───────────────────────────────────────────
+# ── dialect correctness ───────────────────────────────────────────────────────
 
 class TestDialectNotes:
     """
@@ -342,7 +342,7 @@ class TestGoldDialectPreflight:
         assert gold_dialect_problems(ok, "postgres") == []
 
 
-# ── GH#133: superlatives and NULL ordering ────────────────────────────────────
+# ── superlatives and NULL ordering ────────────────────────────────────────────
 
 class TestSuperlativeRules:
     """
@@ -439,7 +439,7 @@ class TestNullOrderingIsReallyInverted:
 
 class TestGoldDialectGuardBothDirections:
     """
-    GH#134: the original preflight only caught `--engine postgres` with SQLite
+    The original preflight only caught `--engine postgres` with SQLite
     gold. The unguarded direction was the more dangerous one, because the sweep
     defaulted --dev-json to the PostgreSQL file — so `--engine sqlite` paired
     SQLite with PostgreSQL gold and said nothing.

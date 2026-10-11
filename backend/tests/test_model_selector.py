@@ -1,5 +1,5 @@
 """
-Tests for GH#52 — per-request model override + the /models allow-list.
+Tests: per-request model override + the /models allow-list.
 
 Covers:
   - OrchestrationAgent.__init__: `_selectable_models` construction
@@ -41,7 +41,7 @@ def _mk_agent(llm_cfg: dict, retrieval_cfg: dict | None = None):
     its `with` block before returning would un-patch ChatOpenAI before run()
     ever executes, silently constructing the REAL client instead.
 
-    Patched on llm_factory, not db_agent: since GH#65 every query-stage client
+    Patched on llm_factory, not db_agent: every query-stage client
     is built by llm_factory.build_chat_llm(), so that module is the real (and
     only) construction point. db_agent still imports ChatOpenAI, but purely as
     a type annotation.
@@ -202,7 +202,7 @@ class TestModelsEndpoint:
         fake = MagicMock()
         fake.selectable_models = ["gpt-4o-mini", "qwen/qwen3.5-122b-a10b"]
         fake.default_model = "gpt-4o-mini"
-        # GH#108: a real agent exposes this; a bare MagicMock returns a mock,
+        # A real agent exposes this; a bare MagicMock returns a mock,
         # which fails ModelsResponse validation — the fake has to mirror the
         # interface it stands in for.
         fake.model_providers = {"gpt-4o-mini": "openai",
@@ -218,7 +218,7 @@ class TestModelsEndpoint:
         assert body["default"] == "gpt-4o-mini"
 
     def test_reports_which_provider_serves_each_model(self):
-        """GH#108: the picker shows it, so a user can tell a direct-OpenAI
+        """The picker shows it, so a user can tell a direct-OpenAI
         choice from one routed through a gateway."""
         with patch.object(api_main, "_get_agent", return_value=self._fake_agent()):
             body = self._client().get("/models").json()
@@ -240,7 +240,7 @@ class TestValidateModel:
         agent = MagicMock(selectable_models=["gpt-4o-mini", "gpt-4o"])
         assert api_main._validate_model("gpt-4o", agent) == "gpt-4o"
 
-    # GH#58: a well-formed model id outside `selectable_models` is now
+    # A well-formed model id outside `selectable_models` is now
     # accepted — the frontend's picker offers free-text "Custom…" entry, and
     # this is a shape check (reject garbage), not an allow-list (restrict
     # models). Matches backend/eval/bird.py::resolve_model's warn-not-block

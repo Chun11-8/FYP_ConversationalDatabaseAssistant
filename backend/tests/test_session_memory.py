@@ -1,5 +1,5 @@
 """
-Tests for backend/memory/session_memory.py (Issue #3).
+Tests for backend/memory/session_memory.py.
 
 RAM-mode tests run everywhere. The PostgreSQL integration tests run only when a
 live database is reachable (they are skipped otherwise) and prove durability —
@@ -116,7 +116,7 @@ class TestRamMode:
         assert t2 is not None and t1 is not None
         assert t2 > t1
 
-    # ── The Issue #3 acceptance scenario, at the memory layer ──────────────
+    # ── The multi-turn scenario, at the memory layer ──────────────
     def test_two_turn_context_preserved(self):
         """'show 5 players' then 'now only the top 3' — turn 2 must see turn 1."""
         mem = SessionMemory()

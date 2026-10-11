@@ -1,5 +1,5 @@
 """
-Tests for backend/memory/semantic_cache.py (Issue #4).
+Tests for backend/memory/semantic_cache.py.
 
 The disabled-mode tests run everywhere. The pgvector tests run only when a live
 PostgreSQL is reachable; they use a deterministic bag-of-words fake embedder so
@@ -57,12 +57,12 @@ class TestHelpersAndDisabled:
         cache.add_feedback(turn_id=1, session_id="s", rating="down")
         assert cache.retrieve_pairs("q") == []
         assert cache.retrieve_few_shots("q") == []
-        # Issue #7/GH#8 schema-change cascade: also a safe no-op when disabled.
+        # schema-change cascade: also a safe no-op when disabled.
         assert cache.archive_pairs_referencing_table("players") == 0
         assert cache.demote_pairs_referencing_table("players") == 0
 
 
-# ── literal-aware matching (GH#63) ───────────────────────────────────────────
+# ── literal-aware matching ───────────────────────────────────────────
 
 class TestDiscriminativeLiterals:
 
@@ -118,7 +118,7 @@ class TestLiteralsConflict:
 
 class TestSavePairLiteralDedupOffline:
     """
-    GH#63 write path: dedup_distance (0.05) is WIDER than the read-side hit
+    Write path: dedup_distance (0.05) is WIDER than the read-side hit
     threshold (0.03), so without a literal guard saving the 2014 pair would
     UPDATE the 2013 row in place and the cache could only ever hold one.
     """
@@ -163,7 +163,7 @@ class TestSavePairLiteralDedupOffline:
 # ── schema-change cascade — offline (mocked connection) ──────────────────────
 
 class TestSchemaChangeCascadeOffline:
-    """Issue #7/GH#8: verifies the SQL issued and result plumbing without a
+    """Verifies the SQL issued and result plumbing without a
     live database — the pgvector-gated class below exercises it for real."""
 
     def _cache_with_mock_conn(self, rowcount: int):
@@ -344,7 +344,7 @@ class TestSemanticCachePg:
             _cleanup(gid)
 
     def test_year_variants_coexist_instead_of_overwriting(self, cache, gid):
-        """GH#63 acceptance criterion, against a real pgvector index."""
+        """Literal-aware cache matching, against a real pgvector index."""
         q13 = "How much did customer 6 consume between August and November 2013?"
         q14 = q13.replace("2013", "2014")
         cache.save_pair(q13, "SELECT 13", group_id=gid)

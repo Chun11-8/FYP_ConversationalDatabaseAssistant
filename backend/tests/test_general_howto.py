@@ -1,5 +1,5 @@
 """
-Tests for GH#138 — "how do I …?" questions about write operations.
+Tests for "how do I …?" questions about write operations.
 
 The project claims it answers two kinds of question: those answered FROM the
 data, and those answered ABOUT the database, explaining how an operation would
@@ -61,8 +61,8 @@ class TestIntentRoutingIsByPhrasing:
 
     These assert against OrchestrationAgent.INTENT_PROMPT — the string actually
     sent to the model (db_agent.py:792) — and NOT against a helper that returns
-    the same text. GH#138 edited a `_intent_system_prompt()` method that nothing
-    called, so the tests passed while the running classifier was unchanged and
+    the same text. An earlier change edited an `_intent_system_prompt()` method
+    that nothing called, so the tests passed while the running classifier was unchanged and
     kept blocking how-to questions. The prompt lives in prompt.md under
     [SECTION: ORCHESTRATION_AGENT]; that dead method has been removed.
     """
@@ -187,7 +187,7 @@ class TestWriteInstructionsStayBlocked:
 
 class TestGeneralSeesTheSchema:
     """
-    GH#139: "How do I add a column to the customer table?" is only answerable
+    "How do I add a column to the customer table?" is only answerable
     ABOUT THIS DATABASE if the answer can see `customer`. Without it the model
     returns correct generic DDL that may contradict the real table — proposing
     a column that already exists, or a NOT NULL default on a populated one.

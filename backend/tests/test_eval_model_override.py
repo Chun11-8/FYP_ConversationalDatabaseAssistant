@@ -1,5 +1,5 @@
 """
-Tests for the eval-CLI --model override (companion to GH#52's frontend/API
+Tests for the eval-CLI --model override (companion to the frontend/API
 model picker): backend/eval/bird.py::resolve_model, its reuse from
 run_eval.py's model= passthrough into agent.run(), and that
 each CLI's argparse actually accepts --model.

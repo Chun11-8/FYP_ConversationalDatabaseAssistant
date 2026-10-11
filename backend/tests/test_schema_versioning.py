@@ -1,5 +1,5 @@
 """
-Tests for the Schema Versioning Layer (Issue #7 / GH#8).
+Tests for the Schema Versioning Layer.
 
 Covers the pure diff/hash functions, the check()/sync() orchestration with all
 DB/embedding boundaries mocked, and the /schema/diff + /schema/sync endpoints.
@@ -148,12 +148,12 @@ class TestAgentOrchestration:
         assert out["demoted_pairs"] == {}
 
 
-# ── semantic-cache cascade (Issue #7/GH#8) ──────────────────────────────────────
+# ── semantic-cache cascade ──────────────────────────────────────
 
 class TestCacheCascade:
     """Change Classifier: a dropped table archives its cached pairs (not
     deleted); a modified/dropped column demotes their confidence — the
-    acceptance criterion for GH#8 ('dropping a table archives its pairs')."""
+    requirement ('dropping a table archives its pairs')."""
 
     def _agent(self):
         a = SchemaVersioningAgent(db_name="FYP")

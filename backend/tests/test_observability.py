@@ -1,5 +1,5 @@
 """
-Tests for GH#42: per-stage timings, request-ID correlation, banner gating,
+Tests: per-stage timings, request-ID correlation, banner gating,
 and /metrics-lite. All offline.
 """
 

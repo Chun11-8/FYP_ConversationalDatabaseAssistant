@@ -94,7 +94,7 @@ def resolve_model(cli_value: Optional[str], config: dict) -> str:
 
 # ── Schema extraction ──────────────────────────────────────────────────────────
 
-# Value-grounding limits (Issue #19): show the actual distinct values of a
+# Value-grounding limits: show the actual distinct values of a
 # low-cardinality TEXT column so the model maps phrases like "medium" to the exact
 # stored value 'Medium'. Columns with too many distinct values, or values that are
 # too long (free text), are skipped to keep the schema context tight.
@@ -138,14 +138,14 @@ def _distinct_values(cursor, table: str, col: str) -> Optional[List[str]]:
     return values or None
 
 
-# GH#126: extracted schemas, keyed by database file. A schema cannot change
+# Extracted schemas, keyed by database file. A schema cannot change
 # during a run, and extraction is expensive — see cached_sqlite_schema().
 _SCHEMA_CACHE: Dict[str, str] = {}
 
 
 def cached_sqlite_schema(db_path: str) -> str:
     """
-    :func:`extract_sqlite_schema`, computed once per database file (GH#126).
+    :func:`extract_sqlite_schema`, computed once per database file.
 
     Extraction is not cheap. Value grounding issues
     ``SELECT DISTINCT col FROM table LIMIT 2001`` for every text column, and
@@ -184,7 +184,7 @@ def extract_sqlite_schema(db_path: str) -> str:
     suitable for passing to SQLCodeAgent and SQLValidatorAgent.
 
     For low-cardinality TEXT columns the actual distinct values are appended
-    (Issue #19) so the model can map question phrases to exact stored values.
+    so the model can map question phrases to exact stored values.
 
     Callers in the evaluation loop should use :func:`cached_sqlite_schema`.
     """
@@ -240,7 +240,7 @@ def extract_sqlite_schema(db_path: str) -> str:
         conn.close()
 
 
-# ── Gold-dialect preflight (GH#131) ───────────────────────────────────────────
+# ── Gold-dialect preflight ───────────────────────────────────────────
 
 # Functions that exist in SQLite and NOT in PostgreSQL. Verified against a live
 # PostgreSQL 16 server rather than from memory: each of these raises
@@ -252,7 +252,7 @@ _SQLITE_ONLY = (
 )
 
 # The MIRROR: constructs in BIRD's PostgreSQL gold that SQLite cannot run.
-# GH#134 — the original guard only checked one direction, and the unguarded
+# The original guard only checked one direction, and the unguarded
 # direction is the more dangerous one, because run_all_models defaults
 # --dev-json to the PostgreSQL file. `--engine sqlite` without an explicit
 # --dev-json therefore paired SQLite with PostgreSQL gold and said nothing.
@@ -267,7 +267,7 @@ _POSTGRES_ONLY = (
 
 def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
     """
-    Gold SQL that cannot run on *engine*, as human-readable strings (GH#131).
+    Gold SQL that cannot run on *engine*, as human-readable strings.
 
     BIRD ships two question files: mini_dev_sqlite.json and
     mini_dev_postgresql.json, differing in the dialect of the `SQL` field.
@@ -304,7 +304,7 @@ def gold_dialect_problems(questions: List[Dict], engine: str) -> List[str]:
     return problems
 
 
-# ── Question selection (GH#120) ───────────────────────────────────────────────
+# ── Question selection ───────────────────────────────────────────────
 
 SAMPLE_STRATEGIES = ("head", "random", "stratified")
 
@@ -318,9 +318,9 @@ def select_questions(
     seed: int = 42,
 ) -> List[Dict]:
     """
-    Apply the filters, then take `subset` questions by `strategy` (GH#120).
+    Apply the filters, then take `subset` questions by `strategy`.
 
-    Filters run FIRST and `subset` LAST (GH#116): the other order would take
+    Filters run FIRST and `subset` LAST: the other order would take
     the first N questions and then narrow them, so `--db-id x --subset 20`
     would evaluate however few of those 20 happened to belong to x — usually
     none, because dev.json is grouped by database.
@@ -331,7 +331,7 @@ def select_questions(
     with no --db-id reads as an overall score and is really a
     debit_card_specializing score. The strategies:
 
-      head        the file's own order. The pre-GH#120 behaviour, kept as the
+      head        the file's own order. The original behaviour, kept as the
                   DEFAULT so existing result files stay reproducible.
       random      a seeded shuffle before slicing — a genuine mix of domains,
                   though with 11 databases a small subset may miss some.
@@ -418,7 +418,7 @@ def select_questions(
     return picked[:subset]
 
 
-# ── Per-question wall-clock budget (GH#119) ───────────────────────────────────
+# ── Per-question wall-clock budget ───────────────────────────────────
 
 class _QuestionTimeout(Exception):
     """One question's LLM work ran past its wall-clock budget."""
@@ -427,7 +427,7 @@ class _QuestionTimeout(Exception):
 class _Budget:
     """
     A wall-clock ceiling for one question, so a stalled call cannot hold the
-    whole run (GH#119).
+    whole run.
 
     A per-REQUEST timeout would not give the same guarantee: a moderate
     question makes roughly ten LLM calls, so a run can crawl for many minutes
@@ -638,7 +638,7 @@ def compute_bird_metrics(results: List[Dict]) -> Dict[str, Any]:
         "VES": round(ves_score, 2),
         "gold_errors": gold_errors,
         "EX_winnable": ex_winnable,
-        # GH#119: abandoned questions are scored 0 and stay in the denominator,
+        # Abandoned questions are scored 0 and stay in the denominator,
         # so a run with a non-zero count here UNDERSTATES the model. Surfaced
         # as its own number because the alternative — noticing it in the
         # error_categories dict — is how a slow run gets mistaken for a bad one.
@@ -748,7 +748,7 @@ def select_by_execution(
         info["fallback_reason"] = None
         return sqls[0], info
 
-    # Tie-break 2 (Issue #27): soft-F1 consensus. A tied group whose rows overlap
+    # Tie-break 2: soft-F1 consensus. A tied group whose rows overlap
     # the OTHER executed candidates most is likelier partially-correct than a
     # disjoint outlier. Vote-weighted; requires a STRICT max — fully disjoint
     # ties (all overlaps 0) still fall through to the text reranker.
@@ -789,7 +789,7 @@ def _verification_for(
     dialect: str = "sqlite",
 ) -> Dict[str, Any]:
     """
-    GH#103: the live pipeline's verification block, assembled for one BIRD
+    The live pipeline's verification block, assembled for one BIRD
     question so the detector can be scored against ground truth.
 
     Deterministic checks always run; they cost nothing. The back-translation
@@ -878,14 +878,14 @@ def run_bird_eval(
     subset           : if set, evaluate only the first N questions — applied
                        LAST, so it slices what the filters already selected
     difficulty_filter: if set, restrict to "simple", "moderate", or "challenging"
-    db_filter        : if set, restrict to one db_id (GH#116), e.g.
+    db_filter        : if set, restrict to one db_id, e.g.
                        "debit_card_specializing"
     linker           : optional SchemaLinkingAgent — when provided, a structured
-                       query plan is produced and fed into generation (Issue #17)
+                       query plan is produced and fed into generation
     exec_voting      : when True, candidates are selected by executing them and
                        plurality-voting on result fingerprints; the text reranker
                        only breaks ties (Tier 3, item 8)
-    judge_llm        : GH#103 — when given, the winning SQL is read back into
+    judge_llm        : when given, the winning SQL is read back into
                        plain English and compared with the question, and the
                        result is stored in the record's `verification` block.
                        None records the deterministic checks only.
@@ -893,14 +893,14 @@ def run_bird_eval(
                        failure (invalid SQL, execution error, or 0 rows); the
                        refined SQL is kept only when it is strictly better
     timeout          : per-query SQLite execution timeout in seconds
-    question_timeout : GH#119 — wall-clock ceiling in seconds for ONE question's
+    question_timeout : wall-clock ceiling in seconds for ONE question's
                        LLM work. On expiry the question is abandoned and scored
                        0, and the loop moves to the next one. 0 or None disables
                        it. This is NOT the same guard as `timeout`, which
                        bounds one SQLite execution: a question makes roughly
                        ten LLM calls, so a run can stall without any single
                        request being slow on its own.
-    sample           : GH#120 — how `subset` picks its questions: "head" (the
+    sample           : how `subset` picks its questions: "head" (the
                        file's order, the default and the old behaviour),
                        "random", or "stratified" (proportional across db_id).
                        dev.json is grouped by database, so "head" with no
@@ -908,7 +908,7 @@ def run_bird_eval(
     seed             : RNG seed for "random" and "stratified", so a subset is
                        reproducible
     """
-    # GH#129: an engine is a property of the RUN. Defaulting here keeps every
+    # An engine is a property of the RUN. Defaulting here keeps every
     # existing caller (and every test) on SQLite unless it asks otherwise.
     if backend is None:
         backend = make_backend("sqlite", db_dir=db_dir)
@@ -925,7 +925,7 @@ def run_bird_eval(
             difficulty_filter, db_filter)
     logger.info(f"[BIRD] Starting evaluation — {total} question(s)")
 
-    # GH#120: say what was actually selected. A subset that quietly covers one
+    # Say what was actually selected. A subset that quietly covers one
     # database reads in the results file exactly like an overall score.
     dbs = sorted({str(q.get("db_id")) for q in questions})
     if subset and total < subset:
@@ -942,7 +942,7 @@ def run_bird_eval(
             "file, so this is a single-domain run, not an overall score. Use "
             "--sample stratified for a cross-domain subset.", total, dbs[0])
     if question_timeout and question_timeout > 0:
-        logger.info("[BIRD] Per-question budget: %gs (GH#119) — a question that "
+        logger.info("[BIRD] Per-question budget: %gs — a question that "
                     "overruns is scored 0, not dropped", question_timeout)
 
     results: List[Dict] = []
@@ -956,7 +956,7 @@ def run_bird_eval(
         db_id: str = item["db_id"]
         difficulty: str = item.get("difficulty", "unknown")
         budget = _Budget(question_timeout)
-        # GH#126: announce the question BEFORE the work, not only after it.
+        # Announce the question BEFORE the work, not only after it.
         # Everything a question does — schema, linking, n candidates, voting,
         # refine — was silent until the result line, so a slow question and a
         # hung one looked identical. The tier is on this line because it sets
@@ -994,10 +994,10 @@ def run_bird_eval(
             if evidence.strip()
             else question
         )
-        # Schema-linking & question-understanding (Issue #17): produce a
+        # Schema-linking & question-understanding: produce a
         # structured plan first so generation follows resolved tables/joins.
         query_plan = None
-        # GH#57: account this question's LLM tokens/cost separately.
+        # Account this question's LLM tokens/cost separately.
         q_usage = usage_tracking.start_request()
         if linker is not None:
             try:
@@ -1048,7 +1048,7 @@ def run_bird_eval(
 
             def _generate() -> Tuple[str, Optional[Dict[str, Any]]]:
                 sqls = _gen(query_plan)
-                # GH#76: candidates from a SECOND plan that disagrees on grain
+                # Candidates from a SECOND plan that disagrees on grain
                 # or aggregation. Every candidate otherwise descends from one
                 # plan, so voting confirms that plan rather than testing it.
                 if plan_diversity and linker is not None and query_plan:
@@ -1180,7 +1180,7 @@ def run_bird_eval(
         else:
             ex = f1 = ves_reward = 0.0
 
-        # GH#103: the same evidence the live pipeline shows the user, stored
+        # The same evidence the live pipeline shows the user, stored
         # so trust_eval can score the detector against ground truth. Computed
         # here rather than reconstructed later because the executed ROWS and
         # the schema context exist only at this point — five of the ten checks
@@ -1292,7 +1292,7 @@ def _timeout_record(
     tracker: Any = None,
 ) -> Dict[str, Any]:
     """
-    A question abandoned on its wall-clock budget (GH#119).
+    A question abandoned on its wall-clock budget.
 
     Deliberately NOT ``_error_record``. That one reports through ``gold_error``,
     which means "this question is unwinnable — the BIRD gold SQL itself does
@@ -1340,7 +1340,7 @@ def write_results(
     """
     Write per-question results + aggregate metrics to `output_path` (stable name,
     overwritten each run) AND to a versioned sibling
-    `bird_<UTCstamp>_EX<score>.json` so A/B history is never lost (Issue #27).
+    `bird_<UTCstamp>_EX<score>.json` so A/B history is never lost.
     `run_config` embeds the knobs that produced the run for reproducibility.
     """
     out = Path(output_path)
@@ -1387,7 +1387,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="SQLite execution timeout per query in seconds (default: 30)")
     parser.add_argument("--engine", choices=ENGINES, default="postgres",
-                        help="Where the SQL runs (GH#129). 'postgres' is the "
+                        help="Where the SQL runs. 'postgres' is the "
                              "default and expects BIRD's PostgreSQL dump loaded "
                              "into ONE database, with mini_dev_postgresql.json "
                              "as --dev-json. 'sqlite' is the original path and "
@@ -1403,7 +1403,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--pg-schema", default="public",
                         help="PostgreSQL schema holding the tables (default: public)")
     parser.add_argument("--sample", choices=SAMPLE_STRATEGIES, default="head",
-                        help="GH#120: how --subset picks questions. dev.json is "
+                        help="How --subset picks questions. dev.json is "
                              "GROUPED BY DATABASE, so 'head' (the default, and "
                              "the original behaviour) slices the front of the "
                              "file and returns ONE database's questions. Use "
@@ -1414,7 +1414,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="RNG seed for --sample random/stratified, so a "
                              "subset is reproducible (default: 42)")
     parser.add_argument("--question-timeout", type=float, default=60.0,
-                        help="GH#119: wall-clock budget in seconds for ONE "
+                        help="Wall-clock budget in seconds for ONE "
                              "question's LLM work; on expiry the question is "
                              "abandoned, SCORED 0 (it stays in the denominator) "
                              "and the run moves on. 0 disables. Distinct from "
@@ -1422,20 +1422,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                              "this bounds a whole question's LLM work. "
                              "Default: 60")
     parser.add_argument("--no-schema-linking", action="store_true",
-                        help="Disable the schema-linking stage (#17) for A/B comparison")
+                        help="Disable the schema-linking stage for A/B comparison")
     parser.add_argument("--no-exec-voting", action="store_true",
                         help="Disable execution-guided candidate voting for A/B comparison")
     parser.add_argument("--no-refine", action="store_true",
                         help="Disable the one-round ReAct refine on failure for A/B comparison")
     parser.add_argument("--model", default=None,
                         help="Override config.yaml's llm.model for this run (any model id)")
-    # GH#136 ablation switches. Each is tri-state: unset keeps the config
+    # Ablation switches. Each is tri-state: unset keeps the config
     # value, so a run that names none of them reproduces config.yaml exactly.
     # Every one is recorded in run_config — an ablation whose arm cannot be
     # read back off the results file is not an ablation.
     parser.add_argument("--path-diversity", dest="path_diversity",
                         action="store_true", default=None,
-                        help="GH#48: replace two direct candidates with a "
+                        help="Replace two direct candidates with a "
                              "divide-and-conquer and a query-plan-CoT one "
                              "(moderate/challenging). Overrides sql.path_diversity.")
     parser.add_argument("--no-path-diversity", dest="path_diversity",
@@ -1445,11 +1445,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Override the per-tier candidate count "
                              "(sql.candidates_by_tier) for this run.")
     parser.add_argument("--plan-diversity", action="store_true",
-                        help="GH#76: ask the linker for a SECOND plan that "
+                        help="Ask the linker for a SECOND plan that "
                              "disagrees on grain/aggregation and generate from "
                              "both. Default off — run WITH and WITHOUT to A/B.")
     parser.add_argument("--trust-eval", action="store_true",
-                        help="GH#103: read the winning SQL back into plain "
+                        help="Read the winning SQL back into plain "
                              "English and compare it with the question, storing "
                              "the result in each record's verification block. "
                              "Two extra LLM calls per question — it is the judge "
@@ -1462,14 +1462,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--judge-base-url", default=None,
                         help="OpenAI-compatible endpoint for --judge-model.")
     parser.add_argument("--plan-rationale", action="store_true",
-                        help="GH#76: make the linker name the answer's grain and "
+                        help="Make the linker name the answer's grain and "
                              "justify the aggregate against the evidence.")
     parser.add_argument("--base-url", default=None,
                         help="OpenAI-COMPATIBLE endpoint to benchmark against, e.g. "
                              "https://openrouter.ai/api/v1 or http://localhost:11434/v1. "
                              "Overrides $LLM_BASE_URL and config llm.base_url; "
                              "omit for OpenAI. Lets one BIRD run target Llama, "
-                             "DeepSeek, Qwen, Mistral etc. (GH#65)")
+                             "DeepSeek, Qwen, Mistral etc.")
     args = parser.parse_args(argv)
 
     from backend.config.config_loader import load_config
@@ -1483,7 +1483,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     config = load_config()
 
-    # ── Engine (GH#129) ──────────────────────────────────────────────────────
+    # ── Engine ──────────────────────────────────────────────────────
     # The dialect the agents target must be the dialect the rows come from.
     # Deriving it from the backend rather than hard-coding "sqlite" is what
     # lets one harness serve both without a second code path.
@@ -1530,7 +1530,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Recorded in the run header: the same model id served by two providers can
     # differ in weights, quantisation and sampling defaults, so a benchmark
     # number without its endpoint is not reproducible.
-    # GH#108: with no explicit --base-url, the model's own routing applies, so
+    # With no explicit --base-url, the model's own routing applies, so
     # `--model deepseek/deepseek-v4-flash` reaches OpenRouter without the
     # caller repeating the endpoint. An explicit --base-url still wins, which
     # is what benchmarking an id the config has never heard of needs.
@@ -1540,7 +1540,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                  api_key=resolve_api_key(config, None))
     logger.info("[EVAL] target → %s", describe_target(target.model, target.base_url))
 
-    # GH#117: fail here, not 150 times. A model id that is not EXACTLY an entry
+    # Fail here, not 150 times. A model id that is not EXACTLY an entry
     # in llm.selectable_models carries no provider tag, so it is sent to
     # OpenAI — which rejects a gateway slug with "invalid model ID" on every
     # question while the run keeps going and keeps billing. Caught before the
@@ -1580,14 +1580,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "ON" if use_voting else "OFF", "ON" if use_refine else "OFF",
                 sql_agent.top_k)
 
-    # GH#103: judging with the generator's own model measures self-agreement;
+    # Judging with the generator's own model measures self-agreement;
     # a second provider is what the literature reports reaching 0.82 AUROC.
     judge_llm = None
     if args.trust_eval:
         judge_model = args.judge_model or model_name
-        # GH#106/#108. Three cases, in order:
+        # Three cases, in order:
         #   --judge-base-url given  → it wins outright;
-        #   --judge-model given     → that model's own routing (GH#108), which
+        #   --judge-model given     → that model's own routing, which
         #                             is how a cross-provider judge is reached
         #                             without repeating the endpoint;
         #   neither                 → the generator's own target, i.e. a
@@ -1608,7 +1608,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.info("[BIRD] trust eval: ON | judge → %s",
                     describe_target(judge_model, judge_target.base_url))
 
-    # GH#131: stop before spending anything if the gold cannot run on this
+    # Stop before spending anything if the gold cannot run on this
     # engine. Inside the loop this would be worthless — every question would
     # already have been generated and paid for.
     gold_problems = gold_dialect_problems(load_dev_json(args.dev_json), args.engine)
@@ -1650,7 +1650,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     metrics = compute_bird_metrics(results)
     run_config = {
         "model": model_name,
-        # GH#65: without the endpoint a cross-provider comparison isn't
+        # Without the endpoint a cross-provider comparison isn't
         # attributable — the same id can be served with different weights,
         # quantisation or sampling defaults.
         "base_url": base_url or "openai-default",
@@ -1670,7 +1670,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "exec_voting": use_voting,
         "refine": use_refine,
         "n_candidates": sql_agent.top_k,
-        # GH#127: top_k is the BASE count. With adaptive prompting on, the tier
+        # top_k is the BASE count. With adaptive prompting on, the tier
         # overrides it (sql.candidates_by_tier), so a challenging run recorded
         # "5" while actually generating 7 — the number that drove the run was
         # not in the file, and two runs at different counts looked identical.
@@ -1683,10 +1683,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "subset": args.subset,
         "difficulty": args.difficulty,
         "db_id": args.db_id,
-        # GH#119: recorded because it can CHANGE the score — two runs at
+        # Recorded because it can CHANGE the score — two runs at
         # different budgets are not comparable if either one abandoned work.
         "question_timeout": args.question_timeout,
-        # GH#120: which questions a subset actually contained. Without these
+        # Which questions a subset actually contained. Without these
         # two, a results file cannot be re-derived or even interpreted — the
         # same --subset 20 means a different 20 under a different strategy.
         "sample": args.sample,

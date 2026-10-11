@@ -1,5 +1,5 @@
 """
-Tests for Issue #27/GH#44: error telemetry, experiment tracking, F1-overlap
+Tests: error telemetry, experiment tracking, F1-overlap
 tie-break, and difficulty-adaptive prompting. All offline (mocked LLM/tmp SQLite).
 
 Run from repo root:
@@ -141,7 +141,7 @@ class TestAdaptivePrompting:
 
     def _agent(self, adaptive=True):
         # path_diversity off: these tests pin the TIER block / candidate count
-        # of the direct prompt; GH#48 fan-out is covered in
+        # of the direct prompt; path-diversity fan-out is covered in
         # test_path_diversity_selection.py.
         cfg = {"db": {"dialect": "sqlite"},
                "sql": {"n_candidates": 5, "adaptive_prompting": adaptive,
@@ -194,7 +194,7 @@ class TestAdaptivePrompting:
         assert "STRATEGY (" not in self._sent(a)
 
 
-# ── live effort tier (GH#85: fixed, not inferred) ────────────────────────────
+# ── live effort tier ────────────────────────────
 
 class TestLiveTier:
     """

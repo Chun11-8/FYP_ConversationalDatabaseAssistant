@@ -1,5 +1,5 @@
 """
-llm_factory.py — one place that builds a query-stage chat client (GH#65).
+llm_factory.py — one place that builds a query-stage chat client.
 
 Every chat call in this project goes through ``langchain_openai.ChatOpenAI``,
 which means any provider exposing an **OpenAI-compatible** endpoint works by
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Env var wins over config so a benchmark run can retarget a provider without
 # editing config.yaml — mirrors how the eval CLIs already treat --model.
 _BASE_URL_ENV = "LLM_BASE_URL"
-# GH#106: the key for the QUERY-STAGE provider. Env-only — config.yaml must
+# The key for the QUERY-STAGE provider. Env-only — config.yaml must
 # never hold a secret. Unset falls back to OPENAI_API_KEY, so the default
 # OpenAI path is unchanged.
 _API_KEY_ENV = "LLM_API_KEY"
@@ -67,7 +67,7 @@ def resolve_api_key(config: Optional[dict] = None,
                     cli_value: Optional[str] = None,
                     env_var: str = _API_KEY_ENV) -> Optional[str]:
     """
-    The API key for the query-stage provider (GH#106).
+    The API key for the query-stage provider.
 
     Precedence: explicit value → ``$LLM_API_KEY`` → ``llm.api_key`` (which
     config_loader fills from ``OPENAI_API_KEY``).
@@ -91,7 +91,7 @@ def resolve_api_key(config: Optional[dict] = None,
 def resolve_judge_api_key(config: Optional[dict] = None,
                           cli_value: Optional[str] = None) -> Optional[str]:
     """
-    The key for the back-translation judge (GH#106), so the judge can run on a
+    The key for the back-translation judge, so the judge can run on a
     different provider from the generator — the configuration the literature
     reports at 0.82 AUROC against 0.72–0.78 for a single judge.
 
@@ -103,7 +103,7 @@ def resolve_judge_api_key(config: Optional[dict] = None,
     return resolve_api_key(config)
 
 
-# ── per-model routing (GH#108) ───────────────────────────────────────────────
+# ── per-model routing ───────────────────────────────────────────────
 
 class ModelTarget(NamedTuple):
     """Where one model id is served, and how to call it."""
@@ -137,7 +137,7 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
                          default_base_url: Optional[str] = None,
                          default_api_key: Optional[str] = None) -> ModelTarget:
     """
-    The endpoint, key and call kwargs for ONE model id (GH#108).
+    The endpoint, key and call kwargs for ONE model id.
 
     This is what lets a single deployment serve OpenAI and OpenRouter models
     side by side: the sidebar picker changes the provider implicitly, because
@@ -152,7 +152,7 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
 
     *api_key* is a BRING-YOUR-OWN key for this one request, and only that. It
     overrides the provider's key, because a user supplying their own
-    credential means it. Passing the process default here instead (GH#112)
+    credential means it. Passing the process default here instead
     defeated routing entirely: every construction site handed over the OpenAI
     key, so a provider-tagged model was called at the right endpoint with the
     wrong credential and 401'd — while check_models, which passes nothing,
@@ -187,7 +187,7 @@ def resolve_model_target(model: str, config: Optional[dict] = None,
         key = api_key or resolve_api_key(config) or default_api_key
         label = "openai" if base_url is None else "via base_url"
 
-    # GH#117: a namespaced id reaching OpenAI is always a mistake. OpenAI's
+    # A namespaced id reaching OpenAI is always a mistake. OpenAI's
     # own ids never contain "/", so "vendor/model" here means the entry is
     # missing from llm.selectable_models, or is spelled differently there —
     # and the request will come back "invalid model ID" from a provider that

@@ -1,5 +1,5 @@
 """
-Tests for GH#49 — M-Schema schema-chunk format (XiYan-SQL) and its
+Tests: M-Schema schema-chunk format (XiYan-SQL) and its
 compatibility with the downstream grain-demotion + identifier-reconciliation
 passes that parse the schema context. All offline.
 

@@ -23,11 +23,11 @@ export interface TextMessage extends BaseMessage {
   turn_id?: number | null;
   /** Answered from the semantic cache (no generation) */
   cache_hit?: boolean;
-  /** LLM tokens + estimated cost for this turn (GH#57) */
+  /** LLM tokens + estimated cost for this turn */
   usage?: TurnUsage | null;
-  /** GH#114: endpoint that served this turn — "openai", "openrouter", … */
+  /** endpoint that served this turn — "openai", "openrouter", … */
   provider?: string | null;
-  /** How this answer was arrived at (GH#67) — evidence, not a verdict */
+  /** How this answer was arrived at — evidence, not a verdict */
   verification?: TurnVerification | null;
   /** Feedback the user submitted for this message ('up' | 'down' | null) */
   feedback?: 'up' | 'down' | null;
@@ -45,7 +45,7 @@ export interface TurnUsage {
     output_tokens: number;
     est_cost_usd: number;
   }>;
-  /** GH#114: the model(s) this turn actually billed against, in call order */
+  /** the model(s) this turn actually billed against, in call order */
   models?: string[];
   /**
    * False when a rate is missing for at least one model, in which case
@@ -58,7 +58,7 @@ export interface TurnUsage {
 }
 
 /**
- * Evidence about how the winning SQL was chosen (GH#67).
+ * Evidence about how the winning SQL was chosen.
  *
  * Deliberately facts, not a confidence verdict: nothing has yet established
  * that agreement predicts correctness (that is the calibration study), and a
@@ -92,24 +92,24 @@ export interface TurnVerification {
   refine_rounds?: number;
   validated?: boolean;
   validation_checks?: Record<string, boolean>;
-  /** Gold-free risk flags on the executed result (GH#69) */
+  /** Gold-free risk flags on the executed result */
   risks?: TurnRisk[];
   /** Severity-weighted flag count. A ranking aid, NOT a probability. */
   risk_score?: number;
-  /** GH#89: this turn was answered without the conversation — it was about
+  /** this turn was answered without the conversation — it was about
    *  a different subject from the previous one. */
   topic_switch?: boolean;
-  /** GH#91: SQL read back into plain English, and whether it matches the ask */
+  /** SQL read back into plain English, and whether it matches the ask */
   back_translation?: {
     description?: string | null;
     verdict?: 'match' | 'mismatch' | 'unknown';
     reason?: string | null;
   } | null;
-  /** GH#91: the verdict, derived from everything above */
+  /** the verdict, derived from everything above */
   trust?: TurnTrust | null;
 }
 
-/** One check that was run on this answer (GH#91). */
+/** One check that was run on this answer. */
 export interface TrustGate {
   id: string;
   label: string;
@@ -170,7 +170,7 @@ export interface SchemaTable {
   table_name: string;
   column_count: number;
   columns: SchemaColumn[];
-  /** Logical database (BIRD db_id) owning this table (GH#83); null if untagged */
+  /** Logical database (BIRD db_id) owning this table; null if untagged */
   domain?: string | null;
 }
 

@@ -1,5 +1,5 @@
 """
-schema_linking_agent.py — Schema-Linking & Question-Understanding Agent (Issue #17)
+schema_linking_agent.py — Schema-Linking & Question-Understanding Agent
 
 Runs BEFORE SQL generation. It reads the schema, any <domain_context> evidence,
 and the user question, then emits a STRUCTURED PLAN that the SQL generator
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 PLAN_KEYS = (
     "target", "tables", "join_path", "filters", "evidence_predicates",
     "evidence_formula", "aggregation", "group_by", "having", "order_by", "set_op",
-    # GH#76: 52% of the failures that had the right tables AND joins differed
+    # 52% of the failures that had the right tables AND joins differed
     # from gold only in which aggregate was applied, and 100% of them carried
     # evidence describing the computation. Naming the grain and justifying the
     # aggregate forces that evidence to be applied rather than paraphrased.
@@ -68,7 +68,7 @@ def _extract_json(raw: str) -> Optional[dict]:
     if not raw:
         return None
 
-    # GH#65: a reasoning model's think block routinely contains braces, which
+    # A reasoning model's think block routinely contains braces, which
     # makes the outermost-{...} fallback below span both the reasoning and the
     # answer and fail to parse — losing the query plan silently.
     raw = strip_reasoning(raw)
@@ -136,10 +136,10 @@ def render_query_plan(plan: Optional[dict]) -> str:
     add_list("join_path")
     add_list("filters")
     add_list("evidence_predicates")
-    # GH#49 P5 (TA-SQL): the evidence formula is transcribed, never paraphrased.
+    # TA-SQL: the evidence formula is transcribed, never paraphrased.
     if _is_set(plan.get("evidence_formula")):
         lines.append(f"evidence_formula (COPY VERBATIM): {plan['evidence_formula']}")
-    # GH#76: grain is rendered BEFORE the aggregate deliberately — "the highest
+    # Grain is rendered BEFORE the aggregate deliberately — "the highest
     # monthly X" means one row per month, summed, then the largest, and stating
     # the row unit first is what stops MAX() over raw rows.
     add_scalar("grain")
@@ -190,11 +190,11 @@ class SchemaLinkingAgent:
     def __init__(self, config: dict, llm: ChatOpenAI, rationale: bool = False):
         self.llm = llm
         self.dialect = config.get("db", {}).get("dialect", "postgres")
-        # GH#76, default OFF: changes what the planner emits, so its effect on
+        # Default OFF: changes what the planner emits, so its effect on
         # accuracy is a hypothesis until the BIRD ablation is run.
         self.rationale = bool(rationale)
 
-    # GH#76 Fix 1: a SECOND reading of the same question, differing on the one
+    # A SECOND reading of the same question, differing on the one
     # dimension that causes 52% of the structurally-correct failures. Not a
     # "try again" — an instruction to disagree, so execution voting receives
     # decorrelated inputs instead of N restatements of one guess.
@@ -223,7 +223,7 @@ class SchemaLinkingAgent:
     ) -> Optional[dict]:
         """
         An alternative plan disagreeing with ``first_plan`` on grain or
-        aggregation (GH#76). None when planning fails, or when the alternative
+        aggregation. None when planning fails, or when the alternative
         came back identical — in which case there is nothing to diversify and
         the caller should not spend candidates on it.
         """

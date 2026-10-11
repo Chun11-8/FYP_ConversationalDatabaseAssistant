@@ -1,5 +1,5 @@
 """
-Tests for GH#79 — the assistant's own tables must never be indexed or scanned
+Tests: the assistant's own tables must never be indexed or scanned
 as user data. All offline: the DB boundary is faked.
 
 Run from repo root:

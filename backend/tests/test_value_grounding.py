@@ -1,5 +1,5 @@
 """
-Tests for value grounding in the schema context (Issue #19).
+Tests for value grounding in the schema context.
 
 extract_sqlite_schema() appends the actual distinct values of low-cardinality
 TEXT columns so the model can map question phrases to the exact stored value

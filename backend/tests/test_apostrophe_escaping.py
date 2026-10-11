@@ -1,5 +1,5 @@
 """
-Tests for apostrophe escaping in string literals (Issue #21).
+Tests for apostrophe escaping in string literals.
 
 A grounded value like "Women's Soccer" must appear as 'Women''s Soccer' or the SQL
 is invalid (sqlglot TokenError). Covers:
@@ -131,7 +131,7 @@ class TestGenerateEscapes:
         assert _parses(sqls[0])
 
 
-# ── validator resilience (Issue #21) ──────────────────────────────────────────
+# ── validator resilience ──────────────────────────────────────────
 
 class TestValidatorResilience:
 

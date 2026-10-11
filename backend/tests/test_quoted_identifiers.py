@@ -1,5 +1,5 @@
 """
-Tests for GH#122 — quoted identifiers in the semantic check.
+Tests: quoted identifiers in the semantic check.
 
 The validator's semantic check confirms that the tables and columns a query
 names actually appear in the schema. It guarded against partial-identifier

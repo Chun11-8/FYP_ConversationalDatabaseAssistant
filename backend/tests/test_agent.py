@@ -1,5 +1,5 @@
 """
-Tests for backend/agents/ routing and safety (Issues #9, #10, #11).
+Tests for backend/agents/ routing and safety.
 
 All tests mock LLM, schema retrieval, and SQL execution so they run offline.
 
@@ -63,7 +63,7 @@ class TestSQLValidatorSafety:
         assert result["syntax_ok"] is False
 
     def test_semantic_blocks_unknown_table_in_strict_mode(self, validator):
-        # Strict mode (default, GH #19): unknown table → INVALID so the
+        # Strict mode (default): unknown table → INVALID so the
         # regeneration fallback fires instead of executing a wrong query.
         sql = "SELECT id FROM nonexistent_table LIMIT 5"
         result = validator.validate(sql, schema_context="players(id, name)")

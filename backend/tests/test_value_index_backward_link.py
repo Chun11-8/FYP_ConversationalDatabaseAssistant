@@ -1,6 +1,6 @@
 """
-Tests for GH#49 — P3 value index (WHERE-literal grounding), P4 backward schema
-linking, P5 verbatim evidence formula, and the per-tier refine-depth quick win.
+Tests: value index (WHERE-literal grounding), backward schema linking,
+verbatim evidence formula, and per-tier refine depth.
 All offline: DB and LLM boundaries mocked.
 
 Run from repo root:
@@ -19,7 +19,7 @@ from backend.retrieval.value_index import (
 )
 
 
-# ── P3: value index ───────────────────────────────────────────────────────────
+# ── value index ───────────────────────────────────────────────────────────────
 
 class _FakeCursor:
     """information_schema + DISTINCT queries against a canned column map."""
@@ -110,7 +110,7 @@ class TestValueIndex:
         assert render_value_hints([]) == ""
 
 
-# ── P4: backward linking in link_schema ───────────────────────────────────────
+# ── backward linking in link_schema ───────────────────────────────────────────
 
 def _bare_agent(**attrs) -> OrchestrationAgent:
     a = OrchestrationAgent.__new__(OrchestrationAgent)
@@ -167,7 +167,7 @@ class TestBackwardLinking:
         assert out["schema_context"].startswith("Table: players")
 
 
-# ── P5: evidence_formula rendering ────────────────────────────────────────────
+# ── evidence_formula rendering ────────────────────────────────────────────────
 
 class TestEvidenceFormula:
 
@@ -214,7 +214,7 @@ class TestRefineDepth:
 
 class TestResolveSpans:
     """
-    GH#73: ground() returns nothing for a span that matches nothing, because
+    ground() returns nothing for a span that matches nothing, because
     there is no casing to correct — but "this value is not in the database" is
     the more useful of the two signals, and silence discards it.
     resolve_spans() exposes both outcomes.

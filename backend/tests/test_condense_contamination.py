@@ -1,5 +1,5 @@
 """
-Tests for GH#87 — follow-up condensation must not merge unrelated questions.
+Tests: follow-up condensation must not merge unrelated questions.
 
 Reported: turn 1 asked about SME consumption in 2013; turn 2, a self-contained
 question about virtual schools in a DIFFERENT database, came back refusing
@@ -57,8 +57,8 @@ class TestAnaphoraGate:
         "And the previous year?",
     ])
     def test_real_follow_ups_are_still_condensed(self, q):
-        """GH#63 must not regress: a genuine anaphor left un-condensed embeds
-        to garbage and the cache replays the previous answer."""
+        """A genuine anaphor left un-condensed embeds to garbage and the
+        cache replays the previous answer."""
         assert A._looks_anaphoric(q, HISTORY)
 
     def test_a_first_turn_is_never_condensed(self):
@@ -108,8 +108,8 @@ class TestMergeVeto:
     ])
     def test_a_real_anaphor_is_never_vetoed(self, raw, rewrite):
         """The rewrite SHOULD add literals here — that is the whole job. A
-        veto would reinstate GH#63, which returns a confident wrong answer
-        rather than a refusal, so it is the worse failure of the two."""
+        veto would let the follow-up be answered from the previous turn — a
+        confident wrong answer rather than a refusal, so it is the worse failure of the two."""
         assert A._rewrite_merges_topics(raw, rewrite) is None
 
     def test_an_unchanged_rewrite_is_not_a_merge(self):

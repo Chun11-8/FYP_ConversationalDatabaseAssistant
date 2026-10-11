@@ -1,5 +1,5 @@
 """
-Tests for GH#41 (execution hardening) + GH#38 (latency/cost) + GH#45 step 4.
+Tests for execution hardening, latency/cost and the DISTINCT post-pass.
 
 Covers: statement timeout, read-only query connection, vote cap + early
 plurality + winner-row reuse, cache-hit shortcut routing, model routing,
@@ -37,7 +37,7 @@ def _bare_agent(**attrs) -> OrchestrationAgent:
     return a
 
 
-# ── GH#41: statement timeout + read-only connection ───────────────────────────
+# ── statement timeout + read-only connection ──────────────────────────────────
 
 class TestRunQueryTimeout:
 
@@ -84,7 +84,7 @@ class TestReadOnlyConn:
         assert mc.call_args[1]["user"] == pg.DB_CONFIG["user"]
 
 
-# ── GH#41: vote cap + early plurality; GH#38: winner-row reuse ────────────────
+# ── vote cap + early plurality; winner-row reuse ──────────────────────────────
 
 class TestVoteHardening:
 
@@ -188,7 +188,7 @@ class TestVoteHardening:
         assert out["execution_result"] == [{"x": 1}]
 
 
-# ── GH#38: cache-hit shortcut routing ─────────────────────────────────────────
+# ── cache-hit shortcut routing ────────────────────────────────────────────────
 
 class TestCacheShortcut:
 
@@ -201,7 +201,7 @@ class TestCacheShortcut:
         a = _bare_agent()
         state = {"validation": {"valid": False}, "cache_hit": True,
                  "fallback_level": 0}
-        # GH#57: unwinds through retrieval, since the cache path may have used a
+        # Unwinds through retrieval, since the cache path may have used a
         # narrow by-name schema that regeneration can't work from.
         assert a.route_after_validation(state) == "retrieve_schema"
 
@@ -229,7 +229,7 @@ class TestCacheShortcut:
         a.semantic_cache.log_interaction.assert_called_once()
 
 
-# ── GH#38: model routing + prefetch + db name ─────────────────────────────────
+# ── model routing + prefetch + db name ────────────────────────────────────────
 
 class TestModelRoutingAndPrefetch:
 
@@ -258,7 +258,7 @@ class TestModelRoutingAndPrefetch:
         assert a._format_llm is a.llm
 
     def test_retrieval_scope_defaults_to_every_indexed_database(self):
-        """GH#81: the PostgreSQL database name is NOT a retrieval scope — the
+        """The PostgreSQL database name is NOT a retrieval scope — the
         index can hold several logical databases. Unset active_db must search
         all of them, which is what a single-domain install always did."""
         a = self._mk({"model": "big", "api_key": "k"})
@@ -267,7 +267,7 @@ class TestModelRoutingAndPrefetch:
 
     def test_prefetched_embedding_consumed(self):
         """run() consumes the prefetch future and hands the vector over in state
-        (GH#57) — retrieve_schema must reuse it rather than embedding again."""
+        — retrieve_schema must reuse it rather than embedding again."""
         a = _bare_agent(_fk_max_hops=2, _fk_max_expansion=5,
                         _max_schema_tokens=4000, _db_name="d")
         a.semantic_cache = MagicMock()
@@ -292,7 +292,7 @@ class TestModelRoutingAndPrefetch:
             dbm._tls.embed_future = None
 
 
-# ── GH#45 step 4: DISTINCT post-pass ──────────────────────────────────────────
+# ── DISTINCT post-pass ────────────────────────────────────────────────────────
 
 class TestDistinctPostpass:
 

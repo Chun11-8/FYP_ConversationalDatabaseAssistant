@@ -41,7 +41,7 @@ def get_openai_client() -> OpenAI:
 EMBED_MODEL      = "text-embedding-3-small"
 EMBED_BATCH_SIZE = 100
 
-# Schema chunk format (GH#49): "verbose" (default, human-readable) or "mschema"
+# Schema chunk format: "verbose" (default, human-readable) or "mschema"
 # (XiYan-SQL's compact semi-structured layout). Switching requires a re-index.
 SCHEMA_FORMAT = os.getenv("SCHEMA_FORMAT", "verbose").strip().lower()
 
@@ -149,7 +149,7 @@ def build_table_chunk(table: dict) -> dict:
         # Column description + value description loaded from CSV
         desc     = col.get("description", "").strip()
         val_desc = col.get("value_description", "").strip()
-        # Observed distinct values for low-cardinality text columns (Issue #19)
+        # Observed distinct values for low-cardinality text columns
         distinct = col.get("distinct_values")
 
         col_line = f"  {col['name']} ({col['type']}{pk_tag}{nn_tag})"

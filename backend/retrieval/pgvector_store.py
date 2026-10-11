@@ -388,7 +388,7 @@ def get_fk_graph(conn: psycopg2.extensions.connection) -> tuple[dict, list[dict]
     edges: list[dict] = []
 
     for from_table, from_col, to_table, to_col in rows:
-        # GH#79: an edge touching one of the assistant's own tables can only
+        # An edge touching one of the assistant's own tables can only
         # walk BFS expansion into plumbing that is no longer indexed.
         if is_internal_table(from_table) or is_internal_table(to_table):
             continue
@@ -414,7 +414,7 @@ def get_chunks_by_tables(
     Retrieve schema_embeddings rows for a specific list of table names.
     No embedding / cosine search — direct lookup by name.
 
-    *db_name* None (GH#81) searches every scope, matching retrieve()'s
+    *db_name* None searches every scope, matching retrieve()'s
     behaviour when `retrieval.active_db` is unset.
     Returns list of {chunk_id, db_name, table_name, content} dicts.
     """
@@ -451,7 +451,7 @@ def run_query(
     Run a raw SQL query and return results as list of dicts.
 
     ``timeout_ms`` sets a transaction-scoped `SET LOCAL statement_timeout`
-    (Issue #25/GH#41) so a pathological query (e.g. an accidental cartesian
+    so a pathological query (e.g. an accidental cartesian
     join) cannot hang the request. The transaction is rolled back after the
     fetch — SELECT-only, so nothing is lost and the timeout never leaks.
     """
@@ -470,7 +470,7 @@ def run_query(
 
 def get_query_conn() -> psycopg2.extensions.connection:
     """
-    Connection for executing USER queries (Issue #25/GH#41 defense-in-depth).
+    Connection for executing USER queries (defense-in-depth).
     When PG_APP_USER/PG_APP_PASSWORD are set, connects with that (read-only)
     role so a write cannot succeed even if every validation layer were
     bypassed. Falls back to the standard DB_CONFIG user otherwise. Never
@@ -496,7 +496,7 @@ def list_databases_with_counts(
     conn: psycopg2.extensions.connection,
 ) -> list[tuple[str, int]]:
     """
-    GH#81: [(db_name, distinct table count), ...] for the /databases endpoint —
+    [(db_name, distinct table count), ...] for the /databases endpoint —
     one query instead of list_databases() + a list_tables() per database.
     """
     with conn.cursor() as cur:
@@ -511,7 +511,7 @@ def list_tables(
     conn: psycopg2.extensions.connection, db_name: Optional[str] = None
 ) -> list[str]:
     """
-    Return all indexed table names. *db_name* None (GH#81) spans every scope.
+    Return all indexed table names. *db_name* None spans every scope.
     """
     with conn.cursor() as cur:
         if db_name:
@@ -540,7 +540,7 @@ def delete_database(conn: psycopg2.extensions.connection, db_name: str) -> None:
 def delete_table_chunks(
     conn: psycopg2.extensions.connection, db_name: str, table_name: str
 ) -> int:
-    """Remove chunks for ONE table (Issue #7 surgical drop). Returns rows deleted."""
+    """Remove chunks for ONE table. Returns rows deleted."""
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM schema_embeddings WHERE db_name = %s AND table_name = %s;",
@@ -556,7 +556,7 @@ def prune_relabelled_chunks(
     conn: psycopg2.extensions.connection, chunks: list[dict]
 ) -> int:
     """
-    GH#81: drop chunks for a table that is now tagged with a DIFFERENT db_name.
+    Drop chunks for a table that is now tagged with a DIFFERENT db_name.
 
     Re-tagging changes chunk_id (`FYP__customers__schema` →
     `debit_card_specializing__customers__schema`), so the upsert in
@@ -591,7 +591,7 @@ def purge_internal_chunks(
     conn: psycopg2.extensions.connection, db_name: str
 ) -> int:
     """
-    Remove chunks for the assistant's OWN tables (GH#79). A rebuild upserts by
+    Remove chunks for the assistant's OWN tables. A rebuild upserts by
     chunk_id, so without this an index built before the exclusion landed keeps
     serving `sessions`/`turns`/`feedback` chunks forever. Returns rows deleted.
     """

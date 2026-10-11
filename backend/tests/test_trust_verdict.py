@@ -1,5 +1,5 @@
 """
-Tests for GH#91 — a verdict the user can act on, plus the two new gates
+Tests: a verdict the user can act on, plus the two new gates
 (plan conformance, back-translation).
 
 The design constraint is as important as the behaviour: nothing here may read
@@ -170,7 +170,7 @@ class TestPlanConformance:
             "SELECT AVG(x) FROM t", {"aggregation": "average of x"}) == []
 
     def test_a_plain_list_is_not_a_grain_error(self):
-        """GH#93: `SELECT name FROM player WHERE ...` already returns one row
+        """`SELECT name FROM player WHERE ...` already returns one row
         per player — no GROUP BY is needed, because each source row IS a
         player. Flagging it fired on every "list the X" question."""
         assert check_plan_conformance(

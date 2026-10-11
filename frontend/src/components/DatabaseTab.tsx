@@ -78,11 +78,11 @@ function TableRow({ table }: { table: SchemaTable }) {
   );
 }
 
-/** Tables that carry no domain tag (GH#83) — shown under this heading. */
+/** Tables that carry no domain tag — shown under this heading. */
 const UNGROUPED = 'Other tables';
 
 /**
- * GH#81: 75 tables from 11 unrelated databases share one PostgreSQL schema,
+ * 75 tables from 11 unrelated databases share one PostgreSQL schema,
  * so a flat list buries the 5 tables a question is actually about. Group by
  * the logical database that owns each table; the group matching the active
  * retrieval scope opens by default because that is the one being queried.

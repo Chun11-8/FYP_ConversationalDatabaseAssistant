@@ -1,5 +1,5 @@
 """
-back_translation.py — does the query describe what was actually asked? (GH#91)
+back_translation.py — does the query describe what was actually asked?
 
 Every other check reads the SQL against the schema, the plan or itself. All of
 them pass on the failure that matters most: a query that is safe, fully

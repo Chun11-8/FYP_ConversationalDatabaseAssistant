@@ -19,7 +19,7 @@ unchanged from the original in-RAM version, so ``db_agent.py`` keeps working:
     clear_session(session_id)          -> None
     active_sessions()                  -> list[str]
 
-New for Issue #3:
+Multi-turn support:
 
     list_sessions(user_id=None)        -> list[dict]   (sidebar)
     get_summary(session_id)            -> str | None

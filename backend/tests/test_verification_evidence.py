@@ -1,5 +1,5 @@
 """
-Tests for the verification evidence surfaced with each answer (GH#67, Phase 1).
+Tests for the verification evidence surfaced with each answer.
 
 The measured motivation (see outputs/): on the gpt-5-mini BIRD run, 0 of 150
 predictions failed validation and 0 failed at execution — every single failure
@@ -84,7 +84,7 @@ class TestVoteEvidence:
 
     def test_executed_counts_only_candidates_actually_run(self):
         """`agreement`/`executed` must describe what really happened. The
-        unassailable-plurality early exit (GH#41 cost bound) skips the trailing
+        unassailable-plurality early exit (cost bound) skips the trailing
         candidates, so reporting 2/2 here is honest — claiming 2/3 would assert
         something about a candidate that was never executed.
         """

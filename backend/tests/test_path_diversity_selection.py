@@ -1,6 +1,6 @@
 """
-Tests for GH#48 — reasoning-path-diverse candidate generation (Part A) and
-unit-test-screen + pairwise selection on inconclusive votes (Part B).
+Tests: reasoning-path-diverse candidate generation and
+unit-test-screen + pairwise selection on inconclusive votes.
 All offline: LLM and DB boundaries are mocked.
 
 Run from repo root:
@@ -20,7 +20,7 @@ from backend.agents.sql_validator_agent import SQLValidatorAgent
 SCHEMA = "Table: t\nColumns:\n  - id: INTEGER [PK]\n  - name: TEXT\n  - grp: TEXT"
 
 
-# ── Part A: path-diverse generation ───────────────────────────────────────────
+# ── path-diverse generation ───────────────────────────────────────────────────
 
 def _sql_agent(**cfg) -> SQLCodeAgent:
     config = {"db": {"dialect": "postgres"}, "sql": cfg}
@@ -79,7 +79,7 @@ class TestPathDiversity:
         assert sqls == ["SELECT name FROM t"]   # direct candidates survive
 
 
-# ── Part B: unit-test screen + pairwise selection ─────────────────────────────
+# ── unit-test screen + pairwise selection ─────────────────────────────────────
 
 def _bare_agent(**attrs) -> OrchestrationAgent:
     a = OrchestrationAgent.__new__(OrchestrationAgent)

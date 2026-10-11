@@ -1,6 +1,6 @@
 """
 backend/memory/skeleton.py — DAIL-SQL-style structural-shape signatures for
-blending into few-shot selection (GH#48-50 companion; see semantic_cache.py's
+blending into few-shot selection (see semantic_cache.py's
 retrieve_few_shots_blended).
 
 Pure embedding-distance few-shot retrieval can surface a topically-similar

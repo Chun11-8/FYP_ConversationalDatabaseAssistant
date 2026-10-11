@@ -1,5 +1,5 @@
 """
-Tests for the Schema-Linking & Question-Understanding stage (Issue #17).
+Tests for the Schema-Linking & Question-Understanding stage.
 
 Covers:
   - SchemaLinkingAgent.analyze() JSON parsing + graceful degradation
@@ -104,7 +104,7 @@ class TestAnalyze:
         assert agent.analyze("q", "schema") is None
 
     def test_entity_guidance_covers_lexical_collision_trap(self):
-        # Issue #50 step 3: don't map a column purely on shared vocabulary
+        # Don't map a column purely on shared vocabulary
         # (e.g. a column named "Amount" is not automatically "amount spent").
         agent = _linker()
         agent.llm.invoke.return_value = MagicMock(content=_PLAN_JSON)
@@ -114,7 +114,7 @@ class TestAnalyze:
         assert "amount" in system_sent.lower()
 
     def test_target_guidance_covers_how_many_times_trap(self):
-        # Issue #50 step 2: "how many times more X than Y" is a ratio target
+        # "how many times more X than Y" is a ratio target
         # (the evidence_formula itself), NOT a literal COUNT(*)/HAVING.
         agent = _linker()
         agent.llm.invoke.return_value = MagicMock(content=_PLAN_JSON)

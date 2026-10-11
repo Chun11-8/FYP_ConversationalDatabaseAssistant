@@ -1,5 +1,5 @@
 """
-trace.py — gated console tracing for the pipeline (GH#42).
+trace.py — gated console tracing for the pipeline.
 
 The rich console banners are the right tool for interactive tuning but noise in
 production. `trace()` replaces bare print() in the pipeline modules; the flag is

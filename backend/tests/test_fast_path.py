@@ -1,5 +1,5 @@
 """
-Tests for the GH#57 cost-routing changes:
+Tests for cost routing:
   * cache lookup happens BEFORE the RAG stage, with a by-name schema fetch
   * run() resolves a repeat question pre-graph, so the turn enters at
     validate_sql and skips intent classification + condensation
@@ -30,7 +30,7 @@ def _agent(**attrs) -> OrchestrationAgent:
                     _fast_path=True, _answer_reuse=True,
                     _dialect="postgres", _db_name="FYP",
                     _fk_max_hops=2, _fk_max_expansion=5, _max_schema_tokens=4000,
-                    # These tests are about the cache path, not GH#85's
+                    # These tests are about the cache path, not the full-schema
                     # schema strategy — keep them on cosine retrieval so the
                     # patched dbm.retrieve is what runs.
                     _full_schema=False, _top_k_tables=5,
@@ -257,7 +257,7 @@ class TestProbedOrLookup:
         # The condensed text differs from user_query, so the pre-graph probe
         # (done against the RAW follow-up) must not be reused — a fresh
         # best_match runs instead. Text kept literal-compatible with HIT so
-        # this stays a test of the re-lookup, not of the GH#63 literal guard
+        # this stays a test of the re-lookup, not of the literal guard
         # (which has its own tests in TestLiteralGuard).
         a = _agent()
         a.semantic_cache.best_match.return_value = HIT
@@ -279,7 +279,7 @@ class TestProbedOrLookup:
 
 class TestLiteralGuard:
     """
-    GH#63 — the reported multi-turn bug. Turn 1 asks about 2013; the follow-up
+    The reported multi-turn bug. Turn 1 asks about 2013; the follow-up
     'what about 2014?' condenses to the same sentence with one digit changed,
     which sits inside the 0.03 hit threshold. Without the guard the cached 2013
     SQL is returned and the assistant replays the previous answer forever.
@@ -301,7 +301,7 @@ class TestLiteralGuard:
         assert a._cache_lookup([0.1], self.Q2014) is None
 
     def test_the_same_question_still_hits(self):
-        """The GH#57 cost saving must survive the fix."""
+        """The cache cost saving must survive the fix."""
         a = self._agent_hitting(self.Q2013)
         assert a._cache_lookup([0.1], self.Q2013) is not None
 
@@ -498,7 +498,7 @@ class TestCacheWriteBack:
         assert kwargs["response"] == "ok"
 
     def test_stores_the_condensed_question_not_the_raw_followup(self):
-        """GH#63: the embedding saved alongside is the CONDENSED text's, so
+        """The embedding saved alongside is the CONDENSED text's, so
         storing 'what about 2014?' here left text and vector describing
         different questions — and made the pair useless as a few-shot."""
         a = _agent()
