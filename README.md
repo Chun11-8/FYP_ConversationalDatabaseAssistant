@@ -268,7 +268,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
 │   │   └── README.md                   # Engines, ablations, how to read a result file
-│   ├── tests/                          # 1545 unit/integration tests (offline)
+│   ├── tests/                          # 1560 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -510,90 +510,177 @@ changes, or use the **Index Sync** panel in the Database tab.
 
 ### Option B — The BIRD mini-dev benchmark data
 
-This is what the evaluation harness scores against, and what the screenshots
-in this README show. BIRD publishes the benchmark twice — once as SQLite files
-and once as a PostgreSQL dump — and **the gold SQL dialect must match the
-engine you run**, or the comparison is meaningless.
+This is what `backend/eval/bird.py` scores against. It comes in two pieces —
+**questions** (with their gold SQL) and **database contents** — published
+separately, and the dialect of the two must match.
 
-**1. Get the dataset.** The question files come from HuggingFace:
+> **Why the dialect matters.** BIRD writes the gold SQL once per engine.
+> PostgreSQL gold uses `NULLS LAST`, `::` casts and `STRING_AGG`; SQLite gold
+> uses `strftime` and the opposite NULL ordering. Score a PostgreSQL run
+> against SQLite gold and the gold itself fails to execute — the harness
+> records `gold_error` and drops those questions from the EX denominator, so
+> you get a plausible-looking score over whatever happened to survive.
+> `bird.py` refuses the mismatched pairing before the run starts.
+
+#### Step 1 — Download the questions
 
 ```bash
+pip install datasets      # one-off, only this script needs it
+
 python -m backend.eval.download_bird --output-dir dataset/minidev
 ```
 
-The database contents are *not* on HuggingFace (they are large binaries). Get
-them from [bird-bench.github.io](https://bird-bench.github.io/) → **Download
-Mini-Dev**, or:
+Pulls [`birdsql/bird_mini_dev`](https://huggingface.co/datasets/birdsql/bird_mini_dev)
+and writes both dialects:
 
-```bash
-git clone --depth 1 https://github.com/bird-bench/mini_dev.git
+```
+dataset/minidev/
+├── mini_dev_postgresql.json        ← --engine postgres  (the default)
+├── mini_dev_postgresql_gold.sql
+├── mini_dev_sqlite.json            ← --engine sqlite
+├── mini_dev_sqlite_gold.sql
+└── dev_databases/                  ← created empty; Step 2 fills it (SQLite only)
 ```
 
-**2. Load the PostgreSQL dump.** The archive ships a single `.sql` dump holding
-**all eleven databases' tables in one flat namespace** — which is exactly the
-layout `backend/eval/db_backends.py` expects:
+`--dialect postgresql` fetches just one. The script prints the HuggingFace
+splits it found and which one it used for each dialect, so a renamed split
+upstream shows up as a warning rather than as the wrong questions.
+
+#### Step 2 — Download the database contents
+
+HuggingFace carries questions only — the data is large binaries. Get the
+official archive from [bird-bench.github.io](https://bird-bench.github.io/) →
+**Download Mini-Dev** (the repo also links a
+[Google Drive package](https://github.com/bird-bench/mini_dev)), and unzip it.
+Two things inside matter:
+
+| Path in the archive | For | What it is |
+|---|---|---|
+| `MINIDEV_postgresql/BIRD_dev.sql` | PostgreSQL | one dump, **all 11 databases' tables in one namespace** |
+| `dev_databases/<db_id>/<db_id>.sqlite` | SQLite | one file per database |
+
+#### Step 3 — Load the dump into PostgreSQL
+
+Load it into the **same database the assistant uses** (`FYP`), so the chat UI
+and the benchmark answer questions over identical tables — otherwise a
+UI/eval discrepancy tells you nothing:
 
 ```bash
 psql -h 127.0.0.1 -p 5432 -U postgres -d FYP \
-     -f dataset/minidev/MINIDEV_postgresql/BIRD_dev.sql
+     -f <unzipped>/MINIDEV_postgresql/BIRD_dev.sql
 ```
 
-> The dump's filename and folder have moved between mini-dev releases
-> (`BIRD_dev.sql` under `MINIDEV_postgresql/` at the time of writing). If the
-> path above does not exist, find it with
-> `find . -name '*.sql' -path '*postgres*'` inside the extracted archive — the
-> verification step below tells you whether you loaded the right thing.
-
-Loading into the **same** database as the assistant (`FYP`) is deliberate: the
-chat UI and the benchmark then answer questions over identical tables, which
-is the only way a UI/eval discrepancy means anything. If you would rather keep
-them apart, load into a separate database and point the harness at it with
-`--pg-dbname bird_mini_dev` (or `$BIRD_PG_DBNAME`).
-
-**3. Verify before spending any API credit.** A flat namespace is only sound
-while table names are unique across the eleven databases — a collision would
-silently make one question read another database's rows:
+No local `psql`? Use the container's:
 
 ```bash
-# 75 tables across 11 domains
+docker exec -i pgvector-db psql -U postgres -d FYP \
+    < <unzipped>/MINIDEV_postgresql/BIRD_dev.sql
+```
+
+It takes a few minutes and prints a long stream of `CREATE TABLE` / `COPY`.
+Errors scroll past fast — `grep` for them rather than watching:
+
+```bash
+psql ... -f BIRD_dev.sql 2>&1 | grep -i '^ERROR' | head
+```
+
+> The archive's layout has shifted between mini-dev releases. If that path
+> does not exist, find it: `find <unzipped> -name '*.sql' -path '*postgres*'`.
+> Step 5 tells you whether you loaded the right thing.
+
+#### Step 4 — Point the harness at it
+
+Nothing to configure if you loaded into `FYP`: the harness reads the same
+`db:` block in `config.yaml` and the same `PG_PASSWORD` the app uses.
+
+| Setting | Comes from | Override per run |
+|---|---|---|
+| database | `db.name` in `config.yaml` (`FYP`) | `--pg-dbname` or `$BIRD_PG_DBNAME` |
+| host / port / user | `db.host` / `db.port` / `db.user` | `--pg-host` / `--pg-port` / `--pg-user` |
+| password | `PG_PASSWORD` in `secrets.env` | — |
+| schema | `public` | `--pg-schema` |
+
+So if you kept the BIRD data in its own database instead:
+
+```bash
+python -m backend.eval.bird --dev-json dataset/minidev/mini_dev_postgresql.json \
+    --pg-dbname bird_mini_dev --subset 2
+```
+
+#### Step 5 — Verify before spending API credit
+
+The tables share one namespace, which is only sound while their names are
+unique across the eleven databases — a collision would silently make one
+question read another database's rows. Count what landed:
+
+```bash
 psql -h 127.0.0.1 -U postgres -d FYP -c \
   "SELECT count(*) FROM information_schema.tables
     WHERE table_schema='public' AND table_type='BASE TABLE';"
 ```
 
-The harness checks this itself and refuses to start on a problem, so the
-cheapest real verification is a two-question run:
+Expect roughly 75 BIRD tables plus the assistant's own 8. Then run two
+questions end to end — the real check, and it costs a few cents:
 
 ```bash
 python -m backend.eval.bird \
-    --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+    --dev-json dataset/minidev/mini_dev_postgresql.json \
     --engine postgres --subset 2
 ```
 
-An empty or wrongly-loaded database reports *"schema 'public' contains no
-tables — is the BIRD PostgreSQL dump loaded into this database?"* rather than
-quietly scoring 0%.
-
-**4. SQLite instead (optional).** The SQLite path needs no loading at all —
-point `--db-dir` at the unpacked folder of `{db_id}/{db_id}.sqlite` files, and
-pair it with the SQLite question file:
+An unloaded or wrong database reports *"schema 'public' contains no tables —
+is the BIRD PostgreSQL dump loaded into this database?"* instead of quietly
+scoring 0%. A real run then looks like:
 
 ```bash
+# 40 questions spread across all 11 databases, reproducible
 python -m backend.eval.bird \
-    --dev-json dataset/minidev/MINIDEV/mini_dev_sqlite.json \
-    --db-dir   dataset/minidev/MINIDEV/dev_databases \
+    --dev-json dataset/minidev/mini_dev_postgresql.json \
+    --engine postgres --subset 40 --sample stratified --seed 42 \
+    --output outputs/moderate_v3_gpt-4o-mini.json
+```
+
+#### SQLite instead (optional)
+
+No loading at all — point `--db-dir` at the unpacked `dev_databases/` folder
+and pair it with the SQLite question file:
+
+```bash
+cp -r <unzipped>/dev_databases dataset/minidev/dev_databases
+
+python -m backend.eval.bird \
+    --dev-json dataset/minidev/mini_dev_sqlite.json \
+    --db-dir   dataset/minidev/dev_databases \
     --engine   sqlite --subset 2
 ```
 
-Mixing the two — a PostgreSQL engine with the SQLite question file, or the
-reverse — is **refused before the run starts**. Gold that cannot execute is
-recorded as `gold_error` and dropped from the EX denominator, so the run would
-otherwise report a plausible-looking score over whatever happened to survive.
+Each database is looked up at `<db-dir>/<db_id>/<db_id>.sqlite`, falling back
+to `<db_id>.db`.
 
 | `--engine` | Question file | Data |
 |---|---|---|
 | `postgres` *(default)* | `mini_dev_postgresql.json` | all tables in ONE PostgreSQL database |
 | `sqlite` | `mini_dev_sqlite.json` | `--db-dir` of `{db_id}/{db_id}.sqlite` files |
+
+#### Step 6 — Index it, so the chat UI can answer over it too
+
+The benchmark talks to PostgreSQL directly, but the chat UI finds tables
+through the vector index. After loading, rebuild it and tag each table with
+the BIRD database that owns it:
+
+```bash
+python -m backend.retrieval.indexing build --db FYP
+```
+
+`outputs/dev_tables.json` is committed to this repo and is picked up
+automatically; `--tables-json <path>` or `$BIRD_TABLES_JSON` overrides it.
+
+Without `--tables-json` the 75 tables are indexed as one undifferentiated
+pool, and a question picks its top-5 tables out of all of them — a strictly
+harder retrieval problem than the benchmark's, and the usual reason the UI and
+the benchmark disagree. See
+[Scope retrieval to one logical database](#step-1b--optional-scope-retrieval-to-one-logical-database).
+
 
 ### Optional — a read-only role for user queries
 
@@ -1164,7 +1251,7 @@ Putting it together:
 
 ```bash
 # BIRD run — EX / Soft-F1 / VES, computed by backend/eval/bird.py
-python -m backend.eval.bird --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+python -m backend.eval.bird --dev-json dataset/minidev/mini_dev_postgresql.json \
     --engine postgres --subset 40 --sample stratified
 
 # All seven models in one command
@@ -1525,7 +1612,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI; drop/modify cascades the semantic cache (archive/demote) |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | 1545 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | 1560 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |

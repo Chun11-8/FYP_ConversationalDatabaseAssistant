@@ -79,14 +79,14 @@ keep a check cheap. Loading the data is covered in the root README under
 ```bash
 # Smoke test on PostgreSQL (the default engine): 10 questions, ~1 min
 python -m backend.eval.bird \
-    --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+    --dev-json dataset/minidev/mini_dev_postgresql.json \
     --output   outputs/bird_smoke.json \
     --subset 10
 
 # The same on SQLite — needs --db-dir and the SQLite question file
 python -m backend.eval.bird \
-    --dev-json dataset/minidev/MINIDEV/mini_dev_sqlite.json \
-    --db-dir   dataset/minidev/MINIDEV/dev_databases \
+    --dev-json dataset/minidev/mini_dev_sqlite.json \
+    --db-dir   dataset/minidev/dev_databases \
     --engine   sqlite --output outputs/bird_smoke_sqlite.json --subset 10
 
 # Only the hard ones
