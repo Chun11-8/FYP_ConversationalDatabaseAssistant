@@ -13,16 +13,17 @@ A final-year project — a **read-only, conversational Text-to-SQL assistant** p
 5. [Prerequisites](#prerequisites)
 6. [Installation](#installation)
 7. [Configuration](#configuration)
-8. [Running the Application](#running-the-application)
-9. [API Reference](#api-reference)
-10. [Frontend](#frontend)
-11. [Safety & Security](#safety--security)
-12. [Accuracy & Evaluation](#accuracy--evaluation) — including
-    [Can this answer be trusted?](#can-this-answer-be-trusted-gh91) and
-    [Measuring the detector](#measuring-the-detector-gh101)
-13. [Development Status](#development-status)
-14. [Roadmap](#roadmap)
-15. [Contributing](#contributing)
+8. [Loading Data into PostgreSQL](#loading-data-into-postgresql)
+9. [Running the Application](#running-the-application)
+10. [API Reference](#api-reference)
+11. [Frontend](#frontend)
+12. [Safety & Security](#safety--security)
+13. [Accuracy & Evaluation](#accuracy--evaluation) — including
+    [Can this answer be trusted?](#can-this-answer-be-trusted) and
+    [Measuring the detector](#measuring-the-detector)
+14. [Development Status](#development-status)
+15. [Roadmap](#roadmap)
+16. [Contributing](#contributing)
 
 ---
 
@@ -58,7 +59,7 @@ So the second half of this project is **selective prediction**: estimating,
 without knowing the right answer, whether this one can be trusted — and saying
 so on screen. Five gates feed a verdict, and the verdict is measured against
 ground truth rather than asserted (see
-[Measuring the detector](#measuring-the-detector-gh101)). Every signal is
+[Measuring the detector](#measuring-the-detector)). Every signal is
 computed from the query in front of the user; no benchmark statistic is ever
 presented as a property of an individual answer.
 
@@ -260,9 +261,14 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── data_processing.py          # Schema extraction from Postgres
 │   ├── eval/
 │   │   ├── bird.py                     # BIRD mini-dev harness (EX / Soft-F1 / VES)
+│   │   ├── db_backends.py              # PostgreSQL / SQLite execution engines
+│   │   ├── run_all_models.py           # Sweep every selectable model in one command
+│   │   ├── run_eval.py                 # Lightweight harness over your own labelled set
+│   │   ├── download_bird.py            # Fetch the BIRD mini-dev question files
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
-│   ├── tests/                          # 1287 unit/integration tests (offline)
+│   │   └── README.md                   # Engines, ablations, how to read a result file
+│   ├── tests/                          # 1545 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -283,8 +289,7 @@ FYP_ConversationalDatabaseAssistant/
 │                                       #   python -m backend.eval.download_bird
 ├── outputs/                            # CSV exports + BIRD result JSON — git-ignored
 ├── requirements.txt
-├── CLAUDE.md                           # Agent/developer guide
-└── DEGRADED_MODE.md                    # What still works when a component is down
+└── CLAUDE.md                           # Agent/developer guide
 ```
 
 ---
@@ -294,7 +299,12 @@ FYP_ConversationalDatabaseAssistant/
 - **Python 3.13+**
 - **Node.js 18+** and npm
 - **Docker** (for the PostgreSQL + pgvector container)
+- **`psql`** — the PostgreSQL client, used to load data into the container.
+  Shipped with the Postgres client tools; or reach the one inside the container
+  with `docker exec -i pgvector-db psql …`
 - **OpenAI API key** (`gpt-4o-mini` + `text-embedding-3-small`)
+- *(optional)* an **OpenRouter / Groq / DeepSeek key** to benchmark non-OpenAI
+  models — see [Benchmarking across providers](#benchmarking-across-providers)
 
 ---
 
@@ -361,8 +371,11 @@ llm:
   model: gpt-4o-mini          # OpenAI model used for all LLM calls
   selectable_models:          # curated list shown by the frontend's model picker —
     - gpt-4o-mini              # a "Custom..." entry there also accepts any other
-    - gpt-4o                   # well-formed OpenAI model id
-    - gpt-4.1-mini
+    - gpt-4o                   # well-formed OpenAI model id.
+    - gpt-4.1-mini             # Entries may also be tagged with a provider —
+    - gpt-5-nano               # see "Mixing providers in one deployment".
+    - id: qwen/qwen3.5-122b-a10b
+      provider: openrouter
   # pricing:                  # USD per 1M tokens, for the cost figures in
   #   gpt-4o-mini:            # /metrics-lite and each turn's `usage` block.
   #     input: 0.15           # Built-in defaults cover the models above.
@@ -382,15 +395,19 @@ retrieval:
   top_k_kb: 3                  # few-shot examples to retrieve
   fk_max_hops: 2               # FK-aware context expansion depth
   fk_max_expansion: 5          # cap on FK-added tables
-  max_schema_tokens: 4000      # approximate token budget for schema context
+  max_schema_tokens: 12000     # approximate token budget for schema context
   value_grounding: true        # correct WHERE-literal casing against real values
   backward_linking: true       # recover plan-named tables retrieval missed
 
 sql:
   schema_linking: true         # produce a structured query plan before generation
   n_candidates: 5              # SQL candidates per question
+  candidates_by_tier:          # per-tier override of n_candidates
+    simple: 2
+    moderate: 5
+    challenging: 5
   adaptive_prompting: true     # per-tier strategy blocks + candidate counts
-  path_diversity: true         # divide-and-conquer + query-plan CoT candidates
+  live_tier: moderate          # the chat UI has no difficulty label — fix one
   execution_voting: true       # plurality-vote on candidate result sets
   selection: pairwise          # tie-break: "pairwise" (unit-test + pairwise) | "reranker"
   unit_tests: true             # LLM-derived result checks before pairwise
@@ -403,6 +420,18 @@ sql:
   cache_hit_threshold: 0.03    # cosine distance below which a pair counts as a hit
   fast_path: true              # resolve a repeat question BEFORE the graph runs
   answer_reuse: true           # reuse the stored answer when re-executed rows match
+
+  # ── Ablation knobs: off by default, so a run naming none of them
+  #    reproduces the configured pipeline exactly. Each can be flipped per
+  #    run on the eval CLI (--plan-diversity, --path-diversity, …) without
+  #    editing this file — see backend/eval/README.md.
+  plan_diversity: false        # ask the linker for a SECOND plan that disagrees
+                               #   on grain/aggregation, so voting tests the plan
+  plan_rationale: false        # make the linker justify its grain choice
+  path_diversity: false        # swap two direct candidates for divide-and-conquer
+                               #   and query-plan-CoT ones (moderate/challenging)
+  back_translation: true       # SQL → English → compare with the question
+  risk_checks: true            # the ten gold-free checks on the executed result
 
 response:
   inline_row_limit: 10         # rows returned inline in markdown
@@ -431,17 +460,167 @@ VITE_API_BASE_URL=http://your-backend-host:8000
 
 ---
 
-## Running the Application
+## Loading Data into PostgreSQL
 
-### Step 1 — Start PostgreSQL with pgvector
+Two different things live in this PostgreSQL instance, and keeping them
+straight saves a lot of confusion:
+
+| | What it is | Who creates it |
+|---|---|---|
+| **Assistant tables** | `sessions`, `turns`, `query_sql_pairs`, `schema_embeddings`, `kb_embeddings`, … | Created automatically on first run. Never indexed as data — see `backend/retrieval/internal_tables.py` |
+| **Subject data** | The tables users ask questions *about* | **You load these** — either your own, or the BIRD benchmark set below |
+
+Both sit in the same database (`PG_DB`, default `FYP`) and the same `public`
+schema. The assistant excludes its own tables from retrieval, so they never
+compete with your data for a top-K slot.
+
+### Start the container first
 
 ```bash
 docker compose -f backend/config/compose.yml up -d
 ```
 
-This starts a PostgreSQL 17 container with the `pgvector` extension enabled. Data is persisted in the `pgdata` Docker volume.
+PostgreSQL 17 with `pgvector`, persisted in the `pgdata` Docker volume. The
+`vector` extension is created by the code on first connection — no manual step.
 
-### Step 2 — Build the schema vector index
+Confirm it is reachable:
+
+```bash
+docker exec -it pgvector-db psql -U postgres -d FYP -c "SELECT version();"
+```
+
+### Option A — Your own data
+
+Load it however you normally would; nothing here is special to this project.
+
+```bash
+# from a .sql dump
+psql -h 127.0.0.1 -p 5432 -U postgres -d FYP -f path/to/your_dump.sql
+
+# or from inside the container, if psql is not installed locally
+docker exec -i pgvector-db psql -U postgres -d FYP < path/to/your_dump.sql
+
+# or from CSV, into a table you created first
+psql -h 127.0.0.1 -U postgres -d FYP \
+    -c "\copy customers FROM 'customers.csv' WITH (FORMAT csv, HEADER true)"
+```
+
+Then build the index (next section). Re-run the build whenever the schema
+changes, or use the **Index Sync** panel in the Database tab.
+
+### Option B — The BIRD mini-dev benchmark data
+
+This is what the evaluation harness scores against, and what the screenshots
+in this README show. BIRD publishes the benchmark twice — once as SQLite files
+and once as a PostgreSQL dump — and **the gold SQL dialect must match the
+engine you run**, or the comparison is meaningless.
+
+**1. Get the dataset.** The question files come from HuggingFace:
+
+```bash
+python -m backend.eval.download_bird --output-dir dataset/minidev
+```
+
+The database contents are *not* on HuggingFace (they are large binaries). Get
+them from [bird-bench.github.io](https://bird-bench.github.io/) → **Download
+Mini-Dev**, or:
+
+```bash
+git clone --depth 1 https://github.com/bird-bench/mini_dev.git
+```
+
+**2. Load the PostgreSQL dump.** The archive ships a single `.sql` dump holding
+**all eleven databases' tables in one flat namespace** — which is exactly the
+layout `backend/eval/db_backends.py` expects:
+
+```bash
+psql -h 127.0.0.1 -p 5432 -U postgres -d FYP \
+     -f dataset/minidev/MINIDEV_postgresql/BIRD_dev.sql
+```
+
+> The dump's filename and folder have moved between mini-dev releases
+> (`BIRD_dev.sql` under `MINIDEV_postgresql/` at the time of writing). If the
+> path above does not exist, find it with
+> `find . -name '*.sql' -path '*postgres*'` inside the extracted archive — the
+> verification step below tells you whether you loaded the right thing.
+
+Loading into the **same** database as the assistant (`FYP`) is deliberate: the
+chat UI and the benchmark then answer questions over identical tables, which
+is the only way a UI/eval discrepancy means anything. If you would rather keep
+them apart, load into a separate database and point the harness at it with
+`--pg-dbname bird_mini_dev` (or `$BIRD_PG_DBNAME`).
+
+**3. Verify before spending any API credit.** A flat namespace is only sound
+while table names are unique across the eleven databases — a collision would
+silently make one question read another database's rows:
+
+```bash
+# 75 tables across 11 domains
+psql -h 127.0.0.1 -U postgres -d FYP -c \
+  "SELECT count(*) FROM information_schema.tables
+    WHERE table_schema='public' AND table_type='BASE TABLE';"
+```
+
+The harness checks this itself and refuses to start on a problem, so the
+cheapest real verification is a two-question run:
+
+```bash
+python -m backend.eval.bird \
+    --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+    --engine postgres --subset 2
+```
+
+An empty or wrongly-loaded database reports *"schema 'public' contains no
+tables — is the BIRD PostgreSQL dump loaded into this database?"* rather than
+quietly scoring 0%.
+
+**4. SQLite instead (optional).** The SQLite path needs no loading at all —
+point `--db-dir` at the unpacked folder of `{db_id}/{db_id}.sqlite` files, and
+pair it with the SQLite question file:
+
+```bash
+python -m backend.eval.bird \
+    --dev-json dataset/minidev/MINIDEV/mini_dev_sqlite.json \
+    --db-dir   dataset/minidev/MINIDEV/dev_databases \
+    --engine   sqlite --subset 2
+```
+
+Mixing the two — a PostgreSQL engine with the SQLite question file, or the
+reverse — is **refused before the run starts**. Gold that cannot execute is
+recorded as `gold_error` and dropped from the EX denominator, so the run would
+otherwise report a plausible-looking score over whatever happened to survive.
+
+| `--engine` | Question file | Data |
+|---|---|---|
+| `postgres` *(default)* | `mini_dev_postgresql.json` | all tables in ONE PostgreSQL database |
+| `sqlite` | `mini_dev_sqlite.json` | `--db-dir` of `{db_id}/{db_id}.sqlite` files |
+
+### Optional — a read-only role for user queries
+
+Defense in depth: when `PG_APP_USER` / `PG_APP_PASSWORD` are set, generated SQL
+executes on a role that *cannot* write, so a mutation fails at the database
+even if the intent classifier and the validator were both bypassed.
+
+```sql
+CREATE ROLE fyp_readonly LOGIN PASSWORD 'choose_a_strong_password';
+GRANT CONNECT ON DATABASE "FYP" TO fyp_readonly;
+GRANT USAGE ON SCHEMA public TO fyp_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO fyp_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fyp_readonly;
+```
+
+Then uncomment `PG_APP_USER` / `PG_APP_PASSWORD` in `secrets.env`. The
+assistant keeps using `PG_USER` for its own bookkeeping tables; only the
+user's generated query runs on the restricted role.
+
+---
+
+## Running the Application
+
+> Postgres must be up and your data loaded first — see
+> [Loading Data into PostgreSQL](#loading-data-into-postgresql).
+
+### Step 1 — Build the schema vector index
 
 Run once (and re-run whenever your database schema changes):
 
@@ -453,7 +632,7 @@ This introspects your PostgreSQL schema, embeds table/column descriptions using 
 
 The assistant's own tables (`sessions`, `turns`, `query_sql_pairs`, `query_interactions`, `feedback`, `schema_embeddings`, `kb_embeddings`, `schema_version_store`) are **excluded** from the index — they are plumbing, not user data, and indexing them let them win a top-K retrieval slot over the tables that hold the answer. The list lives in `backend/retrieval/internal_tables.py`; add any new app-owned table to it. A rebuild also purges chunks for those tables left behind by an older index, so re-run the command above once after upgrading.
 
-### Step 2b — (Optional) Scope retrieval to one logical database
+### Step 1b — (Optional) Scope retrieval to one logical database
 
 Several BIRD mini-dev databases were loaded into the same PostgreSQL schema, so
 `public` holds 75 tables from 11 unrelated domains. An un-scoped search picks
@@ -495,7 +674,7 @@ against the one database configured under `db:`.
 `SchemaLinkingAgent` / `SQLValidatorAgent`; the chat UI runs the LangGraph in
 `db_agent.py`. They share the generation components, so any difference in what
 those components are *fed* shows up as a UI/eval gap. Two such differences have
-been closed (GH#85):
+been closed:
 
 | | BIRD harness | Chat UI |
 |---|---|---|
@@ -509,7 +688,7 @@ the model quietly drops the constraint and answers a different question. 80% of
 BIRD's gold SQL needs a join, so this is the common case.
 
 The harness gets the question's `db_id` from the dataset. The chat UI has no
-such label, so it recovers one (GH#95): every schema chunk carries the database
+such label, so it recovers one: every schema chunk carries the database
 that owns its table, which makes the cosine ranking a **vote**. A database that
 contributes two or more of the top-k tables, and outscores every other, wins the
 question — and its complete schema is fetched. No extra embedding, no extra LLM
@@ -530,7 +709,7 @@ top-k retrieval for an A/B.
 Evidence remains the one real asymmetry: the benchmark supplies a domain hint
 for 148 of 150 questions and the deployed system has none.
 
-### Step 3 — Start the backend API
+### Step 2 — Start the backend API
 
 ```bash
 uvicorn backend.api.main:app --reload --port 8000
@@ -538,7 +717,7 @@ uvicorn backend.api.main:app --reload --port 8000
 
 The API will be available at `http://localhost:8000`. Interactive docs are at `http://localhost:8000/docs`.
 
-### Step 4 — Start the frontend dev server
+### Step 3 — Start the frontend dev server
 
 ```bash
 cd frontend
@@ -586,12 +765,16 @@ python -m backend.agents.db_agent
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Missing required environment variables: ['OPENAI_API_KEY']` | `secrets.env` not found or key is missing | Complete Step 1 of Configuration |
-| `"Could not connect to the server"` banner in the UI | Backend not running or wrong port | Start `uvicorn` on port 8000 (Step 3) |
+| `"Could not connect to the server"` banner in the UI | Backend not running or wrong port | Start `uvicorn` on port 8000 (Step 2) |
 | `db_connected: false` on `/health` | Docker container not running | `docker compose -f backend/config/compose.yml up -d` |
 | `connection refused` on port 5432 | pgvector container crashed or wrong host | Check `PG_HOST=127.0.0.1` (not `localhost`) in `secrets.env` |
-| Frontend shows blank page | Vite dev server not running | `cd frontend && npm run dev` (Step 4) |
+| Frontend shows blank page | Vite dev server not running | `cd frontend && npm run dev` (Step 3) |
 | `ModuleNotFoundError: No module named 'backend'` | Running from wrong directory | Always run Python commands from the **repo root** |
 | Schema index build fails | DB not reachable or schema not loaded | Ensure Docker is up and your DB has tables before indexing |
+| `schema 'public' contains no tables` from the benchmark | BIRD dump never loaded, or loaded into another database | [Load the data](#option-b--the-bird-mini-dev-benchmark-data), or pass `--pg-dbname` |
+| Benchmark refuses to start, naming the gold file | `--engine` paired with the other dialect's question file | Use `mini_dev_postgresql.json` with `postgres`, `mini_dev_sqlite.json` with `sqlite` |
+| `psql: command not found` | PostgreSQL client tools not installed locally | Use the container's: `docker exec -i pgvector-db psql -U postgres -d FYP < dump.sql` |
+| Every answer ignores your data | Index built before the data was loaded | Re-run `python -m backend.retrieval.indexing build --db FYP` |
 
 ---
 
@@ -673,7 +856,7 @@ Sends a user message and returns a structured response.
 | `csv_path` | string \| null | CSV filename for large result sets (>100 rows) |
 | `turn_id` | integer \| null | Turn id, used to submit feedback |
 | `cache_hit` | boolean | Answered via the semantic-cache shortcut |
-| `verification` | object | How this answer was chosen — `candidates`, `executed`, `agreement`, `distinct_result_sets`, `decided_by`, `refine_rounds`, `validated`, `validation_checks` (GH#67) |
+| `verification` | object | How this answer was chosen — `candidates`, `executed`, `agreement`, `distinct_result_sets`, `decided_by`, `refine_rounds`, `validated`, `validation_checks` |
 | `standalone_query` | string \| null | A follow-up rewritten as a self-contained question; `null` when the turn needed no context |
 | `latency_ms` | integer | End-to-end turn latency |
 | `timings` | object | Per-stage wall-clock ms |
@@ -798,7 +981,7 @@ removes chunks for dropped ones. A dropped table also **archives** (not
 deletes) its semantic-cache few-shot pairs; a modified/dropped column
 **demotes** their confidence — both reported in the response as
 `archived_pairs`/`demoted_pairs` (`{table: count}`), so stale examples stop
-surfacing without losing history. No admin-auth guard yet (Issue #6/GH#7).
+surfacing without losing history. No admin-auth guard yet (Issue #6).
 
 ---
 
@@ -864,35 +1047,37 @@ The system enforces read-only semantics at multiple independent layers:
 
 ## Accuracy & Evaluation
 
-Accuracy is measured on the **BIRD mini-dev** benchmark (`backend/eval/`), which
-reports Execution Accuracy (EX), Soft-F1, and VES per difficulty tier. The
-harness transpiles MySQL-dialect gold queries to SQLite, flags unwinnable
-questions (gold that errors on SQLite), and supports execution voting, ReAct
-refinement, and schema linking as toggles for A/B runs.
+Accuracy is measured on the **BIRD mini-dev** benchmark, scored by
+`backend/eval/bird.py`, which reports Execution Accuracy (EX), Soft-F1 and VES
+per difficulty tier. Gold SQL is executed on the same engine as the prediction
+(see [Loading Data into PostgreSQL](#loading-data-into-postgresql)); gold that
+errors is flagged as unwinnable and excluded from `EX_winnable`. Execution
+voting, ReAct refinement, schema linking and plan diversity are all toggles, so
+each can be A/B'd on its own — `backend/eval/README.md` has the ablation
+recipes and how to read a result file.
 
-```bash
 Selecting what to run — model, scope and size:
 
 ```bash
 # one model
-python -m backend.eval.bird --dev-json … --db-dir … --model gpt-4.1-mini
+python -m backend.eval.bird --dev-json … --model gpt-4.1-mini
 
-# one database (GH#116) — applied BEFORE --subset, so this really is 20
-# questions from that database
-python -m backend.eval.bird --dev-json … --db-dir … \
+# one database — applied BEFORE --subset, so this really is 20 questions
+# from that database
+python -m backend.eval.bird --dev-json … \
     --db-id debit_card_specializing --subset 20
 
 # one difficulty tier, one database
-python -m backend.eval.bird --dev-json … --db-dir … \
+python -m backend.eval.bird --dev-json … \
     --difficulty moderate --db-id student_club
 ```
 
 `--db-id`, `--difficulty` and `--subset` combine; the two filters narrow the
 set and `--subset` then slices what is left.
 
-#### `--sample` — a subset that is actually cross-domain (GH#120)
+#### `--sample` — a subset that is actually cross-domain
 
-`mini_dev_sqlite.json` stores each database as one **contiguous block**:
+Both question files store each database as one **contiguous block**:
 
 ```
   30 debit_card_specializing | 48 student_club | 50 thrombosis_prediction
@@ -931,7 +1116,7 @@ SQLite file — no question joins two databases, and none uses `ATTACH`. What a
 cross-domain run demonstrates is that the model reads a schema it has not seen
 before, across 11 unrelated subject areas.
 
-#### `--question-timeout` — don't let one question hold the run (GH#119)
+#### `--question-timeout` — don't let one question hold the run
 
 A wall-clock budget for **one question's LLM work**, default **60 s**. On
 expiry the question is abandoned and the loop moves on:
@@ -940,7 +1125,7 @@ expiry the question is abandoned and the loop moves on:
 python -m backend.eval.bird --dev-json … --db-dir … \
     --question-timeout 180        # a slow reasoning model
 python -m backend.eval.bird --dev-json … --db-dir … \
-    --question-timeout 0          # disabled — pre-GH#119 behaviour
+    --question-timeout 0          # disabled — no budget at all
 ```
 
 Two guards exist and they are easy to confuse:
@@ -975,9 +1160,12 @@ generator — at a cost of two extra LLM calls per question. Leave it off for
 model comparisons and ablations; switch it on for the one or two runs where
 you want the judge gate scored.
 
+Putting it together:
+
+```bash
 # BIRD run — EX / Soft-F1 / VES, computed by backend/eval/bird.py
 python -m backend.eval.bird --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
-    --engine postgres --pg-dbname bird --subset 40 --sample stratified
+    --engine postgres --subset 40 --sample stratified
 
 # All seven models in one command
 python -m backend.eval.run_all_models --difficulty moderate --subset 40
@@ -986,7 +1174,7 @@ python -m backend.eval.run_all_models --difficulty moderate --subset 40
 python -m backend.eval.run_eval --ground-truth backend/eval/ground_truth.json --db FYP --model gpt-4o
 ```
 
-### Benchmarking across providers (GH#65)
+### Benchmarking across providers
 
 `--base-url` points a run at any **OpenAI-compatible** endpoint, so the same
 BIRD harness can score open-weight models from different vendors against the
@@ -1018,7 +1206,7 @@ python -m backend.eval.bird --output out/local.json \
   --model qwen2.5-coder --base-url http://localhost:11434/v1
 ```
 
-**Keys travel with the endpoint (GH#106).** `base_url` says *where* to send a
+**Keys travel with the endpoint.** `base_url` says *where* to send a
 request and `LLM_API_KEY` says *who you are there*; pointing `base_url` at
 another provider while still sending your OpenAI key returns 401. The
 resolution order is explicit value → `$LLM_API_KEY` → `OPENAI_API_KEY`, so a
@@ -1030,7 +1218,7 @@ plain OpenAI run needs no new variable at all.
 | `LLM_API_KEY` | the query stage: every chat call | `OPENAI_API_KEY` |
 | `JUDGE_API_KEY` | the `--trust-eval` back-translation judge | `LLM_API_KEY` |
 
-### Mixing providers in one deployment (GH#108)
+### Mixing providers in one deployment
 
 A model's provider is a property of the **model**, not of the process, so one
 deployment serves OpenAI models directly and others through a gateway — and
@@ -1054,7 +1242,7 @@ llm:
 
 An **untagged** entry behaves exactly as before: the process-wide `base_url`
 and the query-stage key. The client built for `gpt-4o-mini` is byte-identical
-to the pre-GH#108 construction, and a test asserts it.
+to the single-provider construction it replaced, and a test asserts it.
 
 **Verify slugs before spending.** Providers retire ids, and a wrong one fails
 at the first call — mid-run, after everything before it has been paid for:
@@ -1073,7 +1261,7 @@ does not exist*.
 The eval CLI uses the same routing, so `--model qwen/qwen3.5-122b-a10b` reaches
 OpenRouter without repeating the endpoint; an explicit `--base-url` still wins.
 
-### Which model answered, and what it cost (GH#114)
+### Which model answered, and what it cost
 
 Each assistant turn carries two chips: the **model** that answered (with the
 provider in its tooltip) and the token/cost figure.
@@ -1115,7 +1303,7 @@ Two things to know before reading the numbers:
   block doesn't get mistaken for the answer.
 
 Research-backed techniques implemented to raise accuracy **without a stronger
-model** (all config-gated) — see GitHub issues #48/#49/#50:
+model**, all config-gated so each can be measured on its own:
 
 | Technique | Targets | Source |
 |---|---|---|
@@ -1125,12 +1313,12 @@ model** (all config-gated) — see GitHub issues #48/#49/#50:
 | Backward schema linking | broken ≥3-table joins | RSL-SQL |
 | Verbatim evidence formula in the plan | evidence paraphrase | TA-SQL |
 | M-Schema compact schema format | schema legibility | XiYan-SQL |
-| Join-minimality demotion | spurious joins silently dropping rows | GH#50 |
-| Evidence-target guidance | evidence formulas misread as filters instead of the SELECT target | GH#50 |
-| Lexical-collision guidance | column names colliding with unrelated question vocabulary | GH#50 |
+| Join-minimality demotion | spurious joins silently dropping rows | this project |
+| Evidence-target guidance | evidence formulas misread as filters instead of the SELECT target | this project |
+| Lexical-collision guidance | column names colliding with unrelated question vocabulary | this project |
 | Skeleton-similarity few-shot blending | few-shots that match topic but not SQL shape | DAIL-SQL |
 
-### Can this answer be trusted? (GH#91)
+### Can this answer be trusted?
 
 Every answer carries a verdict, above the rows it judges:
 
@@ -1171,7 +1359,7 @@ back and the check becomes a mirror.
 `sql.back_translation: false` disables the round trip (two LLM calls per
 answered turn); everything else is deterministic and free.
 
-### Keeping one turn out of another's way (GH#87 / GH#89)
+### Keeping one turn out of another's way
 
 Conversation history reaches four stages — intent classification, follow-up
 condensation, planning and generation — so a question about a different
@@ -1180,9 +1368,9 @@ against that:
 
 - **Condensation** only rewrites a follow-up that genuinely depends on the
   conversation, and a deterministic veto discards a rewrite that *injects*
-  literals the question never mentioned (GH#87). A relative clause — "schools
+  literals the question never mentioned. A relative clause — "schools
   **that** are among the top 5" — is no longer mistaken for a reference.
-- **Topic switch** (GH#89): when a turn's retrieved tables are disjoint from
+- **Topic switch**: when a turn's retrieved tables are disjoint from
   the tables the previous answer queried, the turn runs with **no history** at
   all. The comparison reuses the retrieved set and the previous SQL already in
   state — no extra retrieval, no extra LLM call. It is reported in the answer's
@@ -1192,7 +1380,7 @@ Both are covered by `topic_switch` cases in the multi-turn harness, including
 one that moves the conversation between databases mid-session — archived under
 `archive/multiturn-eval/`.
 
-### Measuring the detector (GH#101)
+### Measuring the detector
 
 A verdict without a number is a claim. `backend/eval/trust_eval.py` replays the
 labelled BIRD records in `outputs/` through the **same** `trust.grade()` the
@@ -1237,7 +1425,7 @@ recorded in the run header so a cross-provider result is attributable.
 `trust_eval.py` then prefers the stored block and reports the judge gate
 automatically — no flag, it follows the data.
 
-### Showing the evidence behind an answer (GH#67)
+### Showing the evidence behind an answer
 
 A text-to-SQL system gets no natural signal telling it whether its own answer
 is right. Syntax errors are self-reporting and safety violations are
@@ -1271,10 +1459,10 @@ signal — and has a hard ceiling:
 **41 of gpt-5-mini's 57 errors happened on turns where every candidate
 agreed** — wrong together. Agreement can never catch those.
 
-### Risk checks (GH#69)
+### Risk checks
 
 An `assess_risk` node runs seven checks that need no ground truth: zero rows,
-a WHERE literal absent from the data (via the GH#49 value index), an
+a WHERE literal absent from the data (via the value index), an
 unconstrained cross join, an aggregate with no GROUP BY on a per-group
 question, `LIMIT 1` on a plural question, column count against the linker
 plan, and a table outside the retrieved schema. Flags are attached to
@@ -1297,7 +1485,7 @@ the two checks aimed at the largest error class (`disjoint`, 25 of the 41)
 need a live database and stored schema context, so they could not be replayed
 offline and contribute nothing to the figure above.
 
-### Cost & minimum execution (GH#57)
+### Cost & minimum execution
 
 A full first-time READ turn makes ~6 LLM calls (intent → linking → generation ×N
 → formatting). Repeat questions no longer pay that. Every LLM call is now
@@ -1337,7 +1525,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI; drop/modify cascades the semantic cache (archive/demote) |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | 1287 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | 1545 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |
@@ -1390,12 +1578,14 @@ show.
       and the newer `retrieval.full_schema_when_scoped` / `retrieval.auto_scope`
       / `sql.live_tier` knobs. All shipped unmeasured.
 - [ ] **`sql.fast_path` / `sql.answer_reuse` on vs off** — EX must be unchanged
-      (GH#57 is accuracy-neutral by design); `cost_usd` shows the saving.
+      (both are accuracy-neutral by design); `cost_usd` shows the saving.
 
-> ⚠️ `plan_diversity` and `plan_rationale` are now **enabled** in
-> `config.yaml`. They were default-off pending an A/B, so their effect is
-> currently unquantified — the 750 records already in `outputs/` were all
-> produced with them off and serve as the baseline for a re-run.
+> `plan_diversity`, `plan_rationale` and `path_diversity` ship **off**, so the
+> configured pipeline is the one the recorded results were produced with. Turn
+> one on per run (`--plan-diversity`, …) and tag the arm, rather than editing
+> `config.yaml` between runs — `backend/eval/README.md` has the recipe, and
+> every arm is written into the result file's `run_config` so it can be read
+> back.
 
 **Code**
 - [ ] Issue #6 — User isolation, roles, JWT auth (read-only DB role already landed)
@@ -1413,7 +1603,9 @@ show.
 
 ## Contributing
 
-1. Pick a GitHub issue. Respect the dependency order it states.
+1. Pick a work item and respect the dependency order it states. (The GitHub
+   Issues tab is disabled on this repository — see the Development Status
+   table above for what each issue number refers to.)
 2. Work on the designated feature branch (see `CLAUDE.md` for the current branch name).
 3. Follow the conventions in [CLAUDE.md](./CLAUDE.md):
    - Absolute imports rooted at `backend.` (e.g. `from backend.retrieval.indexing import retrieve`)

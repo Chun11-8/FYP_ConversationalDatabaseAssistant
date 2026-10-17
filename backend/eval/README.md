@@ -70,29 +70,33 @@ report a plausible score over whatever survived.
 ---
 
 
-# Path B — Quick self-contained score (fast iteration)
+# Running a scored run
 
-No official repo needed — `backend/eval/bird.py` generates **and** scores in one
-pass, and supports `--subset` / `--difficulty` for fast checks.
+`bird.py` generates **and** scores in one pass, and `--subset` / `--difficulty`
+keep a check cheap. Loading the data is covered in the root README under
+[Loading Data into PostgreSQL](../../README.md#loading-data-into-postgresql).
 
 ```bash
-# Smoke test: 10 questions, ~1 min
+# Smoke test on PostgreSQL (the default engine): 10 questions, ~1 min
 python -m backend.eval.bird \
-    --dev-json  path/to/mini_dev_data/mini_dev_sqlite.json \
-    --db-dir    path/to/mini_dev_data/dev_databases \
-    --output    outputs/bird_smoke.json \
+    --dev-json dataset/minidev/MINIDEV/mini_dev_postgresql.json \
+    --output   outputs/bird_smoke.json \
     --subset 10
 
-# Only the hard ones
+# The same on SQLite — needs --db-dir and the SQLite question file
 python -m backend.eval.bird \
-    --dev-json ... --db-dir ... \
+    --dev-json dataset/minidev/MINIDEV/mini_dev_sqlite.json \
+    --db-dir   dataset/minidev/MINIDEV/dev_databases \
+    --engine   sqlite --output outputs/bird_smoke_sqlite.json --subset 10
+
+# Only the hard ones
+python -m backend.eval.bird --dev-json … \
     --difficulty challenging --output outputs/bird_challenging.json
 ```
 
-> ⚠️ `bird.py` expects each DB at `<db-dir>/<db_id>/<db_id>.db`. The official
-> mini-dev SQLite files are named `<db_id>.sqlite`. Either symlink/rename them,
-> or use Path A (the generator reads `.sqlite`). This is the main gotcha when
-> switching between the two paths.
+Under `--engine sqlite`, each database is looked up at
+`<db-dir>/<db_id>/<db_id>.sqlite`, falling back to `<db_id>.db` — the official
+mini-dev layout works unchanged, and so do older self-built sets.
 
 ---
 
@@ -108,26 +112,38 @@ pytest backend/tests/test_bird_eval.py backend/tests/test_db_backends.py -v
 
 ## Interpreting the results & what to fix next
 
-After an official run, drill into failures to see *why* queries fail:
+Every run writes one JSON file with three top-level keys — `run_config`
+(which arm produced it), `metrics` (EX / EX_winnable / F1 / VES, plus
+`by_difficulty` and `error_categories`) and `questions` (one record per
+question). `error_analysis.py` is the library that assigns each failure its
+`error_category`; the counts are already summarised in `metrics`:
 
 ```bash
-python - <<'EOF'
-import json
-preds = json.load(open("path/to/predict_mini_dev_MYSYS_SQLite.json"))
-# Inspect a few generated queries
-for k in list(preds)[:5]:
-    sql, db = preds[k].split("\t----- bird -----\t")
-    print(f"[{k}] db={db}\n  {sql}\n")
-EOF
+python -I - <<'PY'
+import json, collections
+r = json.load(open("outputs/<your_run>.json"))
+print(r["run_config"])
+print(r["metrics"]["error_categories"])
+
+bad = [q for q in r["questions"] if not q.get("ex")]
+for q in bad[:3]:
+    print("\nQ   :", q["question"])
+    print("PRED:", q["pred_sql"])
+    print("GOLD:", q["gold_sql"])
+    print("WHY :", q.get("error_category"), q.get("pred_error") or "")
+PY
 ```
 
-Map symptoms to the improvement tiers (GitHub issues):
+Each record also carries `gold_error` — gold SQL that fails on the engine. Those
+questions are unwinnable and are excluded from `EX_winnable`, which is why that
+figure and plain `EX` can differ.
 
-| Symptom in failures | Likely cause | Addressed by |
+| Symptom in failures | Likely cause | Where to look |
 |---|---|---|
-| `no such function: STRING_AGG`, `ILIKE`, `::` cast errors | PostgreSQL syntax run on SQLite | **Tier 1 (#18)** dialect normalization ✅ done |
-| Valid SQL, 0 rows, wrong joins | join-column hallucination | **Tier 2 (#19)** column validation + zero-row retry |
-| Times out / very slow | inefficient query | **Tier 3 (#21)** + VES tuning |
+| Wrong dialect function (`strftime` on PostgreSQL, `STRING_AGG` on SQLite) | the generator wrote for the other engine | `DIALECT_NOTES` in `sql_code_agent.py` |
+| Valid SQL, 0 rows, wrong joins | join-column hallucination | schema linking + `strict_semantic` |
+| Right rows, wrong order on ties | NULL ordering differs between the engines | the superlative rules in `prompt.md` |
+| Times out / very slow | inefficient query | `--timeout`, and VES |
 
 ### Rough expectations (GPT-4o-mini class system)
 
