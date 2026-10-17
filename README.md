@@ -522,7 +522,37 @@ separately, and the dialect of the two must match.
 > you get a plausible-looking score over whatever happened to survive.
 > `bird.py` refuses the mismatched pairing before the run starts.
 
-#### Step 1 — Download the questions
+#### Step 1 — Download the dataset
+
+Download the archive by hand from the dataset's **Files** tab on HuggingFace —
+[`birdsql/bird_mini_dev`](https://huggingface.co/datasets/birdsql/bird_mini_dev)
+— or from [bird-bench.github.io](https://bird-bench.github.io/) →
+**Download Mini-Dev**. Unzip it somewhere outside this repo; `dataset/` is
+git-ignored if you want it alongside.
+
+Two things inside it matter, and they are *different pieces*:
+
+| Path in the archive | Needed for | What it is |
+|---|---|---|
+| `MINIDEV/mini_dev_postgresql.json` | `--engine postgres` | questions + **PostgreSQL** gold SQL |
+| `MINIDEV_postgresql/BIRD_dev.sql` | `--engine postgres` | one dump, **all 11 databases' tables in one namespace** |
+| `MINIDEV/mini_dev_sqlite.json` | `--engine sqlite` | questions + **SQLite** gold SQL |
+| `dev_databases/<db_id>/<db_id>.sqlite` | `--engine sqlite` | one file per database |
+
+Folder names have moved between mini-dev releases. Locate yours rather than
+trusting the table:
+
+```bash
+find <unzipped> -name 'mini_dev_*.json' -o -name '*.sql' -path '*postgres*'
+```
+
+<details>
+<summary>Alternative: fetch just the questions with a script</summary>
+
+`load_dataset("birdsql/bird_mini_dev")` returns the question rows only — not
+the database contents — so this is a shortcut for the JSON files, not a
+replacement for the download above. You still need `BIRD_dev.sql` from the
+archive.
 
 ```bash
 pip install datasets      # one-off, only this script needs it
@@ -530,36 +560,22 @@ pip install datasets      # one-off, only this script needs it
 python -m backend.eval.download_bird --output-dir dataset/minidev
 ```
 
-Pulls [`birdsql/bird_mini_dev`](https://huggingface.co/datasets/birdsql/bird_mini_dev)
-and writes both dialects:
-
 ```
 dataset/minidev/
 ├── mini_dev_postgresql.json        ← --engine postgres  (the default)
 ├── mini_dev_postgresql_gold.sql
 ├── mini_dev_sqlite.json            ← --engine sqlite
 ├── mini_dev_sqlite_gold.sql
-└── dev_databases/                  ← created empty; Step 2 fills it (SQLite only)
+└── dev_databases/                  ← created empty; fill it from the archive
 ```
 
 `--dialect postgresql` fetches just one. The script prints the HuggingFace
 splits it found and which one it used for each dialect, so a renamed split
-upstream shows up as a warning rather than as the wrong questions.
+upstream surfaces as a warning rather than as the wrong dialect's questions.
 
-#### Step 2 — Download the database contents
+</details>
 
-HuggingFace carries questions only — the data is large binaries. Get the
-official archive from [bird-bench.github.io](https://bird-bench.github.io/) →
-**Download Mini-Dev** (the repo also links a
-[Google Drive package](https://github.com/bird-bench/mini_dev)), and unzip it.
-Two things inside matter:
-
-| Path in the archive | For | What it is |
-|---|---|---|
-| `MINIDEV_postgresql/BIRD_dev.sql` | PostgreSQL | one dump, **all 11 databases' tables in one namespace** |
-| `dev_databases/<db_id>/<db_id>.sqlite` | SQLite | one file per database |
-
-#### Step 3 — Load the dump into PostgreSQL
+#### Step 2 — Load the dump into PostgreSQL
 
 Load it into the **same database the assistant uses** (`FYP`), so the chat UI
 and the benchmark answer questions over identical tables — otherwise a
@@ -586,9 +602,9 @@ psql ... -f BIRD_dev.sql 2>&1 | grep -i '^ERROR' | head
 
 > The archive's layout has shifted between mini-dev releases. If that path
 > does not exist, find it: `find <unzipped> -name '*.sql' -path '*postgres*'`.
-> Step 5 tells you whether you loaded the right thing.
+> Step 4 tells you whether you loaded the right thing.
 
-#### Step 4 — Point the harness at it
+#### Step 3 — Point the harness at it
 
 Nothing to configure if you loaded into `FYP`: the harness reads the same
 `db:` block in `config.yaml` and the same `PG_PASSWORD` the app uses.
@@ -607,7 +623,7 @@ python -m backend.eval.bird --dev-json dataset/minidev/mini_dev_postgresql.json 
     --pg-dbname bird_mini_dev --subset 2
 ```
 
-#### Step 5 — Verify before spending API credit
+#### Step 4 — Verify before spending API credit
 
 The tables share one namespace, which is only sound while their names are
 unique across the eleven databases — a collision would silently make one
@@ -646,7 +662,7 @@ No loading at all — point `--db-dir` at the unpacked `dev_databases/` folder
 and pair it with the SQLite question file:
 
 ```bash
-cp -r <unzipped>/dev_databases dataset/minidev/dev_databases
+cp -r <unzipped>/dev_databases dataset/minidev/dev_databases   # if not already there
 
 python -m backend.eval.bird \
     --dev-json dataset/minidev/mini_dev_sqlite.json \
@@ -662,7 +678,7 @@ to `<db_id>.db`.
 | `postgres` *(default)* | `mini_dev_postgresql.json` | all tables in ONE PostgreSQL database |
 | `sqlite` | `mini_dev_sqlite.json` | `--db-dir` of `{db_id}/{db_id}.sqlite` files |
 
-#### Step 6 — Index it, so the chat UI can answer over it too
+#### Step 5 — Index it, so the chat UI can answer over it too
 
 The benchmark talks to PostgreSQL directly, but the chat UI finds tables
 through the vector index. After loading, rebuild it and tag each table with

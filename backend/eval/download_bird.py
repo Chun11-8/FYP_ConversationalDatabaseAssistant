@@ -14,8 +14,11 @@ the gold cannot execute and the run scores whatever survives:
 
 WHAT THIS SCRIPT DOES NOT FETCH
 -------------------------------
-The HuggingFace dataset carries question metadata only. The database contents
-are large binaries and are published separately:
+`load_dataset()` returns the question ROWS — not the database contents. (The
+dataset repo's Files tab does host the full archive; this script reads the
+rows, so it cannot give you the data.) Download the archive by hand from
+https://huggingface.co/datasets/birdsql/bird_mini_dev or
+https://bird-bench.github.io/, and take from it:
 
   * PostgreSQL — one dump holding every database's tables in ONE namespace,
     `MINIDEV_postgresql/BIRD_dev.sql` in the official archive. Load it with:
@@ -221,7 +224,8 @@ def _warn_missing_databases(output_dir: Path, db_dir: Path,
             "\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "  DATABASE CONTENTS NOT FOUND — questions only were downloaded.\n"
-            "  HuggingFace does not carry the database files.\n\n"
+            "  load_dataset() returns rows, not the database files. Download\n"
+            "  the mini-dev archive by hand and take the data from it.\n\n"
             "  For --engine postgres (the default): load the dump into the\n"
             "  SAME database the assistant uses, then no --db-dir is needed:\n"
             "    psql -h 127.0.0.1 -U postgres -d FYP \\\n"
