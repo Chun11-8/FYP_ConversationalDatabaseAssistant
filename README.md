@@ -288,8 +288,7 @@ FYP_ConversationalDatabaseAssistant/
 ├── dataset/                            # BIRD mini-dev data — git-ignored; download
 │                                       #   the archive (see README §8)
 ├── outputs/                            # CSV exports + BIRD result JSON — git-ignored
-├── requirements.txt
-└── CLAUDE.md                           # Agent/developer guide
+└── requirements.txt
 ```
 
 ---
@@ -1708,16 +1707,19 @@ show.
 1. Pick a work item and respect the dependency order it states. (The GitHub
    Issues tab is disabled on this repository — see the Development Status
    table above for what each issue number refers to.)
-2. Work on the designated feature branch (see `CLAUDE.md` for the current branch name).
-3. Follow the conventions in [CLAUDE.md](./CLAUDE.md):
+2. Work on a feature branch, never on `main`.
+3. Follow the conventions this codebase already uses:
    - Absolute imports rooted at `backend.` (e.g. `from backend.retrieval.indexing import retrieve`)
    - Type hints + `from __future__ import annotations`
    - Module-level `logger = logging.getLogger(__name__)`
+   - Prompts live in `.md` / `.tpl` files, not in code
+   - Read config and prompt files with `encoding="utf-8"` — Windows defaults
+     to cp1252 and mangles or crashes on the rest
    - Always run from the **repo root** so the `backend` package resolves
 4. Add/update tests in `backend/tests/`. Run `pytest` from the repo root before pushing.
 5. Do a manual smoke run (`python -m backend.agents.db_agent`) if you touch the pipeline.
 6. Never commit secrets. Verify with `grep -ri "sk-" backend/` before pushing.
-7. Update this README and `CLAUDE.md` if you change architecture, run steps, or conventions.
+7. Update this README if you change architecture, run steps, or conventions.
 
 ### Definition of Done
 

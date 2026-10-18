@@ -228,3 +228,8 @@ backend/config/secrets.env
 # Reconstructed mini-DBs from smoke_examples.py
 backend/eval/_smoke_dbs/
 backend/eval/_multiturn_dbs/
+
+# Agent guide — kept on disk, not published to the repository.
+# A web/cloud Claude Code session clones from GitHub and so starts without
+# it; paste it in, or drop the file back, when a session needs the context.
+CLAUDE.md
