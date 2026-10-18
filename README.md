@@ -264,11 +264,11 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── db_backends.py              # PostgreSQL / SQLite execution engines
 │   │   ├── run_all_models.py           # Sweep every selectable model in one command
 │   │   ├── run_eval.py                 # Lightweight harness over your own labelled set
-│   │   ├── download_bird.py            # Fetch the BIRD mini-dev question files
+│   │   ├── download_bird.py            # Fetch the SQLite question file from HuggingFace
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
 │   │   └── README.md                   # Engines, ablations, how to read a result file
-│   ├── tests/                          # 1560 unit/integration tests (offline)
+│   ├── tests/                          # 1545 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -285,8 +285,8 @@ FYP_ConversationalDatabaseAssistant/
 │   │       └── DatabaseTab.tsx         # Schema browser + Index Sync panel
 │   ├── package.json
 │   └── vite.config.ts
-├── dataset/                            # BIRD mini-dev data — git-ignored, fetched by
-│                                       #   python -m backend.eval.download_bird
+├── dataset/                            # BIRD mini-dev data — git-ignored; download
+│                                       #   the archive (see README §8)
 ├── outputs/                            # CSV exports + BIRD result JSON — git-ignored
 ├── requirements.txt
 └── CLAUDE.md                           # Agent/developer guide
@@ -547,12 +547,17 @@ find <unzipped> -name 'mini_dev_*.json' -o -name '*.sql' -path '*postgres*'
 ```
 
 <details>
-<summary>Alternative: fetch just the questions with a script</summary>
+<summary>Alternative: <code>backend/eval/download_bird.py</code> — questions only, SQLite only</summary>
 
-`load_dataset("birdsql/bird_mini_dev")` returns the question rows only — not
-the database contents — so this is a shortcut for the JSON files, not a
-replacement for the download above. You still need `BIRD_dev.sql` from the
-archive.
+A convenience script that calls `load_dataset("birdsql/bird_mini_dev")` and
+writes the rows out. **Read the two limits before relying on it:**
+
+- `load_dataset()` returns question *rows*, not the database contents, so it
+  cannot replace the download above — `BIRD_dev.sql` still comes from the
+  archive.
+- It writes **one** file, `mini_dev_sqlite.json`, from whichever split it
+  finds first. It does **not** produce `mini_dev_postgresql.json`, which is
+  the file `--engine postgres` needs. Take that one from the archive.
 
 ```bash
 pip install datasets      # one-off, only this script needs it
@@ -562,16 +567,10 @@ python -m backend.eval.download_bird --output-dir dataset/minidev
 
 ```
 dataset/minidev/
-├── mini_dev_postgresql.json        ← --engine postgres  (the default)
-├── mini_dev_postgresql_gold.sql
 ├── mini_dev_sqlite.json            ← --engine sqlite
 ├── mini_dev_sqlite_gold.sql
 └── dev_databases/                  ← created empty; fill it from the archive
 ```
-
-`--dialect postgresql` fetches just one. The script prints the HuggingFace
-splits it found and which one it used for each dialect, so a renamed split
-upstream surfaces as a warning rather than as the wrong dialect's questions.
 
 </details>
 
@@ -1628,7 +1627,7 @@ previous behavior exactly.
 | #7 | Schema versioning | ✅ Done | Snapshot/diff/hash + surgical/full re-index + UI; drop/modify cascades the semantic cache (archive/demote) |
 | #9 | Tools / external APIs | ✅ Done | Web-search tool wired into GENERAL intent |
 | #10 | Response optimizer guardrails | ✅ Done | Output guardrail + entity-first formatting |
-| #11 | Full test suite | ✅ Done | 1560 tests; CI still to wire |
+| #11 | Full test suite | ✅ Done | 1545 tests; CI still to wire |
 | #38–42 | Latency, streaming, multi-turn, hardening, observability | ✅ Done | Model routing, SSE, timeouts, request IDs, metrics |
 | #48–50 | Accuracy techniques (see above) | ✅ Done | BIRD A/B rerun pending live env |
 | #52 | Per-request model selector | ✅ Done | `/models` endpoint, sidebar picker, `--model` on eval CLIs |

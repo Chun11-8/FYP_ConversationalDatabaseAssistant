@@ -1,42 +1,38 @@
 """
-backend/eval/download_bird.py — Download the BIRD mini-dev QUESTIONS via HuggingFace.
+backend/eval/download_bird.py — Download the BIRD mini-dev dataset via HuggingFace.
 
-BIRD publishes mini-dev once per SQL dialect. The questions differ — the gold
-SQL is written for that engine — so the file must match `bird.py --engine` or
-the gold cannot execute and the run scores whatever survives:
+Saves data in the exact structure expected by bird.py:
 
     <output-dir>/
-      mini_dev_postgresql.json        # questions array   (--engine postgres)
-      mini_dev_postgresql_gold.sql    # one "SQL\\tdb_id" per line
-      mini_dev_sqlite.json            # questions array   (--engine sqlite)
-      mini_dev_sqlite_gold.sql
-      dev_databases/                  # SQLite database files (see below)
+      mini_dev_sqlite.json          # questions array
+      mini_dev_sqlite_gold.sql      # one "SQL\\tdb_id" per line
+      dev_databases/                # SQLite database files (see note below)
 
-WHAT THIS SCRIPT DOES NOT FETCH
--------------------------------
-`load_dataset()` returns the question ROWS — not the database contents. (The
-dataset repo's Files tab does host the full archive; this script reads the
-rows, so it cannot give you the data.) Download the archive by hand from
-https://huggingface.co/datasets/birdsql/bird_mini_dev or
-https://bird-bench.github.io/, and take from it:
+NOTE ON DATABASE FILES
+----------------------
+The HuggingFace dataset `birdsql/bird_mini_dev` includes question metadata but
+NOT the SQLite database files (they are large binary blobs, ~1-2 GB total).
+You must obtain the `.sqlite` files separately:
 
-  * PostgreSQL — one dump holding every database's tables in ONE namespace,
-    `MINIDEV_postgresql/BIRD_dev.sql` in the official archive. Load it with:
-        psql -h 127.0.0.1 -U postgres -d FYP -f .../MINIDEV_postgresql/BIRD_dev.sql
+  Option A — Download the official mini-dev archive:
+    https://bird-bench.github.io/ → "Download Mini-Dev"
+    Unzip and copy the `dev_databases/` folder to <output-dir>/dev_databases/
 
-  * SQLite — one file per database, used directly via `--db-dir`:
-        git clone --depth 1 https://github.com/bird-bench/mini_dev.git
-        cp -r mini_dev/mini_dev_sqlite/dev_databases <output-dir>/dev_databases/
+  Option B — Clone the mini-dev GitHub repo (which bundles the DBs):
+    git clone --depth 1 https://github.com/bird-bench/mini_dev.git
+    cp -r mini_dev/mini_dev_sqlite/dev_databases <output-dir>/dev_databases/
 
-Both ship in the official archive at https://bird-bench.github.io/ →
-"Download Mini-Dev". The root README's "Loading Data into PostgreSQL" section
-walks through it end to end.
+This script will create the <output-dir>/dev_databases/ directory and warn you
+if the databases are missing when bird.py would need them.
 
 Usage
 -----
-    python -m backend.eval.download_bird                       # both dialects
-    python -m backend.eval.download_bird --dialect postgresql
-    python -m backend.eval.download_bird --output-dir dataset/minidev
+    python -m backend.eval.download_bird                      # saves to ./mini_dev_data
+    python -m backend.eval.download_bird --output-dir /data/bird
+
+After running this script, follow the NOTE above to populate dev_databases/,
+then run:
+    python -m backend.eval.bird --dev-json <dev.json> --engine postgres
 """
 
 from __future__ import annotations
@@ -48,24 +44,6 @@ import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-
-# ── Dialects ──────────────────────────────────────────────────────────────────
-# The HuggingFace split names are not the file names, and upstream has used
-# more than one spelling. Each dialect lists the candidates in preference
-# order; whichever the dataset actually exposes wins, and an unresolvable
-# dialect reports the splits that DO exist rather than a bare KeyError.
-
-DIALECTS: dict[str, tuple[str, ...]] = {
-    "postgresql": ("mini_dev_pg", "mini_dev_postgresql", "postgresql", "pg"),
-    "sqlite":     ("mini_dev_sqlite", "sqlite"),
-    "mysql":      ("mini_dev_mysql", "mysql"),
-}
-
-# Used only when the dataset exposes no recognisable per-dialect split (an
-# older snapshot with one unnamed split). The questions are then whatever that
-# split holds, so we say so rather than labelling them with a dialect.
-_GENERIC_SPLITS = ("validation", "dev", "mini_dev", "test", "train")
 
 
 # ── Field mapping ─────────────────────────────────────────────────────────────
@@ -104,53 +82,15 @@ def _normalise_row(row: dict, idx: int) -> dict:
 
 
 def _gold_line(sql: str, db_id: str) -> str:
-    """Format one line for a *_gold.sql file."""
+    """Format one line for mini_dev_sqlite_gold.sql."""
     # Official format: "SELECT ...\t<db_id>"  (no newlines inside SQL)
     single = " ".join(sql.split())
     return f"{single}\t{db_id}"
 
 
-def resolve_split(available: list[str], dialect: str) -> str | None:
-    """
-    The split name this dataset uses for *dialect*, or None.
-
-    Matching is case-insensitive and ignores '-'/'_' so a renamed split does
-    not silently fall through to the wrong dialect's questions.
-    """
-    def norm(s: str) -> str:
-        return s.lower().replace("-", "").replace("_", "")
-
-    index = {norm(s): s for s in available}
-    for candidate in DIALECTS[dialect]:
-        if norm(candidate) in index:
-            return index[norm(candidate)]
-    return None
-
-
-def write_dialect(split, output_dir: Path, dialect: str) -> Path:
-    """Write <dialect>'s questions + gold file. Returns the questions path."""
-    questions: list[dict] = []
-    gold_lines: list[str] = []
-    for idx, row in enumerate(split):
-        norm = _normalise_row(dict(row), idx)
-        questions.append(norm)
-        gold_lines.append(_gold_line(norm["SQL"], norm["db_id"]))
-
-    questions_path = output_dir / f"mini_dev_{dialect}.json"
-    with open(questions_path, "w", encoding="utf-8") as f:
-        json.dump(questions, f, indent=2, ensure_ascii=False)
-    logger.info(f"Wrote {len(questions)} {dialect} questions → {questions_path}")
-
-    gold_path = output_dir / f"mini_dev_{dialect}_gold.sql"
-    with open(gold_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(gold_lines) + "\n")
-    logger.info(f"Wrote gold file → {gold_path}")
-    return questions_path
-
-
 # ── Main download logic ───────────────────────────────────────────────────────
 
-def download(output_dir: Path, dialects: list[str]) -> None:
+def download(output_dir: Path) -> None:
     try:
         from datasets import load_dataset  # type: ignore
     except ImportError:
@@ -171,91 +111,87 @@ def download(output_dir: Path, dialects: list[str]) -> None:
         logger.error(f"Failed to load dataset: {exc}")
         sys.exit(1)
 
-    available = list(ds.keys()) if hasattr(ds, "keys") else []
-    logger.info(f"Splits available: {', '.join(available) or '(none named)'}")
-
-    written: list[Path] = []
-    unresolved: list[str] = []
-    for dialect in dialects:
-        name = resolve_split(available, dialect)
-        if name is None:
-            unresolved.append(dialect)
-            continue
-        logger.info(f"{dialect}: using split '{name}' ({len(ds[name])} questions)")
-        written.append(write_dialect(ds[name], output_dir, dialect))
-
-    if unresolved and not written:
-        # An older snapshot with one unnamed split: write it once, unlabelled,
-        # rather than claiming it is a dialect we could not find.
-        fallback = next((s for s in _GENERIC_SPLITS if s in available), None)
-        if fallback is None and available:
-            fallback = available[0]
-        if fallback is not None:
-            logger.warning(
-                f"No per-dialect split found for {', '.join(unresolved)}. "
-                f"Falling back to '{fallback}' and writing it as sqlite — "
-                f"CHECK the gold SQL dialect before scoring against it.")
-            written.append(write_dialect(ds[fallback], output_dir, "sqlite"))
+    # The dataset may expose a single split or named splits.
+    # Try common split names; fall back to the first available split.
+    split_names = list(ds.keys()) if hasattr(ds, "keys") else []
+    for candidate in ("validation", "dev", "mini_dev", "test", "train"):
+        if candidate in split_names:
+            split = ds[candidate]
+            logger.info(f"Using split '{candidate}' ({len(split)} questions)")
+            break
+    else:
+        if split_names:
+            split = ds[split_names[0]]
+            logger.info(f"Using split '{split_names[0]}' ({len(split)} questions)")
         else:
-            logger.error("Dataset exposes no usable split.")
-            sys.exit(1)
-    elif unresolved:
-        logger.warning(
-            f"No split found for: {', '.join(unresolved)}. "
-            f"Available: {', '.join(available)}")
+            # Dataset itself might be the split (DatasetDict with no named splits)
+            split = ds
+            logger.info(f"Using dataset directly ({len(split)} questions)")
 
-    _warn_missing_databases(output_dir, db_dir, written)
+    questions: list[dict] = []
+    gold_lines: list[str] = []
 
+    for idx, row in enumerate(split):
+        norm = _normalise_row(dict(row), idx)
+        questions.append(norm)
+        gold_lines.append(_gold_line(norm["SQL"], norm["db_id"]))
 
-def _warn_missing_databases(output_dir: Path, db_dir: Path,
-                            written: list[Path]) -> None:
-    """Tell the user what still has to be fetched by hand, per engine."""
-    db_ids: set[str] = set()
-    for path in written:
-        with open(path, encoding="utf-8") as f:
-            db_ids |= {q["db_id"] for q in json.load(f) if q.get("db_id")}
+    # Write mini_dev_sqlite.json
+    questions_path = output_dir / "mini_dev_sqlite.json"
+    with open(questions_path, "w", encoding="utf-8") as f:
+        json.dump(questions, f, indent=2, ensure_ascii=False)
+    logger.info(f"Wrote {len(questions)} questions → {questions_path}")
 
-    missing = sorted(d for d in db_ids
-                     if not (db_dir / d / f"{d}.sqlite").exists()
-                     and not (db_dir / d / f"{d}.db").exists())
+    # Write mini_dev_sqlite_gold.sql
+    gold_path = output_dir / "mini_dev_sqlite_gold.sql"
+    with open(gold_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(gold_lines) + "\n")
+    logger.info(f"Wrote gold file → {gold_path}")
 
-    if missing:
+    # Warn about missing database files
+    db_ids = sorted({q["db_id"] for q in questions if q["db_id"]})
+    missing_dbs = [d for d in db_ids if not (db_dir / d / f"{d}.sqlite").exists()]
+
+    if missing_dbs:
         logger.warning(
             "\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "  DATABASE CONTENTS NOT FOUND — questions only were downloaded.\n"
-            "  load_dataset() returns rows, not the database files. Download\n"
-            "  the mini-dev archive by hand and take the data from it.\n\n"
-            "  For --engine postgres (the default): load the dump into the\n"
-            "  SAME database the assistant uses, then no --db-dir is needed:\n"
-            "    psql -h 127.0.0.1 -U postgres -d FYP \\\n"
-            "         -f <unzipped>/MINIDEV_postgresql/BIRD_dev.sql\n\n"
-            "  For --engine sqlite: bird.py reads\n"
-            f"    {db_dir}/<db_id>/<db_id>.sqlite\n"
+            "  DATABASE FILES NOT FOUND\n"
+            "  The HuggingFace dataset does not include SQLite .sqlite files.\n"
+            "  bird.py needs them under:\n"
+            f"    {db_dir}/<db_id>/<db_id>.sqlite\n\n"
+            "  To populate them choose one option:\n\n"
+            "  Option A — Official mini-dev archive:\n"
+            "    1. Go to https://bird-bench.github.io/ and download Mini-Dev\n"
+            "    2. Unzip and run:\n"
+            f"         cp -r <unzipped>/dev_databases {db_dir}\n\n"
+            "  Option B — GitHub clone (includes DBs):\n"
             "    git clone --depth 1 https://github.com/bird-bench/mini_dev.git\n"
             f"    cp -r mini_dev/mini_dev_sqlite/dev_databases {db_dir}\n\n"
-            "  Both ship in the official archive:\n"
-            "    https://bird-bench.github.io/ → Download Mini-Dev\n\n"
-            f"  Databases referenced ({len(missing)}): "
-            f"{', '.join(missing[:10])}" + (" …" if len(missing) > 10 else "") + "\n"
+            f"  Missing ({len(missing_dbs)}): {', '.join(missing_dbs[:10])}"
+            + (" …" if len(missing_dbs) > 10 else "") + "\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
     else:
-        logger.info(f"All {len(db_ids)} SQLite database directories found under {db_dir}")
+        logger.info(f"All {len(db_ids)} database directories found under {db_dir}")
 
-    if written:
-        logger.info(
-            "\nDone. Next:\n"
-            f"  python -m backend.eval.bird --dev-json {written[0]} --subset 2"
-        )
+    logger.info(
+        "\nDone. Next steps:\n"
+        "  1. (If warned above) populate dev_databases/ with .sqlite files\n"
+        "  2. Run:  python -m backend.eval.bird --dev-json <dev.json>\n"
+        "     or:  python -m backend.eval.bird \\\n"
+        f"              --questions {questions_path} \\\n"
+        f"              --db-dir    {db_dir} \\\n"
+        "              --output    predictions.json"
+    )
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Download BIRD mini-dev questions via HuggingFace and save "
-                    "them in the structure expected by bird.py.",
+        description="Download BIRD mini-dev dataset via HuggingFace and save it "
+                    "in the structure expected by bird.py.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -263,13 +199,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         default="./mini_dev_data",
         help="Directory to save downloaded data (default: ./mini_dev_data)",
-    )
-    p.add_argument(
-        "--dialect",
-        default="all",
-        choices=("all", *DIALECTS),
-        help="Which dialect's questions to fetch. The gold SQL differs per "
-             "dialect and must match --engine (default: all)",
     )
     p.add_argument(
         "--verbose", "-v",
@@ -285,9 +214,7 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s  %(message)s",
     )
-    dialects = (["postgresql", "sqlite"] if args.dialect == "all"
-                else [args.dialect])
-    download(Path(args.output_dir), dialects)
+    download(Path(args.output_dir))
 
 
 if __name__ == "__main__":
