@@ -287,7 +287,8 @@ FYP_ConversationalDatabaseAssistant/
 │   └── vite.config.ts
 ├── dataset/                            # BIRD mini-dev data — git-ignored; download
 │                                       #   the archive (see README §8)
-├── outputs/                            # CSV exports + BIRD result JSON — git-ignored
+├── outputs/                            # BIRD result JSON (tracked — the evaluation
+│                                       #   record) + CSV exports of large results
 └── requirements.txt
 ```
 
