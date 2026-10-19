@@ -268,7 +268,6 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── trust_eval.py               # Does the detector detect? AUROC, risk–coverage
 │   │   ├── error_analysis.py           # Failure taxonomy for BIRD runs
 │   │   └── README.md                   # Engines, ablations, how to read a result file
-│   ├── tests/                          # 1545 unit/integration tests (offline)
 │   └── tools/                          # Web-search tool + registry
 ├── frontend/
 │   ├── src/
@@ -851,6 +850,9 @@ If `db_connected` is `false`, the backend is running but cannot reach PostgreSQL
 ---
 
 ### Optional — Run tests
+
+The suite (1,545 offline tests) is kept out of this repository; run it from a
+working copy that has `backend/tests/`:
 
 ```bash
 pytest backend/tests/ -v
