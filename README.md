@@ -347,6 +347,8 @@ Edit `backend/config/secrets.env`:
 
 ```env
 OPENAI_API_KEY=sk-your-openai-key-here
+OPENROUTER_API_KEY = sk-your-openrouter-key-here
+ANTHROPIC_API_KEY = sk-your-claude-key-here
 
 PG_DB=FYP
 PG_USER=postgres
