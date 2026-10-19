@@ -259,6 +259,7 @@ FYP_ConversationalDatabaseAssistant/
 │   │   ├── db_catalog.py               # table → owning database, for per-domain scoping
 │   │   ├── internal_tables.py          # The assistant's own tables — never indexed as data
 │   │   ├── data_processing.py          # Schema extraction from Postgres
+│   ├── tests/                          # 1545 unit/integration tests (offline)
 │   ├── eval/
 │   │   ├── bird.py                     # BIRD mini-dev harness (EX / Soft-F1 / VES)
 │   │   ├── db_backends.py              # PostgreSQL / SQLite execution engines
@@ -850,9 +851,6 @@ If `db_connected` is `false`, the backend is running but cannot reach PostgreSQL
 ---
 
 ### Optional — Run tests
-
-The suite (1,545 offline tests) is kept out of this repository; run it from a
-working copy that has `backend/tests/`:
 
 ```bash
 pytest backend/tests/ -v
