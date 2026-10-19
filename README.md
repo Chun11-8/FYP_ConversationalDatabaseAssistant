@@ -1,6 +1,9 @@
 # Conversational Database Assistant
 
-A final-year project — a **read-only, conversational Text-to-SQL assistant** powered by LangGraph, LangChain, OpenAI, and pgvector. Users ask questions about their database in plain English; the system classifies intent, retrieves relevant schema via vector RAG, generates and validates a `SELECT` query, executes it, and returns a natural-language answer.
+A final-year project — a **read-only, conversational Text-to-SQL assistant** powered by LangGraph, LangChain and pgvector. The query stage is
+provider-agnostic: OpenAI models are called directly and open-weight models
+through the OpenRouter gateway, chosen per request; embeddings stay on
+OpenAI. Users ask questions about their database in plain English; the system classifies intent, retrieves relevant schema via vector RAG, generates and validates a `SELECT` query, executes it, and returns a natural-language answer.
 
 ---
 
@@ -185,8 +188,9 @@ instead of re-asking indefinitely.
 | Python 3.13 | Runtime |
 | [LangGraph](https://github.com/langchain-ai/langgraph) | Agent orchestration state machine |
 | [LangChain](https://www.langchain.com/) | LLM abstraction, prompt helpers |
-| [OpenAI `gpt-4o-mini`](https://platform.openai.com/) | Intent classification, SQL generation, response formatting |
-| [OpenAI `text-embedding-3-small`](https://platform.openai.com/) | Schema + KB embeddings (1536-dim) |
+| [OpenAI `gpt-4o-mini`](https://platform.openai.com/) | Default query-stage model — intent, SQL generation, response formatting |
+| [OpenRouter](https://openrouter.ai/) | Gateway for the open-weight query-stage models (Llama, Gemini, DeepSeek, MiniMax, Qwen) — one key, many vendors |
+| [OpenAI `text-embedding-3-small`](https://platform.openai.com/) | Schema + KB embeddings (1536-dim) — **always** OpenAI, whichever model answers |
 | [pgvector](https://github.com/pgvector/pgvector) | Vector similarity search inside PostgreSQL |
 | PostgreSQL 17 | Primary database + vector store |
 | [sqlglot](https://github.com/tobymao/sqlglot) | SQL parsing and syntax validation |
@@ -343,9 +347,14 @@ cp backend/config/secrets.env.example backend/config/secrets.env
 Edit `backend/config/secrets.env`:
 
 ```env
+# Always required: embeddings and the pgvector RAG index are OpenAI-only,
+# whichever model answers the question.
 OPENAI_API_KEY=sk-your-openai-key-here
-OPENROUTER_API_KEY = sk-your-openrouter-key-here
-ANTHROPIC_API_KEY = sk-your-claude-key-here
+
+# Required only for the provider-tagged models in llm.selectable_models
+# (Llama, Gemini, DeepSeek, MiniMax, Qwen). The name must match the
+# provider's api_key_env in config.yaml.
+OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key-here
 
 PG_DB=FYP
 PG_USER=postgres
@@ -368,12 +377,18 @@ Non-secret settings live here; edit as needed:
 ```yaml
 llm:
   model: gpt-4o-mini          # OpenAI model used for all LLM calls
-  selectable_models:          # curated list shown by the frontend's model picker —
-    - gpt-4o-mini              # a "Custom..." entry there also accepts any other
-    - gpt-4o                   # well-formed OpenAI model id.
-    - gpt-4.1-mini             # Entries may also be tagged with a provider —
-    - gpt-5-nano               # see "Mixing providers in one deployment".
+  providers:                  # non-OpenAI endpoints the query stage may use
+    openrouter:
+      base_url: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+  selectable_models:          # curated list shown by the frontend's model picker
+    - gpt-4o-mini             #   untagged  → called DIRECTLY on OpenAI
+    - gpt-4o
+    - gpt-4.1-mini
+    - gpt-5-nano
     - id: qwen/qwen3.5-122b-a10b
+      provider: openrouter    #   tagged    → routed through that provider
+    - id: meta-llama/llama-4-maverick
       provider: openrouter
   # pricing:                  # USD per 1M tokens, for the cost figures in
   #   gpt-4o-mini:            # /metrics-lite and each turn's `usage` block.
@@ -1156,6 +1171,35 @@ errors is flagged as unwinnable and excluded from `EX_winnable`. Execution
 voting, ReAct refinement, schema linking and plan diversity are all toggles, so
 each can be A/B'd on its own — `backend/eval/README.md` has the ablation
 recipes and how to read a result file.
+
+### Models benchmarked
+
+The results in `outputs/` were produced across two routes. Which one a model
+takes is a property of the **model**, not of the process — an entry tagged
+`provider: openrouter` in `config.yaml` is routed there, an untagged one goes
+straight to OpenAI — so a single sweep covers both:
+
+| Model | Route |
+|---|---|
+| `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-mini` | OpenAI, direct |
+| `meta-llama/llama-4-maverick` | OpenRouter |
+| `google/gemini-3.7-flash` | OpenRouter |
+| `deepseek/deepseek-v4-flash` | OpenRouter |
+| `minimax/minimax-m3` | OpenRouter |
+| `qwen/qwen3.8-flash`, `qwen/qwen3.5-122b-a10b` | OpenRouter |
+
+Embeddings and the pgvector index stay on OpenAI throughout, so retrieval is
+identical across every arm and the comparison isolates the query-stage model.
+
+Each result file records its `model` **and** its `base_url` in `run_config`:
+the same model id served by two providers can differ in weights,
+quantisation and sampling defaults, so a number without its endpoint is not
+reproducible.
+
+> **Verify slugs before a sweep.** Providers retire ids, and a wrong one
+> fails at the first call — mid-run, after everything before it has been
+> paid for. `python -m backend.config.check_models` checks id, key and
+> routing; `--call` also makes one tiny real call per model.
 
 Selecting what to run — model, scope and size:
 
